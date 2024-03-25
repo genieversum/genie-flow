@@ -5,6 +5,8 @@ from pydantic import BaseModel, Field
 
 
 class WorkOrderRecord(BaseModel):
+    work_order_summary: Optional[str] = Field(None, description="user entered summary of the work order")
+
     activity_type: Optional[str] = Field(None, description="type of the activity")
     activity_verified: bool = Field(False, description="user verified activity type")
 
@@ -98,6 +100,7 @@ class WorkOrderStateMachine(StateMachine):
 
     def __init__(self, word_order_record: WorkOrderRecord):
         self.record = word_order_record
+        self.dialogue = ""
         super(WorkOrderStateMachine, self).__init__()
 
     @property
@@ -108,8 +111,12 @@ class WorkOrderStateMachine(StateMachine):
     def activity_type_paint(self):
         return self.record.activity_type == "paint"
 
-    def on_enter_state(self, event: str, state: State):
-        
+    def on_user_input(self, *args, **kwargs):
+        print(f"User input received: {args} and {kwargs}")
+        self.dialogue = args[0]
+
+    def on_ai_extraction(self, *args):
+        print(f"AI extraction received: {args}")
 
     def on_enter_ai_extracts_activity_type(self, user_input: str):
         if "leak" in user_input.lower():
@@ -124,4 +131,11 @@ class WorkOrderStateMachine(StateMachine):
         return self.activity_type_verified
 
 
+if __name__ == "__main__":
+    wo = WorkOrderRecord()
+    sm = WorkOrderStateMachine(wo)
 
+    sm.user_input("I repaired a leak")
+    print(sm)
+    sm.ai_extraction("leak")
+    print(sm)
