@@ -1,3 +1,4 @@
 python-statemachine
 pydantic
 jinja2
+loguru

@@ -1,0 +1,49 @@
+from jinja2 import Template
+
+OPENING = Template("Welcome to this interview. Please enter your work order summary.")
+
+AI_EXTRACT_ACTIVITY_TYPE = Template(
+    """
+    You are an interviewer and want to extract the activity type 
+    from a work order summary.
+    
+    The summary is given below.
+    
+    Possible activity types are
+    - leak: any work considering a leak, for instance detecting or fixing a leak
+    - paint: any work considering the paint on the meter, for instance painting the meter
+    - other: any work that does not fall in any of the above categories
+    
+    Please interpret the following work order and match the most appropriate
+    activity type.
+    
+    Work Order Summary
+    ---
+    {{user_input}}  
+    """
+)
+USER_VERIFIES_ACTIVITY_TYPE = Template(
+    """
+    I have identified the activity type to be '{activity_type}'. Is this correct?
+    If this is not correct, please let me know and tell me what the correct 
+    activity type should be. 
+    """
+)
+AU_EXTRACT_ACTIVITY_TYPE_VERIFICATION = Template(
+    """
+    Extract from the following user comment if they agree with my previous statement
+    or not. If they didn't agree with my previous statement, they should provide
+    an activity type. Possible activity types are
+    - fixed a leak
+    - painted the meter.
+    
+    If the user agrees with my previous statement, just state YES.
+    If they user did not agree with my previous statement, just respond with
+    the activity type they provided.
+    If they did not provide an alternative activity type, respond with NOT PROVIDED.
+    
+    User Response
+    ___
+    {user_response}
+    """
+)
