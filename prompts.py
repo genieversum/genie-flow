@@ -22,28 +22,42 @@ AI_EXTRACT_ACTIVITY_TYPE = Template(
     {{user_input}}  
     """
 )
+
 USER_VERIFIES_ACTIVITY_TYPE = Template(
     """
-    I have identified the activity type to be '{activity_type}'. Is this correct?
+    I have identified the activity type to be '{{activity_type}}'. Is this correct?
     If this is not correct, please let me know and tell me what the correct 
     activity type should be. 
     """
 )
-AU_EXTRACT_ACTIVITY_TYPE_VERIFICATION = Template(
+
+AI_EXTRACT_ACTIVITY_TYPE_VERIFICATION = Template(
     """
     Extract from the following user comment if they agree with my previous statement
     or not. If they didn't agree with my previous statement, they should provide
     an activity type. Possible activity types are
-    - fixed a leak
-    - painted the meter.
+    - leak: any work considering a leak, for instance detecting or fixing a leak
+    - paint: any work considering the paint on the meter, for instance painting the meter
+    - other: any work that does not fall in any of the above categories
     
     If the user agrees with my previous statement, just state YES.
     If they user did not agree with my previous statement, just respond with
-    the activity type they provided.
-    If they did not provide an alternative activity type, respond with NOT PROVIDED.
+    ACTIVITY_TYPE followed by the activity type they provided.
+    If they did not provide an alternative activity type, respond with NOT_PROVIDED.
     
-    User Response
+    User Comment
     ___
-    {user_response}
+    {{user_input}}
+    """
+)
+
+USER_ENTERS_ACTIVITY_TYPE = Template(
+    """
+    I could not determine the alternative activity type you entered. Possible activity types are
+    - leak: any work considering a leak, for instance detecting or fixing a leak
+    - paint: any work considering the paint on the meter, for instance painting the meter
+    - other: any work that does not fall in any of the above categories
+    
+    What was the activity type of the work order?
     """
 )

@@ -7,5 +7,7 @@ def extract_activity_type(user_input: str) -> str:
 def extract_activity_type_verification(user_input: str) -> str:
     if "yes" in user_input.lower():
         return "YES"
-    return "NO"
+    if "no" in user_input.lower():
+        return " ".join(user_input.split((" "))[1:])
+    return "NOT_PROVIDED"
 
