@@ -61,3 +61,41 @@ USER_ENTERS_ACTIVITY_TYPE = Template(
     What was the activity type of the work order?
     """
 )
+
+AI_EXTRACTS_DETAILS = Template(
+    """
+    I found the following details:
+    
+    {{work_order_summary}}
+    """
+)
+
+USER_VERIFIES_DETAILS = Template(
+    """
+    I have recorded the details below. Please indicate if these are correct and complete.
+    
+    leak details:
+    {{leak_details}}
+    
+    paint details:
+    {{paint_details}}
+    """
+)
+
+AI_EXTRACTS_DETAILS_VERIFICATION = Template(
+    """
+    is this a YES or a NO
+    """
+)
+
+USER_ENTERS_ADDITIONAL_DETAILS = Template(
+    """
+    Please enter the additional details.
+    """
+)
+
+AI_EXTRACTS_ADDITIONAL_DETAILS = Template(
+    """
+    Interpret the additional details.
+    """
+)

@@ -28,13 +28,13 @@ class WorkOrderStateMachine(StateMachine):
     user_enters_activity_type = State(value=p.USER_ENTERS_ACTIVITY_TYPE)
     activity_type_verified: bool = False
 
-    ai_extracts_leak_details = State()
-    ai_extracts_paint_details = State()
+    ai_extracts_leak_details = State(value=p.AI_EXTRACTS_DETAILS)
+    ai_extracts_paint_details = State(value=p.AI_EXTRACTS_DETAILS)
 
-    user_verifies_extracted_details = State()
-    ai_extracts_details_verification = State()
-    user_enters_additional_details = State()
-    ai_extracts_additional_details = State()
+    user_verifies_extracted_details = State(value=p.USER_VERIFIES_DETAILS)
+    ai_extracts_details_verification = State(value=p.AI_EXTRACTS_DETAILS_VERIFICATION)
+    user_enters_additional_details = State(value=p.USER_ENTERS_ADDITIONAL_DETAILS)
+    ai_extracts_additional_details = State(value=p.AI_EXTRACTS_ADDITIONAL_DETAILS)
     details_verified: bool = False
 
     ai_stores_details = State(final=True)
@@ -117,7 +117,14 @@ class WorkOrderStateMachine(StateMachine):
     # VALIDATIONS AND CONDITIONS
     def is_user_entry_valid(self, event_data: EventData):
         logger.debug("is user entry valid", event_data)
-        return event_data.args is not None and len(event_data.args) > 0 and event_data.args[0] != ""
+        return all(
+            [
+                event_data.args is not None,
+                len(event_data.args) > 0,
+                event_data.args[0] is not None,
+                event_data.args[0] != "",
+            ]
+        )
 
     def is_valid_ai_response(self, event_data: EventData):
         if event_data.args is None or len(event_data.args) == 0:
@@ -144,7 +151,12 @@ class WorkOrderStateMachine(StateMachine):
 
     def on_exit_ai_extracts_activity_type(self, ai_response: str):
         self.record.activity_type = ai_response
-        return self.record.activity_type
+
+    def on_exit_ai_extracts_leak_details(self, ai_response: str):
+        self.record.leak_detail = ai_response
+
+    def on_exit_ai_extracts_paint_details(self, ai_response: str):
+        self.record.paint_detail = ai_response
 
 
 if __name__ == "__main__":
@@ -157,6 +169,8 @@ if __name__ == "__main__":
     dot = graph()
     dot.write_png("work-order-state-machine.png")
 
+    sm.user_input(None)
+
     # logger.debug(f"BOT: {sm.current_state.value.render(sm.record.dict())}")
     sm.user_input("I repaired a leak")
     logger.debug(sm)
@@ -168,4 +182,13 @@ if __name__ == "__main__":
     logger.debug(sm)
 
     sm.ai_extraction(ai.extract_activity_type_verification(sm.dialogue[-1][1]))
+    logger.debug(sm)
+
+    sm.ai_extraction(sm.dialogue[-1][1])
+    logger.debug(sm)
+
+    sm.user_input("yes")
+    logger.debug(sm)
+
+    sm.ai_extraction(sm.dialogue[-1][1])
     logger.debug(sm)
