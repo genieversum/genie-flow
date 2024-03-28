@@ -1,3 +1,4 @@
+import json
 from typing import Optional
 
 from jinja2 import Template
@@ -64,6 +65,7 @@ class WorkOrderStateMachine(StateMachine):
         self.record = word_order_record
         self.dialogue: list[tuple[str, str]] = list()  # [("ai", self.current_state_value.render())]
         super(WorkOrderStateMachine, self).__init__()
+        self.dialogue.append(("ai", self.current_state_value.render(self.record.dict())))
 
     # EVENT HANDLERS
     def on_user_input(self, *args, **kwargs):
@@ -160,35 +162,36 @@ class WorkOrderStateMachine(StateMachine):
 
 
 if __name__ == "__main__":
-    from statemachine.contrib.diagram import DotGraphMachine
+    logger.remove()
+    logger.add("main.log", retention="1 hour")
+    logger.info("==== STARTING ====")
 
     wo = WorkOrderRecord()
     sm = WorkOrderStateMachine(wo)
 
-    graph = DotGraphMachine(WorkOrderStateMachine)
-    dot = graph()
-    dot.write_png("work-order-state-machine.png")
+    # from statemachine.contrib.diagram import DotGraphMachine
+    # graph = DotGraphMachine(WorkOrderStateMachine)
+    # dot = graph()
+    # dot.write_png("work-order-state-machine.png")
 
-    sm.user_input(None)
+    with open("test-script.txt", "r") as script_file:
+        for script_line in script_file:
+            line_parts = script_line.split(":")
+            actor = line_parts[0].strip().upper()
+            line_content = line_parts[1].strip()
+            print(
+                f"""{'='*5}
+State: [{sm.current_state.id}]
+Record: {json.dumps(sm.record.dict(), indent=4)}
+>> {sm.dialogue[-1][1]}
+[{actor}]: {line_content}
+"""
+            )
 
-    # logger.debug(f"BOT: {sm.current_state.value.render(sm.record.dict())}")
-    sm.user_input("I repaired a leak")
-    logger.debug(sm)
-
-    sm.ai_extraction(ai.extract_activity_type(sm.dialogue[-1][1]))
-    logger.debug(sm)
-
-    sm.user_input("yes")
-    logger.debug(sm)
-
-    sm.ai_extraction(ai.extract_activity_type_verification(sm.dialogue[-1][1]))
-    logger.debug(sm)
-
-    sm.ai_extraction(sm.dialogue[-1][1])
-    logger.debug(sm)
-
-    sm.user_input("yes")
-    logger.debug(sm)
-
-    sm.ai_extraction(sm.dialogue[-1][1])
-    logger.debug(sm)
+            if actor == "ME":
+                sm.user_input(line_content)
+            elif actor == "AI":
+                sm.ai_extraction(line_content)
+            else:
+                logger.error("found a line in the script that is not attributed to an actor")
+                raise RuntimeError()
