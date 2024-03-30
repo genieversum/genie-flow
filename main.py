@@ -31,16 +31,16 @@ class DialogueElement(BaseModel):
     An element of a dialogue. Typically, a phrase that is output by an originator.
     """
 
-    originator: str = Field(description="the originator of the dialogue element")
+    actor: str = Field(description="the originator of the dialogue element")
     timestamp: datetime = Field(
-        default_factory=lambda : datetime.now(),
+        default_factory=lambda: datetime.now(),
         description="the timestamp when this dialogue element was created"
     )
     internal_repr: str = Field(description="the internal representation, before applying any rendering")
     external_repr: str = Field(description="the external representation after rendering is applied")
 
     @classmethod
-    def from_state(cls, originator: str, internal_repr: str, state: State, data: Optional[BaseModel] = None):
+    def from_state(cls, actor: str, internal_repr: str, state: State, data: Optional[BaseModel] = None):
         external_repr = internal_repr
         if isinstance(state.value, Template):
             template_data = data.model_dump() if data is not None else dict()
@@ -48,7 +48,7 @@ class DialogueElement(BaseModel):
             external_repr = state.value.render(template_data)
 
         return DialogueElement(
-            originator=originator,
+            actor=actor,
             internal_repr=internal_repr,
             external_repr=external_repr,
         )
@@ -97,7 +97,7 @@ class GenieStateMachine(StateMachine):
         logger.debug(f"User input event received")
         self.dialogue.append(
             DialogueElement(
-                originator="human",
+                actor="user",
                 internal_repr=self.actor_input,
                 external_repr=self.actor_input,
             )
@@ -134,10 +134,9 @@ class GenieStateMachine(StateMachine):
     def on_enter_state(self, state: State, **kwargs):
         logger.info(f"== entering state {self.current_state.name} ({self.current_state.id})")
 
-
     # VALIDATIONS AND CONDITIONS
-    def is_user_entry_valid(self, event_data: EventData):
-        logger.debug("is user entry valid", event_data)
+    def is_valid_response(self, event_data: EventData):
+        logger.debug(f"is valid response {event_data.args}")
         return all(
             [
                 event_data.args is not None,
@@ -147,18 +146,13 @@ class GenieStateMachine(StateMachine):
             ]
         )
 
-    def is_valid_ai_response(self, event_data: EventData):
-        if event_data.args is None or len(event_data.args) == 0:
-            raise ValueError("Invalid response from AI")
-
 
 class WorkOrderStateMachine(GenieStateMachine):
-    user_enters_work_order = State(initial=True, value=p.OPENING)
-    ai_extracts_activity_type = State(value=p.AI_EXTRACT_ACTIVITY_TYPE)
-    user_verifies_activity_type = State(value=p.USER_VERIFIES_ACTIVITY_TYPE)
-    ai_extracts_activity_type_verification = State(value=p.AI_EXTRACT_ACTIVITY_TYPE_VERIFICATION)
-    user_enters_activity_type = State(value=p.USER_ENTERS_ACTIVITY_TYPE)
-    activity_type_verified: bool = False
+    user_entering_work_order = State(initial=True, value=p.OPENING)
+    ai_extracting_activity_type = State(value=p.AI_EXTRACT_ACTIVITY_TYPE)
+    user_verifying_activity_type = State(value=p.USER_VERIFIES_ACTIVITY_TYPE)
+    ai_extracting_activity_type_verification = State(value=p.AI_EXTRACT_ACTIVITY_TYPE_VERIFICATION)
+    user_entering_activity_type = State(value=p.USER_ENTERS_ACTIVITY_TYPE)
 
     ai_extracts_leak_details = State(value=p.AI_EXTRACTS_DETAILS)
     ai_extracts_paint_details = State(value=p.AI_EXTRACTS_DETAILS)
@@ -172,26 +166,37 @@ class WorkOrderStateMachine(GenieStateMachine):
     ai_stores_details = State(final=True)
 
     user_input = (
-        user_enters_work_order.to(ai_extracts_activity_type, cond="is_user_entry_valid") |
-        user_enters_work_order.to(user_enters_work_order, unless="is_user_entry_valid") |
-        user_verifies_activity_type.to(ai_extracts_activity_type_verification) |
-        user_enters_activity_type.to(ai_extracts_activity_type) |
-        user_verifies_extracted_details.to(ai_extracts_details_verification) |
-        user_enters_additional_details.to(ai_extracts_additional_details)
+            user_entering_work_order.to(ai_extracting_activity_type, cond="is_valid_response") |
+            user_entering_work_order.to(user_entering_work_order, unless="is_valid_response") |
+            user_verifying_activity_type.to(ai_extracting_activity_type_verification) |
+            user_entering_activity_type.to(ai_extracting_activity_type) |
+            user_verifies_extracted_details.to(ai_extracts_details_verification) |
+            user_enters_additional_details.to(ai_extracts_additional_details)
     )
 
     ai_extraction = (
-        ai_extracts_activity_type.to(user_verifies_activity_type) |
-        ai_extracts_activity_type_verification.to(ai_extracts_leak_details, validators="is_valid_ai_response", cond="is_activity_type_leak") |
-        ai_extracts_activity_type_verification.to(ai_extracts_paint_details, validators="is_valid_ai_response", cond="is_activity_type_paint") |
-        ai_extracts_activity_type_verification.to(user_enters_activity_type, validators="is_valid_ai_response", unless=["is_activity_type_leak", "is_activity_type_paint"]) |
+        ai_extracting_activity_type.to(user_verifying_activity_type) |
+        ai_extracting_activity_type_verification.to(
+            ai_extracts_leak_details,
+            validators="is_valid_response",
+            cond="is_activity_type_leak",
+        ) |
+        ai_extracting_activity_type_verification.to(
+            ai_extracts_paint_details,
+            validators="is_valid_response",
+            cond="is_activity_type_paint",
+        ) |
+        ai_extracting_activity_type_verification.to(
+            user_entering_activity_type,
+            validators="is_valid_response",
+            unless=["is_activity_type_leak", "is_activity_type_paint"],
+        ) |
         ai_extracts_leak_details.to(user_verifies_extracted_details) |
         ai_extracts_paint_details.to(user_verifies_extracted_details) |
         ai_extracts_details_verification.to(ai_stores_details, cond="details_verified") |
         ai_extracts_details_verification.to(user_enters_additional_details, unless="details_verified") |
         ai_extracts_additional_details.to(user_verifies_extracted_details)
     )
-
 
     def _is_activity_type(self, ai_response: str, target_activity_type: str) -> bool:
         if ai_response.startswith("YES"):
@@ -244,7 +249,7 @@ if __name__ == "__main__":
             actor = line_parts[0].strip().upper()
             line_content = line_parts[1].strip()
             print(
-                f"""{'='*5}
+                f"""{'=' * 5}
 State: [{sm.current_state.id}]
 Record: {json.dumps(sm.model.dict(), indent=4)}
 >> {sm.dialogue[-1].external_repr}
