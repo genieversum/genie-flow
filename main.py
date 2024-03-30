@@ -1,27 +1,158 @@
+from dataclasses import dataclass
+from datetime import datetime
 import json
-from typing import Optional
+from typing import Optional, Any
 
 from jinja2 import Template
 from loguru import logger
 from statemachine import State, StateMachine
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict, PrivateAttr
 from statemachine.event_data import EventData
 
 import prompts as p
-import ai_simulator as ai
 
 
-class WorkOrderRecord(BaseModel):
+class GenieModel(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    _state: State = PrivateAttr(default=None)
+
+
+class WorkOrderRecord(GenieModel):
     work_order_summary: Optional[str] = Field(None, description="user entered summary of the work order")
 
     activity_type: Optional[str] = Field(None, description="type of the activity")
-    activity_verified: bool = Field(False, description="user verified activity type")
 
     leak_detail: Optional[str] = Field(None, description="detail of leak")
     paint_detail: Optional[str] = Field(None, description="detail of paint")
 
 
-class WorkOrderStateMachine(StateMachine):
+class DialogueElement(BaseModel):
+    """
+    An element of a dialogue. Typically, a phrase that is output by an originator.
+    """
+
+    originator: str = Field(description="the originator of the dialogue element")
+    timestamp: datetime = Field(
+        default_factory=lambda : datetime.now(),
+        description="the timestamp when this dialogue element was created"
+    )
+    internal_repr: str = Field(description="the internal representation, before applying any rendering")
+    external_repr: str = Field(description="the external representation after rendering is applied")
+
+    @classmethod
+    def from_state(cls, originator: str, internal_repr: str, state: State, data: Optional[BaseModel] = None):
+        external_repr = internal_repr
+        if isinstance(state.value, Template):
+            template_data = data.model_dump() if data is not None else dict()
+            template_data["internal_repr"] = internal_repr
+            external_repr = state.value.render(template_data)
+
+        return DialogueElement(
+            originator=originator,
+            internal_repr=internal_repr,
+            external_repr=external_repr,
+        )
+
+
+class GenieStateMachine(StateMachine):
+
+    def __init__(self, model: GenieModel):
+        super(GenieStateMachine, self).__init__(model=model, state_field="_state")
+        self.dialogue: list[DialogueElement] = [
+            DialogueElement.from_state(
+                "ai",
+                "",
+                self.current_state,
+                self.model,
+            )
+        ]
+        self.actor_input: Optional[str] = None
+
+    @property
+    def current_response(self) -> Optional[DialogueElement]:
+        return self.dialogue[-1] if len(self.dialogue) > 0 else None
+
+    # EVENT HANDLERS
+    def before_transition(self, *args, **kwargs) -> str:
+        """
+        Set the actors input.
+
+        Triggered when an event is received, right but before the current state is exited.
+
+        This method takes the events first argument and places that in `self.actor_input`. This
+        makes it available for further processing.
+
+        :param args: the list of arguments passed to this event
+        :return: the first argument that was passed to this event
+        """
+        self.actor_input = args[0]
+        return self.actor_input
+
+    def on_user_input(self):
+        """
+        :param args:
+        :param kwargs:
+        :return:
+        """
+        logger.debug(f"User input event received")
+        self.dialogue.append(
+            DialogueElement(
+                originator="human",
+                internal_repr=self.actor_input,
+                external_repr=self.actor_input,
+            )
+        )
+        # self.prompt = kwargs["target"].value.render(self.model.dict())
+        # call the LLM to interpret the prompt
+
+    def on_ai_extraction(self, *args, target: State):
+        """
+        This hook get triggered when an "ai_extraction" event is received. It adds the AI response to the dialogue
+        list as the tuple ("ai-response", ai_response).
+
+        This hook then looks at the 'value' of the target state - which is assumed to be a Jinja template - and renders
+        that template using the values of `self.model` and the template variable `ai_response` with the raw
+        response that is received from the AI. The rendering of that template is then added to the dialogue
+        list as the tuple ("ai", ai_chat_response).
+
+        The state machine will then transfer into the next state which will be a "waiting for user input" state.
+
+        :param args:
+        :param target: the `State` that the state machine will move into after this event.
+        :return:
+        """
+        logger.debug(f"AI extraction event received")
+        self.dialogue.append(
+            DialogueElement.from_state(
+                "ai",
+                internal_repr=self.actor_input,
+                state=target,
+                data=self.model,
+            )
+        )
+
+    def on_enter_state(self, state: State, **kwargs):
+        logger.info(f"== entering state {self.current_state.name} ({self.current_state.id})")
+
+
+    # VALIDATIONS AND CONDITIONS
+    def is_user_entry_valid(self, event_data: EventData):
+        logger.debug("is user entry valid", event_data)
+        return all(
+            [
+                event_data.args is not None,
+                len(event_data.args) > 0,
+                event_data.args[0] is not None,
+                event_data.args[0] != "",
+            ]
+        )
+
+    def is_valid_ai_response(self, event_data: EventData):
+        if event_data.args is None or len(event_data.args) == 0:
+            raise ValueError("Invalid response from AI")
+
+
+class WorkOrderStateMachine(GenieStateMachine):
     user_enters_work_order = State(initial=True, value=p.OPENING)
     ai_extracts_activity_type = State(value=p.AI_EXTRACT_ACTIVITY_TYPE)
     user_verifies_activity_type = State(value=p.USER_VERIFIES_ACTIVITY_TYPE)
@@ -61,80 +192,10 @@ class WorkOrderStateMachine(StateMachine):
         ai_extracts_additional_details.to(user_verifies_extracted_details)
     )
 
-    def __init__(self, word_order_record: WorkOrderRecord):
-        self.record = word_order_record
-        self.dialogue: list[tuple[str, str]] = list()  # [("ai", self.current_state_value.render())]
-        super(WorkOrderStateMachine, self).__init__()
-        self.dialogue.append(("ai", self.current_state_value.render(self.record.dict())))
-
-    # EVENT HANDLERS
-    def on_user_input(self, *args, **kwargs):
-        """
-        This hook gets triggered when a "user_input" event is received. It adds the user input to the dialogue
-        list (as the tuple ("user", user_input)) and triggers the AI background process.
-
-        The state machine will then progress into the next state which will be a "waiting for AI" state.
-
-        :param args:
-        :param kwargs:
-        :return:
-        """
-        logger.debug(f"User input received: {args} and {kwargs}")
-        self.dialogue.append(("user", args[0]))
-        # self.prompt = kwargs["target"].value.render(self.record.dict())
-        # call the LLM to interpret the prompt
-
-    def on_ai_extraction(self, *args, target: State):
-        """
-        This hook get triggered when an "ai_extraction" event is received. It adds the AI response to the dialogue
-        list as the tuple ("ai-response", ai_response).
-
-        This hook then looks at the 'value' of the target state - which is assumed to be a Jinja template - and renders
-        that template using the values of `self.record` and the template variable `ai_response` with the raw
-        response that is received from the AI. The rendering of that template is then added to the dialogue
-        list as the tuple ("ai", ai_chat_response).
-
-        The state machine will then transfer into the next state which will be a "waiting for user input" state.
-
-        :param args:
-        :param target: the `State` that the state machine will move into after this event.
-        :return:
-        """
-        logger.debug(f"AI extraction received: {args}")
-        ai_response = args[0]
-        self.dialogue.append(("ai-response", ai_response))
-
-        if isinstance(target.value, Template):
-            template_values = self.record.dict()
-            template_values["ai_response"] = ai_response
-            ai_chat_response = target.value.render(template_values)
-            self.dialogue.append(("ai", ai_chat_response))
-
-    def on_enter_state(self):
-        if len(self.dialogue) == 0:
-            logger.info("START")
-        else:
-            logger.info(f">> {self.dialogue[-1][0].upper()}: {self.dialogue[-1][1]}")
-
-    # VALIDATIONS AND CONDITIONS
-    def is_user_entry_valid(self, event_data: EventData):
-        logger.debug("is user entry valid", event_data)
-        return all(
-            [
-                event_data.args is not None,
-                len(event_data.args) > 0,
-                event_data.args[0] is not None,
-                event_data.args[0] != "",
-            ]
-        )
-
-    def is_valid_ai_response(self, event_data: EventData):
-        if event_data.args is None or len(event_data.args) == 0:
-            raise ValueError("Invalid response from AI")
 
     def _is_activity_type(self, ai_response: str, target_activity_type: str) -> bool:
         if ai_response.startswith("YES"):
-            return self.record.activity_type == target_activity_type
+            return self.model.activity_type == target_activity_type
         if ai_response.startswith("ACTIVITY_TYPE"):
             return ai_response.split(" ")[1] == target_activity_type
 
@@ -149,16 +210,19 @@ class WorkOrderStateMachine(StateMachine):
     # DATA EXTRACTORS
     def on_exit_user_enters_work_order(self, user_input):
         logger.debug("on exit user enters work order", user_input)
-        self.record.work_order_summary = user_input
+        self.model.work_order_summary = user_input
 
     def on_exit_ai_extracts_activity_type(self, ai_response: str):
-        self.record.activity_type = ai_response
+        self.model.activity_type = ai_response
 
     def on_exit_ai_extracts_leak_details(self, ai_response: str):
-        self.record.leak_detail = ai_response
+        self.model.leak_detail = ai_response
 
     def on_exit_ai_extracts_paint_details(self, ai_response: str):
-        self.record.paint_detail = ai_response
+        self.model.paint_detail = ai_response
+
+    # def current_state_output(self):
+    #     self.current_state_value.
 
 
 if __name__ == "__main__":
@@ -182,8 +246,8 @@ if __name__ == "__main__":
             print(
                 f"""{'='*5}
 State: [{sm.current_state.id}]
-Record: {json.dumps(sm.record.dict(), indent=4)}
->> {sm.dialogue[-1][1]}
+Record: {json.dumps(sm.model.dict(), indent=4)}
+>> {sm.dialogue[-1].external_repr}
 [{actor}]: {line_content}
 """
             )

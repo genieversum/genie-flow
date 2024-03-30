@@ -1,13 +1,14 @@
-def extract_activity_type(user_input: str) -> str:
-    if "leak" in user_input.lower():
-        return "leak"
-    return "paint"
+import time
+from threading import Thread
+from typing import Callable
 
 
-def extract_activity_type_verification(user_input: str) -> str:
-    if "yes" in user_input.lower():
-        return "YES"
-    if "no" in user_input.lower():
-        return " ".join(user_input.split((" "))[1:])
-    return "NOT_PROVIDED"
+class AICallSimulator(Thread):
 
+    def __init__(self, callback: Callable, **kwargs):
+        super(AICallSimulator, self).__init__(kwargs)
+        self.callback = callback
+
+    def run(self):
+        time.sleep(3)
+        self.callback()
