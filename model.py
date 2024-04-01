@@ -1,5 +1,7 @@
+import collections
+from abc import abstractmethod
 from datetime import datetime
-from typing import Optional
+from typing import Optional, overload, Iterable, MutableSequence
 
 from jinja2 import Template
 from pydantic import BaseModel, ConfigDict, PrivateAttr, Field
@@ -36,4 +38,58 @@ class DialogueElement(BaseModel):
             actor=actor,
             internal_repr=internal_repr,
             external_repr=external_repr,
+        )
+
+
+class Dialogue(collections.abc.MutableSequence):
+    _sequence: MutableSequence[DialogueElement] = []
+
+    def insert(self, index, value):
+        self._sequence.insert(index, value)
+
+    @overload
+    @abstractmethod
+    def __getitem__(self, index: int) -> DialogueElement: ...
+
+    @overload
+    @abstractmethod
+    def __getitem__(self, index: slice) -> MutableSequence[DialogueElement]: ...
+
+    def __getitem__(self, index):
+        return self._sequence.__getitem__(index)
+
+    @overload
+    @abstractmethod
+    def __setitem__(self, index: int, value: DialogueElement) -> None: ...
+
+    @overload
+    @abstractmethod
+    def __setitem__(self, index: slice, value: Iterable[DialogueElement]) -> None: ...
+
+    def __setitem__(self, index, value):
+        self._sequence.__setitem__(index, value)
+
+    @overload
+    @abstractmethod
+    def __delitem__(self, index: int) -> None: ...
+
+    @overload
+    @abstractmethod
+    def __delitem__(self, index: slice) -> None: ...
+
+    def __delitem__(self, index):
+        self._sequence.__delitem__(index)
+
+    def __len__(self):
+        return len(self._sequence)
+
+    def __repr__(self):
+        return self._sequence.__repr__()
+
+    def __str__(self):
+        return "\n".join(
+            [
+                f"[{item.actor}] {item.external_repr}"
+                for item in self._sequence
+            ]
         )
