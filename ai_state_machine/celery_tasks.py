@@ -5,7 +5,11 @@ from celery import Celery
 from ai_state_machine.store import retrieve_state_machine, store_state_machine
 
 
-app = Celery()
+app = Celery(
+    "My Little AI App",
+    backend="redis://localhost",
+    broker="pyamqp://",
+)
 
 
 @app.task
