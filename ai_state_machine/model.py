@@ -8,11 +8,6 @@ from pydantic import BaseModel, ConfigDict, PrivateAttr, Field
 from statemachine import State
 
 
-class GenieModel(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-    _state: State = PrivateAttr(default=None)
-
-
 class DialogueElement(BaseModel):
     """
     An element of a dialogue. Typically, a phrase that is output by an originator.
@@ -87,9 +82,22 @@ class Dialogue(collections.abc.MutableSequence):
         return self._sequence.__repr__()
 
     def __str__(self):
-        return "\n".join(
+        """
+        Returns a string representation of the Dialogue, where the actor is printed
+        between square brackets, followed by a colon. Consecutive DialogueElements
+        are separated by five equal-signs and new-lines.
+
+        Of the DialogElements, the external_repr is used.
+        """
+        separator = f"\n\n{'='*5}\n"
+        return separator.join(
             [
-                f"[{item.actor}] {item.external_repr}"
+                f"[{item.actor}]: {item.external_repr}"
                 for item in self._sequence
             ]
         )
+
+
+class GenieModel(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    _state: State = PrivateAttr(default=None)

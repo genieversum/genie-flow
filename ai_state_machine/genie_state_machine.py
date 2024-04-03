@@ -4,7 +4,7 @@ from loguru import logger
 from statemachine import StateMachine, State
 from statemachine.event_data import EventData
 
-from model import GenieModel, DialogueElement
+from ai_state_machine.model import GenieModel, DialogueElement
 
 
 class GenieStateMachine(StateMachine):
