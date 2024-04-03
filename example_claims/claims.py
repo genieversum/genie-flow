@@ -21,14 +21,32 @@ class ClaimsModel(GenieModel):
         None,
         description="the business role of the user",
     )
-    product_description: Optional[str] = Field(description="free form description of the product")
-    target_persona: Optional[str] = Field(description="a bio of the persona we want to target")
-    further_info: Optional[str] = Field(description="any further relevant information")
+    product_description: Optional[str] = Field(
+        None,
+        description="free form description of the product",
+    )
+    target_persona: Optional[str] = Field(
+        None,
+        description="a bio of the persona we want to target",
+    )
+    further_info: Optional[str] = Field(
+        None,
+        description="any further relevant information",
+    )
 
-    step_back_research: Optional[str] = Field(description="output of the step-back research")
+    step_back_research: Optional[str] = Field(
+        None,
+        description="output of the step-back research",
+    )
 
 
 class ClaimsMachine(GenieStateMachine):
+
+    def __init__(self, session_id: str):
+        super(ClaimsMachine, self).__init__(
+            model=ClaimsModel(session_id=session_id),
+        )
+
     # STATES
     # gathering information from the user
     user_entering_role = State(initial=True, value=p.USER_ENTERING_ROLE_PROMPT)
@@ -64,7 +82,7 @@ class ClaimsMachine(GenieStateMachine):
     )
 
     # CONDITIONS
-    def response_contains_stop(self, event_data: EventData):
+    def have_all_info(self, event_data: EventData):
         return "STOP" in event_data.args[0].upper()
 
     # ACTIONS

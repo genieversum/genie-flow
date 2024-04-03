@@ -1,6 +1,15 @@
 from pydantic import BaseModel, Field
 
 
+class AIStatusResponse(BaseModel):
+    session_id: str = Field(
+        description="the Session ID associated with the response"
+    )
+    ready: bool = Field(
+        description="indicated if the response is ready"
+    )
+
+
 class AIResponse(BaseModel):
     session_id: str = Field(
         description="The Session ID associated with the response"

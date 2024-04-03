@@ -3,3 +3,5 @@ pydantic
 jinja2
 loguru
 fastapi
+celery
+redis

@@ -1,11 +1,13 @@
 from typing import Optional
 
+from celery import chain
 from jinja2 import Template
 from loguru import logger
 from statemachine import StateMachine, State
 from statemachine.event_data import EventData
 
 from ai_state_machine.model import GenieModel, DialogueElement
+from example_claims.celery_tasks import call_llm_api, trigger_ai_event
 
 
 class GenieStateMachine(StateMachine):
@@ -20,15 +22,18 @@ class GenieStateMachine(StateMachine):
         self._user_actor_name = user_actor_name
         self._ai_actor_name = ai_actor_name
 
+        self.dialogue: list[DialogueElement] = list()
+        self.running_task_id: Optional[str] = None
+        self.actor_input: str = ""
+
         initial_prompt = self.get_target_prompt(self.current_state)
-        self.dialogue: list[DialogueElement] = [
+        self.dialogue.append(
             DialogueElement(
                 actor=self._ai_actor_name,
                 internal_repr=initial_prompt,
                 external_repr=initial_prompt,
             )
-        ]
-        self.actor_input: str = ""
+        )
 
     @property
     def current_response(self) -> Optional[DialogueElement]:
@@ -117,8 +122,17 @@ class GenieStateMachine(StateMachine):
                 external_repr=self.actor_input,
             )
         )
+
         prompt = self.get_target_prompt(event_data.target)
-        # TODO call the LLM to interpret the prompt
+
+        # TODO what if there are more events possible from the target state
+        event_to_send = event_data.target.transitions.unique_events[0]
+
+        task = chain(
+            call_llm_api.s(prompt),
+            trigger_ai_event.s(self.model.session_id, event_to_send)
+        )
+        self.running_task_id = task.apply_async()
 
     def on_ai_extraction(self, target: State):
         """
@@ -136,6 +150,8 @@ class GenieStateMachine(StateMachine):
         :return:
         """
         logger.debug(f"AI extraction event received")
+        self.running_task_id = None
+
         self.dialogue.append(
             DialogueElement(
                 actor=self._ai_actor_name,
