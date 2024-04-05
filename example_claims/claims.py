@@ -5,18 +5,19 @@ from typing import Optional
 
 from jinja2 import Template
 from pydantic import Field
-from statemachine import State
 from statemachine.event_data import EventData
 
-from ai_state_machine.model import GenieModel
-from ai_state_machine.genie_state_machine import GenieStateMachine
+from ai_state_machine.genie_model import GenieModel
+from ai_state_machine.genie_state import GenieState
+from ai_state_machine.genie_state_machine import  GenieStateMachine
 import example_claims.prompts as p
 
 
 class ClaimsModel(GenieModel):
-    session_id: str = Field(
-        description="The ID of the session this claims belongs to."
-    )
+    @property
+    def state_machine_class(self) -> type[GenieStateMachine]:
+        return ClaimsMachine
+
     user_role: Optional[str] = Field(
         None,
         description="the business role of the user",
@@ -42,25 +43,60 @@ class ClaimsModel(GenieModel):
 
 class ClaimsMachine(GenieStateMachine):
 
-    def __init__(self, session_id: str):
+    def __init__(self, model: ClaimsModel):
+        if not isinstance(model, ClaimsModel):
+            raise TypeError("The type of model should be ClaimsModel, not {}".format(type(model)))
+
         super(ClaimsMachine, self).__init__(
-            model=ClaimsModel(session_id=session_id),
+            model=model
         )
 
     # STATES
     # gathering information from the user
-    user_entering_role = State(initial=True, value=p.USER_ENTERING_ROLE_PROMPT)
-    ai_extracts_information = State(value=p.AI_EXTRACTING_INFO_PROMPT)
-    user_enters_additional_information = State(value=Template("{{actor_input}}"))
+    user_entering_role = GenieState(
+        initial=True,
+        value=1,
+        template=p.USER_ENTERING_ROLE_PROMPT,
+    )
+    ai_extracts_information = GenieState(
+        value=2,
+        template=p.AI_EXTRACTING_INFO_PROMPT,
+    )
+    user_enters_additional_information = GenieState(
+        value=3,
+        template=Template("{{actor_input}}"),
+    )
 
     # generating claims
-    user_views_start_of_generation = State(value=p.USER_VIEUWING_START_OF_GENERATION)
-    ai_extracts_categories = State(value=p.AI_EXTRACTING_CATEGORIES_PROMPT)
-    user_views_categories = State(value=p.USER_VIEWING_CATEGORIES_PROMPT)
-    ai_conducts_research = State(value=p.AI_CONDUCTING_RESEARCH_PROMPT)
-    user_views_research = State(value=p.USER_VIEWING_BACKGROUND_RESEARCH_PROMPT)
-    ai_generates_claims = State(value=p.AI_GENERATES_CLAIMS_PROMPT)
-    user_views_claims = State(value=p.USER_VIEWS_GENERATED_CLAIMS, final=True)
+    user_views_start_of_generation = GenieState(
+        value=10,
+        template=p.USER_VIEUWING_START_OF_GENERATION,
+    )
+    ai_extracts_categories = GenieState(
+        value=11,
+        template=p.AI_EXTRACTING_CATEGORIES_PROMPT,
+    )
+    user_views_categories = GenieState(
+        value=12,
+        template=p.USER_VIEWING_CATEGORIES_PROMPT,
+    )
+    ai_conducts_research = GenieState(
+        value=13,
+        template=p.AI_CONDUCTING_RESEARCH_PROMPT,
+    )
+    user_views_research = GenieState(
+        value=14,
+        template=p.USER_VIEWING_BACKGROUND_RESEARCH_PROMPT,
+    )
+    ai_generates_claims = GenieState(
+        value=15,
+        template=p.AI_GENERATES_CLAIMS_PROMPT,
+    )
+    user_views_claims = GenieState(
+        value=16,
+        template=p.USER_VIEWS_GENERATED_CLAIMS,
+        final=True,
+    )
 
     # EVENTS AND TRANSITIONS
     user_input = (

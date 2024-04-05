@@ -2,7 +2,7 @@ import time
 
 from celery import Celery
 
-from ai_state_machine.store import retrieve_state_machine, store_state_machine
+from ai_state_machine.store import retrieve_state_model, store_state_model
 
 
 app = Celery(
@@ -14,6 +14,7 @@ app = Celery(
 
 @app.task
 def trigger_ai_event(session_id: str, event_name: str, response: str):
+    model = retrieve_state_model(session_id)
     state_machine = retrieve_state_machine(session_id)
     state_machine.send_event(event_name, response)
     store_state_machine(state_machine)

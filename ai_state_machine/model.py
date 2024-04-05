@@ -1,11 +1,9 @@
 import collections
 from abc import abstractmethod
 from datetime import datetime
-from typing import Optional, overload, Iterable, MutableSequence
+from typing import overload, Iterable, MutableSequence
 
-from jinja2 import Template
-from pydantic import BaseModel, ConfigDict, PrivateAttr, Field
-from statemachine import State
+from pydantic import BaseModel, Field
 
 
 class DialogueElement(BaseModel):
@@ -15,7 +13,7 @@ class DialogueElement(BaseModel):
 
     actor: str = Field(description="the originator of the dialogue element")
     timestamp: datetime = Field(
-        default_factory=lambda: datetime.now(),
+        default_factory=datetime.now,
         description="the timestamp when this dialogue element was created"
     )
     internal_repr: str = Field(
@@ -86,8 +84,3 @@ class Dialogue(collections.abc.MutableSequence):
                 for item in self._sequence
             ]
         )
-
-
-class GenieModel(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-    _state: State = PrivateAttr(default=None)

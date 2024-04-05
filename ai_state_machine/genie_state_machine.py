@@ -6,8 +6,9 @@ from loguru import logger
 from statemachine import StateMachine, State
 from statemachine.event_data import EventData
 
-from ai_state_machine.model import GenieModel, DialogueElement
-from example_claims.celery_tasks import call_llm_api, trigger_ai_event
+from ai_state_machine.model import DialogueElement
+from ai_state_machine.genie_model import GenieModel
+from ai_state_machine.celery_tasks import call_llm_api, trigger_ai_event
 
 
 class GenieStateMachine(StateMachine):
@@ -18,22 +19,9 @@ class GenieStateMachine(StateMachine):
             user_actor_name: str = "HUMAN",
             ai_actor_name: str = "AI",
     ):
-        super(GenieStateMachine, self).__init__(model=model, state_field="_state")
+        super(GenieStateMachine, self).__init__(model=model)
         self._user_actor_name = user_actor_name
         self._ai_actor_name = ai_actor_name
-
-        self.dialogue: list[DialogueElement] = list()
-        self.running_task_id: Optional[str] = None
-        self.actor_input: str = ""
-
-        initial_prompt = self.get_target_prompt(self.current_state)
-        self.dialogue.append(
-            DialogueElement(
-                actor=self._ai_actor_name,
-                internal_repr=initial_prompt,
-                external_repr=initial_prompt,
-            )
-        )
 
     @property
     def current_response(self) -> Optional[DialogueElement]:
@@ -102,6 +90,21 @@ class GenieStateMachine(StateMachine):
 
         return self.actor_input
 
+    def on__initial__(self, event_data: EventData):
+        """
+        This event is called when the state machine initializes. It sets up the initial
+        dialogue element using the template of the initial state.
+        """
+        initial_prompt = self.get_target_prompt(event_data.target)
+        self.model.ctor_input = initial_prompt
+        self.model.dialogue.append(
+            DialogueElement(
+                actor=self._ai_actor_name,
+                internal_repr=initial_prompt,
+                external_repr=initial_prompt,
+            )
+        )
+
     def on_user_input(self, event_data: EventData):
         """
         This method gets triggered when a "user_input" event is received. We should now be
@@ -115,7 +118,7 @@ class GenieStateMachine(StateMachine):
 
         """
         logger.debug(f"User input event received")
-        self.dialogue.append(
+        self.model.dialogue.append(
             DialogueElement(
                 actor=self._user_actor_name,
                 internal_repr=self.actor_input,
@@ -132,7 +135,7 @@ class GenieStateMachine(StateMachine):
             call_llm_api.s(prompt),
             trigger_ai_event.s(self.model.session_id, event_to_send)
         )
-        self.running_task_id = task.apply_async()
+        self.model.running_task_id = task.apply_async()
 
     def on_ai_extraction(self, target: State):
         """
@@ -150,7 +153,7 @@ class GenieStateMachine(StateMachine):
         :return:
         """
         logger.debug(f"AI extraction event received")
-        self.running_task_id = None
+        self.model.running_task_id = None
 
         self.dialogue.append(
             DialogueElement(
