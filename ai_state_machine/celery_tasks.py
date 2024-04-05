@@ -15,7 +15,7 @@ app = Celery(
 @app.task
 def trigger_ai_event(session_id: str, event_name: str, response: str):
     model = retrieve_state_model(session_id)
-    state_machine = retrieve_state_machine(session_id)
+    state_machine = modek
     state_machine.send_event(event_name, response)
     store_state_machine(state_machine)
 
