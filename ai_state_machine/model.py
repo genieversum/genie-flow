@@ -1,6 +1,8 @@
 import collections
+import json
 from abc import abstractmethod
 from datetime import datetime
+from enum import Enum
 from typing import overload, Iterable, MutableSequence
 
 from pydantic import BaseModel, Field
@@ -24,63 +26,27 @@ class DialogueElement(BaseModel):
     )
 
 
-class Dialogue(collections.abc.MutableSequence):
-    _sequence: MutableSequence[DialogueElement] = []
+class DialogueFormat(Enum):
+    PYTHON_REPR = "python_repr"
+    JSON = "json"
+    CHAT = "chat"
+    QUESTION_ANSWER = "question_answer"
 
-    def insert(self, index, value):
-        self._sequence.insert(index, value)
+    @classmethod
+    def format(cls, dialogue: list[DialogueElement], target_format: "DialogueFormat") -> str:
+        if len(dialogue) == 0:
+            return ""
 
-    @overload
-    @abstractmethod
-    def __getitem__(self, index: int) -> DialogueElement: ...
-
-    @overload
-    @abstractmethod
-    def __getitem__(self, index: slice) -> MutableSequence[DialogueElement]: ...
-
-    def __getitem__(self, index):
-        return self._sequence.__getitem__(index)
-
-    @overload
-    @abstractmethod
-    def __setitem__(self, index: int, value: DialogueElement) -> None: ...
-
-    @overload
-    @abstractmethod
-    def __setitem__(self, index: slice, value: Iterable[DialogueElement]) -> None: ...
-
-    def __setitem__(self, index, value):
-        self._sequence.__setitem__(index, value)
-
-    @overload
-    @abstractmethod
-    def __delitem__(self, index: int) -> None: ...
-
-    @overload
-    @abstractmethod
-    def __delitem__(self, index: slice) -> None: ...
-
-    def __delitem__(self, index):
-        self._sequence.__delitem__(index)
-
-    def __len__(self):
-        return len(self._sequence)
-
-    def __repr__(self):
-        return self._sequence.__repr__()
-
-    def __str__(self):
-        """
-        Returns a string representation of the Dialogue, where the actor is printed
-        between square brackets, followed by a colon. Consecutive DialogueElements
-        are separated by five equal-signs and new-lines.
-
-        Of the DialogElements, the external_repr is used.
-        """
-        separator = f"\n\n{'='*5}\n"
-        return separator.join(
-            [
-                f"[{item.actor}]: {item.external_repr}"
-                for item in self._sequence
-            ]
-        )
+        match target_format:
+            case cls.PYTHON_REPR:
+                return repr(dialogue)
+            case cls.JSON:
+                return json.dumps([e.model_dump() for e in dialogue])
+            case cls.CHAT:
+                "\n\n".join(
+                    f"[{e.actor.upper()}]: {e.external_repr}"
+                    for e in dialogue
+                )
+            case cls.QUESTION_ANSWER:
+                # TODO figure something out for question / answer
+                raise NotImplementedError()

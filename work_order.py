@@ -7,8 +7,7 @@ from pydantic import Field
 from statemachine.event_data import EventData
 
 import prompts as p
-from ai_state_machine.genie_state_machine import GenieStateMachine
-from ai_state_machine.genie_model import GenieModel
+from ai_state_machine.genie_state_machine import GenieStateMachine, GenieModel
 
 
 class WorkOrderRecord(GenieModel):

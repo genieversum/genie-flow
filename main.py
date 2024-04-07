@@ -17,11 +17,15 @@ def get_root():
 @app.get("/v1/start_session/")
 def start_session():
     session_id = str(uuid.uuid4().hex)
-    model = ClaimsModel(session_id=session_id)
-    store_state_model(session_id, model)
-    state_machine = ClaimsMachine(model=model)
 
-    response = state_machine.current_response.external_repr
+    model = ClaimsModel(
+        session_id=session_id,
+        # state=ClaimsMachine.initial_state.value,
+    )
+    state_machine = ClaimsMachine(model=model, new_session=True)
+    store_state_model(session_id, model)
+    response = model.current_response.external_repr
+
     return AIResponse(
         session_id=session_id,
         response=response,
@@ -31,7 +35,7 @@ def start_session():
 
 @app.post("/v1/event/")
 def start_event(event: EventInput):
-    model = retrieve_state_model(event.session_id, ClaimsModel)
+    model = retrieve_state_model(event.session_id)
     state_machine = model.create_state_machine()
     state_machine.send(event.event, event.event_input)
     store_state_model(event.session_id, model)

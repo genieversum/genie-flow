@@ -7,9 +7,7 @@ from jinja2 import Template
 from pydantic import Field
 from statemachine.event_data import EventData
 
-from ai_state_machine.genie_model import GenieModel
-from ai_state_machine.genie_state import GenieState
-from ai_state_machine.genie_state_machine import  GenieStateMachine
+from ai_state_machine.genie_state_machine import GenieStateMachine, GenieModel, GenieState
 import example_claims.prompts as p
 
 
@@ -43,12 +41,13 @@ class ClaimsModel(GenieModel):
 
 class ClaimsMachine(GenieStateMachine):
 
-    def __init__(self, model: ClaimsModel):
+    def __init__(self, model: ClaimsModel, new_session: bool = False):
         if not isinstance(model, ClaimsModel):
             raise TypeError("The type of model should be ClaimsModel, not {}".format(type(model)))
 
         super(ClaimsMachine, self).__init__(
-            model=model
+            model=model,
+            new_session=new_session,
         )
 
     # STATES
