@@ -5,9 +5,10 @@ from typing import Optional
 
 from jinja2 import Template
 from pydantic import Field
+from statemachine import State
 from statemachine.event_data import EventData
 
-from ai_state_machine.genie_state_machine import GenieStateMachine, GenieModel, GenieState
+from ai_state_machine.genie_state_machine import GenieStateMachine, GenieModel
 import example_claims.prompts as p
 
 
@@ -52,49 +53,31 @@ class ClaimsMachine(GenieStateMachine):
 
     # STATES
     # gathering information from the user
-    user_entering_role = GenieState(
-        initial=True,
-        value=1,
-        template=p.USER_ENTERING_ROLE_PROMPT,
-    )
-    ai_extracts_information = GenieState(
-        value=2,
-        template=p.AI_EXTRACTING_INFO_PROMPT,
-    )
-    user_enters_additional_information = GenieState(
-        value=3,
-        template=Template("{{actor_input}}"),
-    )
+    user_entering_role = State(initial=True, value=1)
+    ai_extracts_information = State(value=2)
+    user_enters_additional_information = State(value=3)
 
     # generating claims
-    user_views_start_of_generation = GenieState(
-        value=10,
-        template=p.USER_VIEUWING_START_OF_GENERATION,
-    )
-    ai_extracts_categories = GenieState(
-        value=11,
-        template=p.AI_EXTRACTING_CATEGORIES_PROMPT,
-    )
-    user_views_categories = GenieState(
-        value=12,
-        template=p.USER_VIEWING_CATEGORIES_PROMPT,
-    )
-    ai_conducts_research = GenieState(
-        value=13,
-        template=p.AI_CONDUCTING_RESEARCH_PROMPT,
-    )
-    user_views_research = GenieState(
-        value=14,
-        template=p.USER_VIEWING_BACKGROUND_RESEARCH_PROMPT,
-    )
-    ai_generates_claims = GenieState(
-        value=15,
-        template=p.AI_GENERATES_CLAIMS_PROMPT,
-    )
-    user_views_claims = GenieState(
-        value=16,
-        template=p.USER_VIEWS_GENERATED_CLAIMS,
-        final=True,
+    user_views_start_of_generation = State(value=10)
+    ai_extracts_categories = State(value=11)
+    user_views_categories = State(value=12)
+    ai_conducts_research = State(value=13)
+    user_views_research = State(value=14)
+    ai_generates_claims = State(value=15)
+    user_views_claims = State(value=16, final=True)
+
+    # TEMPLATES
+    templates = dict(
+        user_entering_role=p.USER_ENTERING_ROLE_PROMPT,
+        ai_extracts_information=p.AI_EXTRACTING_INFO_PROMPT,
+        user_enters_additional_information=Template("{{actor_input}}"),
+        user_views_start_of_generation=p.USER_VIEUWING_START_OF_GENERATION,
+        ai_extracts_categories=p.AI_EXTRACTING_CATEGORIES_PROMPT,
+        user_views_categories=p.USER_VIEWING_CATEGORIES_PROMPT,
+        ai_conducts_research=p.AI_CONDUCTING_RESEARCH_PROMPT,
+        user_views_research=p.USER_VIEWING_BACKGROUND_RESEARCH_PROMPT,
+        ai_generates_claims=p.AI_GENERATES_CLAIMS_PROMPT,
+        user_views_claims=p.USER_VIEWS_GENERATED_CLAIMS,
     )
 
     # EVENTS AND TRANSITIONS

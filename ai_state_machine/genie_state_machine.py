@@ -12,16 +12,6 @@ from ai_state_machine.model import DialogueElement, DialogueFormat
 from ai_state_machine.celery_tasks import call_llm_api, trigger_ai_event
 
 
-class GenieState(State):
-
-    def __init__(self, value: str | int, template: str | Template, **kwargs):
-        if not isinstance(value, str) and not isinstance(value, int):
-            raise ValueError("`value` must be of type str or int and not {}".format(type(value)))
-
-        super().__init__(value=value, **kwargs)
-        self.template = template
-
-
 class GenieModel(BaseModel):  # , ABC):
     state: str | int | None = Field(
         None,
@@ -66,9 +56,11 @@ class GenieStateMachine(StateMachine):
             new_session: bool = False,
             user_actor_name: str = "USER",
             ai_actor_name: str = "LLM",
+            templates_property_name: str = "templates"
     ):
         self._user_actor_name = user_actor_name
         self._ai_actor_name = ai_actor_name
+        self.templates_property_name = templates_property_name
         self.current_dialogue_element: Optional[DialogueElement] = None
         super(GenieStateMachine, self).__init__(model=model)
 
@@ -107,16 +99,31 @@ class GenieStateMachine(StateMachine):
 
     def get_target_prompt(self, target: State) -> str:
         """
-        If the target state value is a template, return the rendered template using the
-        `self.render_data` property. If the target state value is not a template, just
-        return the value from the target state.
+        Render the string that should be consumed by the target actor for the given state.
+        Rendering is done using `self.render_data` property.
+
+        If the target state has a template, return the rendered template using the
+        `self.render_data` property.
+        If the target state as a template that is as string, that string is returned.
+        If the target state has a template of any other value, return the string representation
+        of that value.
+
+        If the target state has no template, just return the name of the target state.
         """
-        prompt = target.template
-        if isinstance(prompt, Template):
-            return prompt.render(self.render_data)
-        if isinstance(prompt, str):
-            return prompt
-        return str(prompt)
+        try:
+            prompt = getattr(self, self.templates_property_name).get(target.id)
+            if isinstance(prompt, Template):
+                return prompt.render(self.render_data)
+            if isinstance(prompt, str):
+                return prompt
+            return str(prompt)
+        except KeyError:
+            logger.warning(
+                f"Trying to find a template for state {target.id} "
+                f"for which no template is known in property {self.templates_property_name} "
+                f"of class {type(self).__name__} "
+            )
+            return target.name
 
     # EVENT HANDLERS
     def before_transition(self, event_data: EventData) -> str:
