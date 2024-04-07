@@ -5,6 +5,7 @@ from celery import chain
 from jinja2 import Template
 from loguru import logger
 from pydantic import BaseModel, Field
+from pydantic_redis import Model
 from statemachine import StateMachine, State
 from statemachine.event_data import EventData
 
@@ -12,7 +13,9 @@ from ai_state_machine.model import DialogueElement, DialogueFormat
 from ai_state_machine.celery_tasks import call_llm_api, trigger_ai_event
 
 
-class GenieModel(BaseModel):  # , ABC):
+class GenieModel(Model):  # , ABC):
+    _primary_key_field: str = "session_id"
+
     state: str | int | None = Field(
         None,
         description="The current state that this model is in, represented by the value of the state"

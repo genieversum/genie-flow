@@ -2,11 +2,13 @@ import uuid
 
 from fastapi import FastAPI
 
-from ai_state_machine.store import retrieve_state_model, store_state_model
+from ai_state_machine.store import STORE
 from example_claims.claims import ClaimsModel, ClaimsMachine
 from example_claims.model import AIResponse, EventInput, AIStatusResponse
 
 app = FastAPI()
+
+STORE.register_model(ClaimsModel)
 
 
 @app.get("/")
@@ -18,12 +20,10 @@ def get_root():
 def start_session():
     session_id = str(uuid.uuid4().hex)
 
-    model = ClaimsModel(
-        session_id=session_id,
-        # state=ClaimsMachine.initial_state.value,
-    )
+    model = ClaimsModel(session_id=session_id)
     state_machine = ClaimsMachine(model=model, new_session=True)
-    store_state_model(session_id, model)
+    ClaimsModel.insert(model)
+
     response = model.current_response.external_repr
 
     return AIResponse(
@@ -35,10 +35,10 @@ def start_session():
 
 @app.post("/v1/event/")
 def start_event(event: EventInput):
-    model = retrieve_state_model(event.session_id)
+    model = ClaimsModel.select(session_id=event.session_id)
     state_machine = model.create_state_machine()
     state_machine.send(event.event, event.event_input)
-    store_state_model(event.session_id, model)
+    ClaimsModel.insert(model)
 
     response = state_machine.current_response.external_repr
     return AIResponse(
@@ -50,7 +50,7 @@ def start_event(event: EventInput):
 
 @app.get("/v1/task_state/{session_id}")
 def get_tast_state(session_id: str):
-    model = retrieve_state_model(session_id, ClaimsModel)
+    model = ClaimsModel.select(session_id=session_id)
     return AIStatusResponse(
         session_id=session_id,
         ready=model.running_task_id is None
@@ -59,5 +59,5 @@ def get_tast_state(session_id: str):
 
 @app.get("/v1/model/{session_id}")
 def get_model(session_id: str):
-    model = retrieve_state_model(session_id, ClaimsModel)
+    model = ClaimsModel.select(session_id=session_id)
     return model

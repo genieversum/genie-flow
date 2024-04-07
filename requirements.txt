@@ -1,5 +1,6 @@
 python-statemachine
 pydantic
+pydantic-redis
 jinja2
 loguru
 fastapi
