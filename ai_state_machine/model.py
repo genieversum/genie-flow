@@ -3,9 +3,23 @@ import json
 from abc import abstractmethod
 from datetime import datetime
 from enum import Enum
-from typing import overload, Iterable, MutableSequence
+from typing import overload, Iterable, MutableSequence, Union
 
+from celery import Task
+from jinja2 import Template
 from pydantic import BaseModel, Field
+
+
+TemplateType = str | Template
+ExecutableTemplateType = TemplateType | Task
+CompositeTemplateType = Union[
+    ExecutableTemplateType,
+    list[ExecutableTemplateType],
+    dict[str, ExecutableTemplateType],
+]
+
+ContentType = str
+CompositeContentType = ContentType | list[ContentType] | dict[str, ContentType]
 
 
 class DialogueElement(BaseModel):
@@ -18,11 +32,8 @@ class DialogueElement(BaseModel):
         default_factory=datetime.now,
         description="the timestamp when this dialogue element was created"
     )
-    internal_repr: str = Field(
-        description="the internal representation, before applying any rendering"
-    )
-    external_repr: str = Field(
-        description="the external representation after rendering is applied"
+    actor_text: str = Field(
+        description="the text that was produced bu the actor"
     )
 
 

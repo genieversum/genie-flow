@@ -1,7 +1,7 @@
 import json
 import logging
 from json import JSONDecodeError
-from typing import Optional
+from typing import Optional, Union
 
 from jinja2 import Template
 from pydantic import Field
@@ -67,7 +67,7 @@ class ClaimsMachine(GenieStateMachine):
     user_views_claims = State(value=16, final=True)
 
     # TEMPLATES
-    templates = dict(
+    templates: dict[str, Union[str, Template, dict[str]]] = dict(
         user_entering_role=p.USER_ENTERING_ROLE_PROMPT,
         ai_extracts_information=p.AI_EXTRACTING_INFO_PROMPT,
         user_enters_additional_information=Template("{{actor_input}}"),

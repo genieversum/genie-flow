@@ -1,7 +1,7 @@
-from abc import ABC, abstractmethod
 from typing import Optional
 
-from celery import chain
+from celery import chain, group, Task
+from celery.canvas import Signature
 from jinja2 import Template
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -9,11 +9,11 @@ from pydantic_redis import Model
 from statemachine import StateMachine, State
 from statemachine.event_data import EventData
 
-from ai_state_machine.model import DialogueElement, DialogueFormat
-from ai_state_machine.celery_tasks import call_llm_api, trigger_ai_event
+from ai_state_machine.model import DialogueElement, DialogueFormat, CompositeTemplateType
+from ai_state_machine.celery_tasks import call_llm_api, combine_group_to_dict, trigger_ai_event
 
 
-class GenieModel(Model):  # , ABC):
+class GenieModel(Model):
     _primary_key_field: str = "session_id"
 
     state: str | int | None = Field(
@@ -31,9 +31,13 @@ class GenieModel(Model):  # , ABC):
         None,
         description="the (Celery) task id of the currently running task",
     )
+    actor: Optional[str] = Field(
+        None,
+        description="The actor that has created the current input",
+    )
     actor_input: str = Field(
         "",
-        description="the most recent received input from an actor",
+        description="the most recent received input from the actor",
     )
 
     @property
@@ -64,15 +68,16 @@ class GenieStateMachine(StateMachine):
         self._user_actor_name = user_actor_name
         self._ai_actor_name = ai_actor_name
         self.templates_property_name = templates_property_name
-        self.current_dialogue_element: Optional[DialogueElement] = None
+
+        self.current_rendering: Optional[str] = None
         super(GenieStateMachine, self).__init__(model=model)
 
         if new_session:
-            initial_prompt = self.get_target_prompt(self.current_state)
+            initial_prompt = self.get_target_rendering(self.current_state)
             self.model.dialogue.append(
                 DialogueElement(
                     actor=self._ai_actor_name,
-                    internal_repr=initial_prompt,
+                    actor_text=initial_prompt,
                     external_repr=initial_prompt,
                 )
             )
@@ -86,7 +91,6 @@ class GenieStateMachine(StateMachine):
         - "state_id": The ID of the current state of the state machine
         - "state_name": The name of the current state of the state machine
         - "dialogue" The string output of the current dialogue
-        - "actor_input": the most recently received input from an actor
         - all keys and values of the machine's current model
         """
         render_data = self.model.model_dump()
@@ -95,16 +99,13 @@ class GenieStateMachine(StateMachine):
                 "state_id": self.current_state.id,
                 "state_name": self.current_state.name,
                 "chat_history": str(self.model.format_dialogue(DialogueFormat.CHAT)),
-                "actor_input": self.model.actor_input,
             }
         )
         return render_data
 
-    def get_target_prompt(self, target: State) -> str:
+    def get_target_rendering(self, target: State) -> str:
         """
-        Render the string that should be consumed by the target actor for the given state.
-        Rendering is done using `self.render_data` property.
-
+        Render the structure of rendered prompts that are recorded for the target state.
         If the target state has a template, return the rendered template using the
         `self.render_data` property.
         If the target state as a template that is as string, that string is returned.
@@ -114,12 +115,14 @@ class GenieStateMachine(StateMachine):
         If the target state has no template, just return the name of the target state.
         """
         try:
-            prompt = getattr(self, self.templates_property_name).get(target.id)
-            if isinstance(prompt, Template):
-                return prompt.render(self.render_data)
-            if isinstance(prompt, str):
-                return prompt
-            return str(prompt)
+            template = getattr(self, self.templates_property_name).get(target.id)
+            if isinstance(template, Template):
+                return template.render(self.render_data)
+            if isinstance(template, str):
+                return template
+
+            logger.warning(f"Trying to render a template of type {type(template)}")
+            return str(template)
         except KeyError:
             logger.warning(
                 f"Trying to find a template for state {target.id} "
@@ -129,9 +132,10 @@ class GenieStateMachine(StateMachine):
             return target.name
 
     # EVENT HANDLERS
-    def before_transition(self, event_data: EventData) -> str:
+    def before_transition(self, event_data: EventData):
         """
-        Set the actors input. It is assumed that the event data that is provided to the event
+        Set the current actors input and the current rendering for the target state.
+        It is assumed that the event data that is provided to the event
         that started this transition is the actor input.
 
         Triggered when an event is received, right before the current state is exited.
@@ -139,11 +143,13 @@ class GenieStateMachine(StateMachine):
         This method takes the events first argument and places that in `self.actor_input`. This
         makes it available for further processing.
 
+        It will also take the rendering of the target template and stores that into
+        `self.current_rendering` for further processing.
+
         If the event data does not contain the actor input, the actor is reset to an empty
         string.
 
         :param event_data: the event data that was provided to start this transition
-        :return: the first argument that was passed to this event
         """
         try:
             self.model.actor_input = event_data.args[0]
@@ -152,70 +158,49 @@ class GenieStateMachine(StateMachine):
             logger.debug("Starting a transition without an actor input")
             self.model.actor_input = ""
 
-        return self.model.actor_input
+        self.current_rendering = self.get_target_rendering(event_data.target)
 
     def on_user_input(self, event_data: EventData):
         """
-        This method gets triggered when a "user_input" event is received. We should now be
-        transitioning into an AI state. During this transition, we will trigger the AI
-        invocation. That means: render the template of the state that we are transitioning
-        into and send that off to the generative AI solution.
+        This method gets triggered when a "user_input" event is received.
+        We are setting the model's current actor to the User actor name.
         """
         logger.debug(f"User input event received")
+        self.model.actor = self._user_actor_name
 
-        self.current_dialogue_element = DialogueElement(
-            actor=self._user_actor_name,
-            internal_repr=self.model.actor_input,
-            external_repr=self.model.actor_input,
-        )
-
-        llm_prompt = self.get_target_prompt(event_data.target)
-
-        # TODO what if there are more events possible from the target state
-        event_to_send_when_done = event_data.target.transitions.unique_events[0]
-
-        task = chain(
-            call_llm_api.s(llm_prompt),
-            trigger_ai_event.s(self.model.session_id, event_to_send_when_done)
-        )
-        self.model.running_task_id = task.apply_async()
-        return self.model.running_task_id
+        # TODO what if there are more than one event leading out the the future state
+        event_to_send_after = event_data.target.transitions.unique_events[0]
+        self.ai_call(self.current_rendering, event_to_send_after)
 
     def on_ai_extraction(self, target: State):
         """
-        This event is received when an `ai_extaction` event is received. This means that
-        the LLM response has been received and that is the value of the actor input at this
-        stage.
-
-        We use the template of the target state to render this LLM output and create the
-        dialogue element for it. It will serve as the response to the user.
+        This event is received when an `ai_extaction` event is received.
+        We are setting the model's current actor to the AI actor name
         """
         logger.debug(f"AI extraction event received")
-        self.model.running_task_id = None
-
-        response_to_user = self.get_target_prompt(target)
-        self.current_dialogue_element = DialogueElement(
-            actor=self._ai_actor_name,
-            internal_repr=self.model.actor_input,
-            external_repr=response_to_user,
-        )
-        return response_to_user
+        self.model.actor = self._ai_actor_name
 
     def on_advance(self, target: State):
         """
         This hook is called when an 'advance' event is received. These mean that output was shown
         to the user (for instance, an intermediate result) and that the client wants the
         state machine to move on without actual user input.
+        We are setting the model's current actor to the AI actor name.
         """
-        pass
+        logger.debug(f"Advance event received")
+        self.model.actor = self._ai_actor_name
 
-    def on_enter_state(self, state: State, **kwargs):
-        logger.info(f"== entering state {state.name} ({state.id})")
+    def after_transition(self, state: State, **kwargs):
+        logger.info(f"== concluding transition into state {state.name} ({state.id})")
 
-        if self.current_dialogue_element is not None:
+        if self.actor is not None:
             logger.debug("Adding a dialogue element to the dialogue")
-            self.model.dialogue.append(self.model.current_dialogue_element)
-            self.model.current_dialogue_element = None
+            self.model.dialogue.append(
+                DialogueElement(
+                    actor=self.model.actor,
+                    actor_text=self.model.actor_input,
+                )
+            )
 
     # VALIDATIONS AND CONDITIONS
     def is_valid_response(self, event_data: EventData):
@@ -227,4 +212,34 @@ class GenieStateMachine(StateMachine):
                 event_data.args[0] is not None,
                 event_data.args[0] != "",
             ]
+        )
+
+    # STANDARD LLM CALLS
+    def _compile_task(self, template: CompositeTemplateType) -> Signature:
+        """
+        Compiles a Celery task that follows the structure of the composite template.
+        """
+        if isinstance(template, str):
+            return call_llm_api.s(template)
+        if isinstance(template, Template):
+            prompt = template.render(self.render_data)
+            return call_llm_api.s(prompt)
+
+        if isinstance(template, Task):
+            return template.s(self.render_data)
+
+        if isinstance(template, list):
+            return chain(*[self._compile_task(t) for t in template])
+        if isinstance(template, dict):
+            dict_keys = template.keys()  # make sure to go through keys in fixed order
+            return chain(
+                group(*[self._compile_task(template[k]) for k in dict_keys]),
+                combine_group_to_dict.s(dict_keys)
+            )
+        raise ValueError(f"trying to compile a task for a render of type '{type(template)}'")
+
+    def ai_call(self, template: CompositeTemplateType, event_to_send_after: str):
+        return chain(
+            self._compile_task(template),
+            trigger_ai_event.s(event_to_send_after),
         )
