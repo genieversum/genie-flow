@@ -1,5 +1,6 @@
 import collections
 import json
+import uuid
 from abc import abstractmethod
 from datetime import datetime
 from enum import Enum
@@ -8,7 +9,7 @@ from typing import overload, Iterable, MutableSequence, Union
 from celery import Task
 from jinja2 import Template
 from pydantic import BaseModel, Field
-
+from pydantic_redis import Model
 
 TemplateType = str | Template
 ExecutableTemplateType = TemplateType | Task
@@ -22,10 +23,12 @@ ContentType = str
 CompositeContentType = ContentType | list[ContentType] | dict[str, ContentType]
 
 
-class DialogueElement(BaseModel):
+class DialogueElement(Model):
     """
     An element of a dialogue. Typically, a phrase that is output by an originator.
     """
+    _primary_key_field: str = "id"
+    id: str = Field(default_factory=lambda: uuid.uuid4().hex)
 
     actor: str = Field(description="the originator of the dialogue element")
     timestamp: datetime = Field(
@@ -55,7 +58,7 @@ class DialogueFormat(Enum):
                 return json.dumps([e.model_dump() for e in dialogue])
             case cls.CHAT:
                 "\n\n".join(
-                    f"[{e.actor.upper()}]: {e.external_repr}"
+                    f"[{e.actor.upper()}]: {e.actor_text}"
                     for e in dialogue
                 )
             case cls.QUESTION_ANSWER:

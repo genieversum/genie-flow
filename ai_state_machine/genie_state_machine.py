@@ -10,7 +10,8 @@ from statemachine import StateMachine, State
 from statemachine.event_data import EventData
 
 from ai_state_machine.model import DialogueElement, DialogueFormat, CompositeTemplateType
-from ai_state_machine.celery_tasks import call_llm_api, combine_group_to_dict, trigger_ai_event
+from ai_state_machine.celery_tasks import call_llm_api, combine_group_to_dict, trigger_ai_event, \
+    get_fully_qualified_name_from_class
 
 
 class GenieModel(Model):
@@ -78,7 +79,6 @@ class GenieStateMachine(StateMachine):
                 DialogueElement(
                     actor=self._ai_actor_name,
                     actor_text=initial_prompt,
-                    external_repr=initial_prompt,
                 )
             )
 
@@ -153,7 +153,7 @@ class GenieStateMachine(StateMachine):
         """
         try:
             self.model.actor_input = event_data.args[0]
-            logger.debug("Setting the actor input to %s", self.actor_input)
+            logger.debug("Setting the actor input to %s", self.model.actor_input)
         except (TypeError, IndexError) as e:
             logger.debug("Starting a transition without an actor input")
             self.model.actor_input = ""
@@ -193,7 +193,7 @@ class GenieStateMachine(StateMachine):
     def after_transition(self, state: State, **kwargs):
         logger.info(f"== concluding transition into state {state.name} ({state.id})")
 
-        if self.actor is not None:
+        if self.model.actor is not None:
             logger.debug("Adding a dialogue element to the dialogue")
             self.model.dialogue.append(
                 DialogueElement(
@@ -239,7 +239,8 @@ class GenieStateMachine(StateMachine):
         raise ValueError(f"trying to compile a task for a render of type '{type(template)}'")
 
     def ai_call(self, template: CompositeTemplateType, event_to_send_after: str):
+        fqn = get_fully_qualified_name_from_class(self.model)
         return chain(
             self._compile_task(template),
-            trigger_ai_event.s(event_to_send_after),
+            trigger_ai_event.s(fqn, event_to_send_after),
         )
