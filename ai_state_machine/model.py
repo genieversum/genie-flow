@@ -11,6 +11,8 @@ from jinja2 import Template
 from pydantic import BaseModel, Field
 from pydantic_redis import Model
 
+from ai_state_machine.store import STORE
+
 TemplateType = str | Template
 ExecutableTemplateType = TemplateType | Task
 CompositeTemplateType = Union[
@@ -38,6 +40,9 @@ class DialogueElement(Model):
     actor_text: str = Field(
         description="the text that was produced bu the actor"
     )
+
+
+STORE.register_model(DialogueElement)
 
 
 class DialogueFormat(Enum):

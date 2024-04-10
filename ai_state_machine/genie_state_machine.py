@@ -1,3 +1,4 @@
+import logging
 from typing import Optional
 
 from celery import chain, group, Task
@@ -10,8 +11,8 @@ from statemachine import StateMachine, State
 from statemachine.event_data import EventData
 
 from ai_state_machine.model import DialogueElement, DialogueFormat, CompositeTemplateType
-from ai_state_machine.celery_tasks import call_llm_api, combine_group_to_dict, trigger_ai_event, \
-    get_fully_qualified_name_from_class
+from ai_state_machine.celery_tasks import call_llm_api, combine_group_to_dict, trigger_ai_event
+from ai_state_machine.store import get_fully_qualified_name_from_class
 
 
 class GenieModel(Model):
@@ -70,7 +71,7 @@ class GenieStateMachine(StateMachine):
         self._ai_actor_name = ai_actor_name
         self.templates_property_name = templates_property_name
 
-        self.current_rendering: Optional[str] = None
+        self.current_template: Optional[CompositeTemplateType] = None
         super(GenieStateMachine, self).__init__(model=model)
 
         if new_session:
@@ -103,6 +104,13 @@ class GenieStateMachine(StateMachine):
         )
         return render_data
 
+    def get_target_template(self, target: State) -> CompositeTemplateType:
+        try:
+            return getattr(self, self.templates_property_name).get(target.id)
+        except KeyError:
+            logging.error(f"Failed to find template for state {target.id}")
+            raise
+
     def get_target_rendering(self, target: State) -> str:
         """
         Render the structure of rendered prompts that are recorded for the target state.
@@ -114,22 +122,14 @@ class GenieStateMachine(StateMachine):
 
         If the target state has no template, just return the name of the target state.
         """
-        try:
-            template = getattr(self, self.templates_property_name).get(target.id)
-            if isinstance(template, Template):
-                return template.render(self.render_data)
-            if isinstance(template, str):
-                return template
+        template = self.get_target_template(target)
+        if isinstance(template, Template):
+            return template.render(self.render_data)
+        if isinstance(template, str):
+            return template
 
-            logger.warning(f"Trying to render a template of type {type(template)}")
-            return str(template)
-        except KeyError:
-            logger.warning(
-                f"Trying to find a template for state {target.id} "
-                f"for which no template is known in property {self.templates_property_name} "
-                f"of class {type(self).__name__} "
-            )
-            return target.name
+        logger.warning(f"Trying to render a template of type {type(template)}")
+        return str(template)
 
     # EVENT HANDLERS
     def before_transition(self, event_data: EventData):
@@ -158,7 +158,7 @@ class GenieStateMachine(StateMachine):
             logger.debug("Starting a transition without an actor input")
             self.model.actor_input = ""
 
-        self.current_rendering = self.get_target_rendering(event_data.target)
+        self.current_template = self.get_target_template(event_data.target)
 
     def on_user_input(self, event_data: EventData):
         """
@@ -170,7 +170,8 @@ class GenieStateMachine(StateMachine):
 
         # TODO what if there are more than one event leading out the the future state
         event_to_send_after = event_data.target.transitions.unique_events[0]
-        self.ai_call(self.current_rendering, event_to_send_after)
+        task = self.ai_call(self.current_template, event_to_send_after)
+        return task.apply_async()
 
     def on_ai_extraction(self, target: State):
         """
@@ -242,5 +243,5 @@ class GenieStateMachine(StateMachine):
         fqn = get_fully_qualified_name_from_class(self.model)
         return chain(
             self._compile_task(template),
-            trigger_ai_event.s(fqn, event_to_send_after),
+            trigger_ai_event.s(fqn, self.model.session_id, event_to_send_after),
         )

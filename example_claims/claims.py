@@ -10,6 +10,21 @@ from statemachine.event_data import EventData
 
 from ai_state_machine.genie_state_machine import GenieStateMachine, GenieModel
 import example_claims.prompts as p
+from ai_state_machine.store import STORE
+
+
+def store_model(model: GenieModel) -> None:
+    ClaimsModel.insert(model)
+
+#
+# def retrieve_model(session_id: str) -> Optional[GenieModel]:
+#     try:
+#         models = GenieModel.select(ids=[session_id])
+#         assert len(models) == 1
+#         return models[0]
+#     except AssertionError:
+#         logging.warning("Could not find model with session id %s", session_id)
+#         return None
 
 
 class ClaimsModel(GenieModel):
@@ -38,6 +53,9 @@ class ClaimsModel(GenieModel):
         None,
         description="output of the step-back research",
     )
+
+
+STORE.register_model(ClaimsModel)
 
 
 class ClaimsMachine(GenieStateMachine):
