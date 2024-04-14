@@ -116,11 +116,11 @@ class ClaimsMachine(GenieStateMachine):
         We can expect that `self.actor_input` has been provided to process.
         """
         try:
-            extracted_categories = json.loads(self.actor_input)
+            extracted_categories = json.loads(self.model.actor_input)
             self.model.update(extracted_categories)
         except (JSONDecodeError, KeyError) as e:
             logging.warning("Could not parse JSON from event data: %s", e)
-            self.model["further_info"] = self.actor_input
+            self.model.further_info = self.model.actor_input
 
     def on_exit_ai_conducts_research(self, event_data: EventData):
-        self.model.step_back_research = self.actor_input
+        self.model.step_back_research = self.model.actor_input

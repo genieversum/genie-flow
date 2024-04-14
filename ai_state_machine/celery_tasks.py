@@ -15,8 +15,7 @@ app = Celery(
 
 @app.task
 def trigger_ai_event(response: str, cls_fqn: str, session_id: str, event_name: str):
-    lock = get_lock_for_session(session_id)
-    with lock.acquire():
+    with get_lock_for_session(session_id):
         model = retrieve_model(cls_fqn, session_id=session_id)
         model.running_task_id = None
 

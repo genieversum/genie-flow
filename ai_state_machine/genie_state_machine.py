@@ -207,7 +207,7 @@ class GenieStateMachine(StateMachine):
 
         return None
 
-    def on_advance(self, target: State):
+    def on_advance(self, event_data: EventData):
         """
         This hook is called when an 'advance' event is received. These mean that output was shown
         to the user (for instance, an intermediate result) and that the client wants the
@@ -216,6 +216,12 @@ class GenieStateMachine(StateMachine):
         """
         logger.debug(f"Advance event received")
         self.model.actor = self._ai_actor_name
+
+        # TODO what if there are more than one event leading out the the future state
+        event_to_send_after = event_data.target.transitions.unique_events[0]
+        task = self.create_ai_call(self.current_template, event_to_send_after)
+        self.model.running_task_id = task.apply_async().id
+        return self.model.running_task_id
 
     def after_transition(self, state: State, **kwargs):
         logger.info(f"== concluding transition into state {state.name} ({state.id})")

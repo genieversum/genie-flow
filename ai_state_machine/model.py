@@ -88,6 +88,10 @@ class AIStatusResponse(GenieMessage):
 
 
 class AIResponse(GenieMessage):
+    error: Optional[str] = Field(
+        None,
+        description="A potential error message"
+    )
     response: Optional[str] = Field(
         None,
         description="The text response from the AI service"

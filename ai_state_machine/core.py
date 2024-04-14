@@ -1,5 +1,7 @@
 import uuid
 
+from statemachine.exceptions import TransitionNotAllowed
+
 from ai_state_machine.genie_state_machine import GenieModel
 from ai_state_machine.model import EventInput, AIResponse, AIStatusResponse
 from ai_state_machine.store import get_lock_for_session
@@ -48,20 +50,25 @@ def _handle_event(event: EventInput, model: GenieModel) -> AIResponse:
 
 
 def process_event(event: EventInput, cls: type[GenieModel]) -> AIResponse:
-    lock = get_lock_for_session(event.session_id)
-    with lock.acquire():
+    with get_lock_for_session(event.session_id):
         models = cls.select(ids=[event.session_id])
         assert len(models) == 1
         model = models[0]
 
         if event.event == "poll":
-            return _handle_poll(event)
-        return _handle_event(event, model)
+            return _handle_poll(event, model)
+
+        try:
+            return _handle_event(event, model)
+        except TransitionNotAllowed as e:
+            return AIResponse(
+                session_id=event.session_id,
+                error=str(e),
+            )
 
 
 def get_task_state(session_id: str, model_class: type[GenieModel]) -> AIStatusResponse:
-    lock = get_lock_for_session(session_id)
-    with lock.acquire():
+    with get_lock_for_session(session_id):
         models = model_class.select(ids=[session_id])
         assert len(models) == 1
         model = models[0]
@@ -81,8 +88,7 @@ def get_task_state(session_id: str, model_class: type[GenieModel]) -> AIStatusRe
 
 
 def get_model(session_id: str, model_class: type[GenieModel]) -> GenieModel:
-    lock = get_lock_for_session(session_id)
-    with lock.acquire():
+    with get_lock_for_session(session_id):
         models = model_class.select(ids=[session_id])
         assert len(models) == 1
         model = models[0]

@@ -1,0 +1,51 @@
+import json
+import time
+
+import requests
+
+HOST = 'http://127.0.0.1:8000'
+
+response = requests.get(f"{HOST}/v1/start_session")
+ai_response = response.json()
+session_id = ai_response['session_id']
+
+while True:
+    if ai_response["error"]:
+        print(ai_response["error"])
+        break
+
+    if ai_response["response"]:
+        print(ai_response["response"])
+
+    if "user_input" in ai_response["next_actions"]:
+        user_input = input("\n >> ")
+        event = dict(
+            session_id=session_id,
+            event="user_input",
+            event_input=user_input,
+        )
+
+    elif "poll" in ai_response["next_actions"]:
+        time.sleep(1)
+        event = dict(
+            session_id=session_id,
+            event="poll",
+            event_input="",
+        )
+
+    elif "advance" in ai_response["next_actions"]:
+        event = dict(
+            session_id=session_id,
+            event="advance",
+            event_input="",
+        )
+
+    else:
+        print("BOOP")
+        break
+
+    print(">>", json.dumps(event))
+    response = requests.post(f"{HOST}/v1/event", json=event)
+    response.raise_for_status()
+    ai_response = response.json()
+    print("<<", json.dumps(ai_response))

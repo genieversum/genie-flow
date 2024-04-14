@@ -54,9 +54,10 @@ def retrieve_model(class_fqn: str, session_id: str = None) -> Model:
 
 
 def get_lock_for_session(session_id: str) -> redis_lock.Lock:
-    return redis_lock.Lock(
+    lock = redis_lock.Lock(
         STORE.redis_store,
         name=f"lock-{session_id}",
         expire=60,
         auto_renewal=True,
     )
+    return lock
