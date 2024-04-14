@@ -6,3 +6,4 @@ loguru
 fastapi
 celery
 redis
+python-redis-lock

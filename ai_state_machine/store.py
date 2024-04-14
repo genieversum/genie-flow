@@ -4,6 +4,7 @@ import logging
 from types import ModuleType
 from typing import Any
 
+import redis_lock
 from pydantic_redis import Model, Store, RedisConfig
 
 STORE = Store(
@@ -50,3 +51,12 @@ def retrieve_model(class_fqn: str, session_id: str = None) -> Model:
     models = cls.select(ids=[session_id])
     assert len(models) == 1
     return models[0]
+
+
+def get_lock_for_session(session_id: str) -> redis_lock.Lock:
+    return redis_lock.Lock(
+        STORE.redis_store,
+        name=f"lock-{session_id}",
+        expire=60,
+        auto_renewal=True,
+    )

@@ -2,10 +2,9 @@ import time
 
 from celery import Celery
 
-from ai_state_machine.model import ContentType  #, DialogueElement
 from ai_state_machine.model import CompositeContentType
-from ai_state_machine.store import store_model, retrieve_model, STORE
-# from example_claims.claims import ClaimsModel
+from ai_state_machine.store import store_model, retrieve_model, STORE, get_lock_for_session
+
 
 app = Celery(
     "My Little AI App",
@@ -13,30 +12,18 @@ app = Celery(
     broker="pyamqp://",
 )
 
-# STORE.register_model(ClaimsModel)
-# STORE.register_model(DialogueElement)
-
-
-# app.conf.update(
-#     task_serializer="pickle",
-#     result_serializer="pickle",
-#     event_serializer="pickle",
-#     accept_content=["pickle"],
-#     task_accept_content=["pickle"],
-#     result_accept_content=["pickle"],
-#     event_accept_content=["pickle"],
-# )
-
 
 @app.task
 def trigger_ai_event(response: str, cls_fqn: str, session_id: str, event_name: str):
-    model = retrieve_model(cls_fqn, session_id=session_id)
-    model.running_task_id = None
+    lock = get_lock_for_session(session_id)
+    with lock.acquire():
+        model = retrieve_model(cls_fqn, session_id=session_id)
+        model.running_task_id = None
 
-    state_machine = model.create_state_machine()
-    state_machine.send(event_name, response)
+        state_machine = model.create_state_machine()
+        state_machine.send(event_name, response)
 
-    store_model(model)
+        store_model(model)
 
 
 @app.task
