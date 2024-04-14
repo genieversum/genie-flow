@@ -7,3 +7,4 @@ fastapi
 celery
 redis
 python-redis-lock
+openai
