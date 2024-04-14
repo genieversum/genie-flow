@@ -6,7 +6,7 @@ from statemachine import State
 from pydantic import Field
 from statemachine.event_data import EventData
 
-import prompts as p
+from example_work_order import prompts as p
 from ai_state_machine.genie_state_machine import GenieStateMachine, GenieModel
 
 
@@ -115,7 +115,7 @@ if __name__ == "__main__":
     # dot = graph()
     # dot.write_png("work-order-state-machine.png")
 
-    with open("test-script.txt", "r") as script_file:
+    with open("../test-script.txt", "r") as script_file:
         for script_line in script_file:
             line_parts = script_line.split(":")
             actor = line_parts[0].strip().upper()

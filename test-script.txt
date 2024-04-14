@@ -1,6 +1,0 @@
-me: I fixed a leak. It was a big one.
-ai: leak
-me: yes
-ai: YES
-ai: some leak details
-me: yes
