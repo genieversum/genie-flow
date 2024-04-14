@@ -188,11 +188,7 @@ class GenieStateMachine(StateMachine):
         logger.debug(f"User input event received")
         self.model.actor = self._user_actor_name
 
-        # TODO what if there are more than one event leading out the the future state
-        event_to_send_after = event_data.target.transitions.unique_events[0]
-        task = self.create_ai_call(self.current_template, event_to_send_after)
-        self.model.running_task_id = task.apply_async().id
-        return self.model.running_task_id
+        return self.run_task(event_data)
 
     def on_ai_extraction(self, target: State):
         """
@@ -217,11 +213,7 @@ class GenieStateMachine(StateMachine):
         logger.debug(f"Advance event received")
         self.model.actor = self._ai_actor_name
 
-        # TODO what if there are more than one event leading out the the future state
-        event_to_send_after = event_data.target.transitions.unique_events[0]
-        task = self.create_ai_call(self.current_template, event_to_send_after)
-        self.model.running_task_id = task.apply_async().id
-        return self.model.running_task_id
+        return self.run_task(event_data)
 
     def after_transition(self, state: State, **kwargs):
         logger.info(f"== concluding transition into state {state.name} ({state.id})")
@@ -260,12 +252,19 @@ class GenieStateMachine(StateMachine):
             )
         raise ValueError(f"trying to compile a task for a render of type '{type(template)}'")
 
-    def create_ai_call(self, template: CompositeTemplateType, event_to_send_after: str):
+    def create_ai_task(self, template: CompositeTemplateType, event_to_send_after: str):
         fqn = get_fully_qualified_name_from_class(self.model)
         return chain(
             self._compile_task(template),
             trigger_ai_event.s(fqn, self.model.session_id, event_to_send_after),
         )
+
+    def run_task(self, event_data: EventData) -> str:
+        # TODO what if there are more than one event leading out the the future state
+        event_to_send_after = event_data.target.transitions.unique_events[0]
+        task = self.create_ai_task(self.current_template, event_to_send_after)
+        self.model.running_task_id = task.apply_async().id
+        return self.model.running_task_id
 
     # VALIDATIONS AND CONDITIONS
     def is_valid_response(self, event_data: EventData):
