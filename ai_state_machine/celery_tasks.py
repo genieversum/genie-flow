@@ -47,7 +47,7 @@ def call_llm_api(prompt: str) -> str:
 
 
 @app.task
-def combine_group_to_dict(results: list[ContentType], keys: list[str]) -> CompositeContentType:
+def combine_group_to_dict(results: list[CompositeContentType], keys: list[str]) -> CompositeContentType:
     return {
         keys[i]: results[i]
         for i in range(len(keys))

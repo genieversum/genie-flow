@@ -41,27 +41,47 @@ def start_event(event: EventInput):
     assert len(models) == 1
     model = models[0]
 
+    if event.event == "poll":
+        if model.running_task_id is not None:
+            return AIResponse(session_id=event.session_id, next_actions=['poll'])
+
+        state_machine = model.create_state_machine()
+        return AIResponse(
+            session_id=event.session_id,
+            response=state_machine.model.current_response.actor_text,
+            next_actions=state_machine.current_state.transitions.unique_events,
+        )
+
     state_machine = model.create_state_machine()
     state_machine.send(event.event, event.event_input)
     ClaimsModel.insert(model)
 
-    response = state_machine.model.current_response.actor_text
+    if model.running_task_id is not None:
+        return AIResponse(session_id=event.session_id, next_actions=['poll'])
     return AIResponse(
         session_id=event.session_id,
-        response=response,
+        response=state_machine.model.current_response.actor_text,
         next_actions=state_machine.current_state.transitions.unique_events,
     )
 
 
 @app.get("/v1/task_state/{session_id}")
-def get_tast_state(session_id: str):
+def get_task_state(session_id: str):
     models = ClaimsModel.select(ids=[session_id])
     assert len(models) == 1
     model = models[0]
 
+    if model.running_task_id is not None:
+        return AIStatusResponse(
+            session_id=session_id,
+            ready=False,
+        )
+
+    state_machine = model.create_state_machine()
     return AIStatusResponse(
         session_id=session_id,
-        ready=model.running_task_id is None
+        ready=True,
+        next_actions=state_machine.current_state.transitions.unique_events,
     )
 
 

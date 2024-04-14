@@ -1,7 +1,7 @@
 import collections
 import json
 import uuid
-from abc import abstractmethod
+from abc import abstractmethod, ABC
 from datetime import datetime
 from enum import Enum
 from typing import overload, Iterable, MutableSequence, Union
@@ -69,3 +69,9 @@ class DialogueFormat(Enum):
             case cls.QUESTION_ANSWER:
                 # TODO figure something out for question / answer
                 raise NotImplementedError()
+
+
+class GenieMessage(BaseModel, ABC):
+    session_id: str = Field(
+        description="the Session ID associated with the interface message"
+    )

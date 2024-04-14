@@ -13,9 +13,9 @@ import example_claims.prompts as p
 from ai_state_machine.store import STORE
 
 
-def store_model(model: GenieModel) -> None:
-    ClaimsModel.insert(model)
-
+# def store_model(model: GenieModel) -> None:
+#     ClaimsModel.insert(model)
+#
 #
 # def retrieve_model(session_id: str) -> Optional[GenieModel]:
 #     try:
