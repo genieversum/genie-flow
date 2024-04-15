@@ -4,6 +4,7 @@ import time
 
 from celery import Celery
 import openai
+from openai.types.chat.completion_create_params import ResponseFormat
 
 from ai_state_machine.model import CompositeContentType
 from ai_state_machine.store import store_model, retrieve_model, STORE, get_lock_for_session
@@ -38,18 +39,19 @@ def trigger_ai_event(response: str, cls_fqn: str, session_id: str, event_name: s
 
 @app.task
 def call_llm_api(prompt: str) -> str:
+    response_format = ResponseFormat(type="json_object") if "JSON" in prompt else None
     response = _OPENAI_CLIENT.chat.completions.create(
         model=deployment_name,
         messages=[
             # {"role": "system", "content": json_instructions},
-            {"role": "system", "content": prompt}
+            {"role": "user", "content": prompt}
         ],
-        response_format={"type": "json_object"}
+        response_format=response_format,
     )
 
     try:
-        result_data = json.loads(response['choices'][0]['message']['content'])
-        return response['choices'][0]['message']['content']
+        # result_data = json.loads(response['choices'][0]['message']['content'])
+        return response.choices[0].message.content
     except Exception as e:
         print(f"Error: {e}")
         return f"** call to OpenAI API failed; error: {str(e)}"

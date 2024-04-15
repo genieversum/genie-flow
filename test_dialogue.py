@@ -40,6 +40,10 @@ while True:
             event_input="",
         )
 
+    elif len(ai_response["next_actions"]) == 0:
+        print("---")
+        break
+
     else:
         print("BOOP")
         break

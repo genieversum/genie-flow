@@ -13,29 +13,51 @@ The first question is: Which of these options best describes your role?
 - Claims manager"""
 )
 
+AI_EXTRACTING_USER_ROLE = Template(
+    """
+You are an AI text classifier designed to determine a user role.
+You will be given a description of a user role by a user. Your task is to determine what
+the user role is that they describe.
+
+The user roles that you can choose from are the following:
+- 'product formulator': someone who creates the (often chemical) formulation of a product
+- 'ingredients specialist': someone who understands the effects of different ingredients in a product
+- 'sensory expert': someone who understands the sensory aspects of a product
+- 'packaging specialist': someone who deals with all packaging aspects of a product
+- 'claims manager': someone who specialises in the claims that are made about a product
+
+If the user input does not provide enough information to classify the role of the user,
+answer with the user role 'unknown' and friendly ask the user again for their role. 
+    """
+)
+
 AI_EXTRACTING_INFO_PROMPT = Template(
     """
-You are a meticulous AI assistant designed to ask follow-up questions based on missing parts in 'chat_history' or to say "STOP" if there is nothing missing in 'chat_history'.
+You are a meticulous AI assistant designed to ask follow-up questions based on missing parts
+in 'chat_history' or to say "STOP" if there is nothing missing in 'chat_history'.
 
 Let's do it step by step.
 
-'chat_history' is a list of question-answer pairs.
+'chat_history' is a list of statements made by 
 'chat_history' must contain questions asking for the following required pieces of information:
 
-- The role of the user (the answer to this question should be either a claims manager, packaging specialist, sensory expert or product formulator)
-- A description of the product they want to market that might detail ingredients, benefits and/or sensory experience
+- The role of the user (the answer to this question should be either a claims manager, 
+  packaging specialist, sensory expert or product formulator)
+- A description of the product they want to market that might detail ingredients, 
+  benefits and/or sensory experience
 - A description of the target persona to be advertised to
 
-If there is no more of the required information that can be provided based on the contents in 'chat_history', you must response "STOP".
+If there is no more of the required information that can be provided based on the contents in
+'chat_history', you must response "STOP".
 
-If there are more questions to ask based on the answers provided, you must determine a follow-up question.
-For example if chat_history = "[("What is your role?","I am a claims manager"), ("What product do you want to market?","A body moisturiser")], 
+If there are more questions to ask based on the answers provided, you must determine a follow-up
+question. For example if chat_history = "[("What is your role?","I am a claims manager"), ("What product do you want to market?","A body moisturiser")], 
 you could ask one of these example questions
 "What are the ingredients in this product?" or "What sensory experience did you have in mind for the product?" or "Tell me about the target market persona"
 
 chat_history
 ---
-{{dialogue}}
+{{chat_history}}
 ---
 
 Make sure your response is a follow-up question to gather more of the required information detailed above, or "STOP" if all of the possible questions
@@ -64,11 +86,11 @@ that belong in the respective category. If there are no parts identified, you ca
 
 chat_history
 ---
-{{dialogue}}
+{{chat_history}}
 
 ---
-Please ensure that your response is a json object of categorised information from 'chat_history'.
-Here is the json schema that you must adhere to:
+Please ensure that your response is a JSON object of categorised information from 'chat_history'.
+Here is the JSON schema that you must adhere to:
 {
     user_role: < STR: The role of the user (normally found in the first array) >,
     product_description: < STR: A description of the product they want to market that might detail ingredients, benefits and/or sensory experience >,
@@ -78,7 +100,7 @@ Here is the json schema that you must adhere to:
             """
 )
 
-USER_VIEUWING_START_OF_GENERATION = """
+USER_VIEWING_START_OF_GENERATION = """
 I have now received all the information that I need from you. 
 
 Let me categorise this information for you. Hold tight...
