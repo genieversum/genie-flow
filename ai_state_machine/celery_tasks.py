@@ -1,4 +1,5 @@
 import json
+import os
 import time
 
 from celery import Celery
@@ -15,10 +16,11 @@ app = Celery(
 )
 
 
-openai.api_type = 'azure'
-openai.api_key = "SOME_KEY"
-openai.api_base = "SOME ENDPOINT"
-openai.api_version = '2024-02-15-preview'
+_OPENAI_CLIENT = openai.AzureOpenAI(
+    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+    api_version="2024-02-15-preview",
+    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+)
 deployment_name = 'SOME DEPLOYMENT NAME'
 
 
@@ -36,8 +38,8 @@ def trigger_ai_event(response: str, cls_fqn: str, session_id: str, event_name: s
 
 @app.task
 def call_llm_api(prompt: str) -> str:
-    response = openai.ChatCompletion.create(
-        engine=deployment_name,
+    response = _OPENAI_CLIENT.chat.completions.create(
+        model=deployment_name,
         messages=[
             # {"role": "system", "content": json_instructions},
             {"role": "system", "content": prompt}
@@ -50,7 +52,7 @@ def call_llm_api(prompt: str) -> str:
         return response['choices'][0]['message']['content']
     except Exception as e:
         print(f"Error: {e}")
-        return None
+        return f"** call to OpenAI API failed; error: {str(e)}"
 
 
 @app.task
