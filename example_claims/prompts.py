@@ -28,6 +28,9 @@ The user roles that you can choose from are the following:
 
 If the user input does not provide enough information to classify the role of the user,
 answer with the user role 'unknown' and friendly ask the user again for their role. 
+
+Here follows the user input:
+{{actor_input}}
     """
 )
 

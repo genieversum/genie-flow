@@ -100,6 +100,8 @@ class ClaimsMachine(GenieStateMachine):
     # TEMPLATES
     templates: dict[str, Union[str, Template, dict[str]]] = dict(
         user_entering_role=p.USER_ENTERING_ROLE_PROMPT,
+        ai_extracts_user_role=p.AI_EXTRACTING_USER_ROLE,
+        user_entering_role_retry=Template("{{actor_input}}"),
         ai_extracts_information=p.AI_EXTRACTING_INFO_PROMPT,
         user_enters_additional_information=Template("{{actor_input}}"),
         user_views_start_of_generation=p.USER_VIEWING_START_OF_GENERATION,

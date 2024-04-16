@@ -75,6 +75,15 @@ class GenieStateMachine(StateMachine):
         self.current_template: Optional[CompositeTemplateType] = None
         super(GenieStateMachine, self).__init__(model=model)
 
+        templates = getattr(self, templates_property_name)
+        missing_templates = [
+            state.id
+            for state in self.states
+            if state.id not in templates
+        ]
+        if missing_templates:
+            raise ValueError(f"Missing templates for states: {', '.join(missing_templates)}")
+
         if new_session:
             initial_prompt = self.get_target_rendering(self.current_state)
             self.model.dialogue.append(
