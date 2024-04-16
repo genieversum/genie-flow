@@ -62,7 +62,7 @@ class DialogueFormat(Enum):
             case cls.JSON:
                 return json.dumps([e.model_dump() for e in dialogue])
             case cls.CHAT:
-                "\n\n".join(
+                return "\n\n".join(
                     f"[{e.actor.upper()}]: {e.actor_text}"
                     for e in dialogue
                 )

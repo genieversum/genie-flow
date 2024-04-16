@@ -29,8 +29,20 @@ The user roles that you can choose from are the following:
 If the user input does not provide enough information to classify the role of the user,
 answer with the user role 'unknown' and friendly ask the user again for their role. 
 
+Make sure that you only output the name of the role that you have determined.
+
 Here follows the user input:
 {{actor_input}}
+    """
+)
+
+USE_ENTERING_INITIAL_INFORMATION = Template(
+    """
+I have determined that your role is '{{user_role}}'.
+
+In order to create new claims for your product, I need some information. Can you please
+provider me with a description of the product that you are marketing as well as the target
+persona that you want your claim to appeal to? 
     """
 )
 
@@ -57,6 +69,8 @@ If there are more questions to ask based on the answers provided, you must deter
 question. For example if chat_history = "[("What is your role?","I am a claims manager"), ("What product do you want to market?","A body moisturiser")], 
 you could ask one of these example questions
 "What are the ingredients in this product?" or "What sensory experience did you have in mind for the product?" or "Tell me about the target market persona"
+
+The user role is: {{user_role}}
 
 chat_history
 ---

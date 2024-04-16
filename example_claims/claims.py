@@ -61,8 +61,9 @@ class ClaimsMachine(GenieStateMachine):
     ai_extracts_user_role = State(value=110)
     user_entering_role_retry = State(value=120)
 
-    user_enters_additional_information = State(value=200)
-    ai_extracts_information = State(value=210)
+    user_entering_initial_information = State(value=150)
+    ai_extracts_information = State(value=200)
+    user_enters_additional_information = State(value=210)
 
     # generating claims
     user_views_start_of_generation = State(value=300)
@@ -77,11 +78,12 @@ class ClaimsMachine(GenieStateMachine):
     user_input = (
         user_entering_role.to(ai_extracts_user_role) |
         user_entering_role_retry.to(ai_extracts_user_role) |
+        user_entering_initial_information.to(ai_extracts_information) |
         user_enters_additional_information.to(ai_extracts_information)
     )
 
     ai_extraction = (
-        ai_extracts_user_role.to(user_enters_additional_information, cond="user_role_defined") |
+        ai_extracts_user_role.to(user_entering_initial_information, cond="user_role_defined") |
         ai_extracts_user_role.to(user_entering_role_retry, unless="user_role_defined") |
 
         ai_extracts_information.to(user_views_start_of_generation, cond="have_all_info") |
@@ -101,9 +103,10 @@ class ClaimsMachine(GenieStateMachine):
     templates: dict[str, Union[str, Template, dict[str]]] = dict(
         user_entering_role=p.USER_ENTERING_ROLE_PROMPT,
         ai_extracts_user_role=p.AI_EXTRACTING_USER_ROLE,
-        user_entering_role_retry=Template("{{actor_input}}"),
+        user_entering_role_retry=Template("Sorry. I cannot make out your role.\n{{actor_input}}"),
+        user_entering_initial_information=p.USE_ENTERING_INITIAL_INFORMATION,
         ai_extracts_information=p.AI_EXTRACTING_INFO_PROMPT,
-        user_enters_additional_information=Template("{{actor_input}}"),
+        user_enters_additional_information=Template("I need more information.\n{{actor_input}}"),
         user_views_start_of_generation=p.USER_VIEWING_START_OF_GENERATION,
         ai_extracts_categories=p.AI_EXTRACTING_CATEGORIES_PROMPT,
         user_views_categories=p.USER_VIEWING_CATEGORIES_PROMPT,
@@ -115,10 +118,17 @@ class ClaimsMachine(GenieStateMachine):
 
     # CONDITIONS
     def user_role_defined(self, event_data: EventData):
-        return self.model.user_role is not None and self.model.user_role != "undefined"
+        if len(event_data.args) == 0:
+            return False
+
+        ai_output = event_data.args[0]
+        return ai_output is not None and ai_output != "undefined"
 
     def have_all_info(self, event_data: EventData):
-        return "STOP" in self.model.actor_input.upper()
+        if len(event_data.args) == 0:
+            return False
+
+        return "STOP" in event_data.args[0]
 
     # ACTIONS
     def on_exit_ai_extracts_user_role(self, event_data: EventData):
@@ -133,9 +143,13 @@ class ClaimsMachine(GenieStateMachine):
         """
         try:
             extracted_categories = json.loads(self.model.actor_input)
-            self.model.update(extracted_categories)
+            for k, v in extracted_categories.items():
+                setattr(self, k, v)
         except (JSONDecodeError, KeyError) as e:
             logging.warning("Could not parse JSON from event data: %s", e)
+            self.model.further_info = self.model.actor_input
+        except TypeError as e:
+            logging.warning("Could not update the model from event data: %s", e)
             self.model.further_info = self.model.actor_input
 
     def on_exit_ai_conducts_research(self, event_data: EventData):
