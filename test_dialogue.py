@@ -11,10 +11,13 @@ session_id = ai_response['session_id']
 
 while True:
     if ai_response["error"]:
+        print("===")
         print(ai_response["error"])
+        print("===")
         break
 
     if ai_response["response"]:
+        print("\n---")
         print(ai_response["response"])
 
     if "user_input" in ai_response["next_actions"]:
@@ -27,6 +30,7 @@ while True:
 
     elif "poll" in ai_response["next_actions"]:
         time.sleep(1)
+        print(".", end="", flush=True)
         event = dict(
             session_id=session_id,
             event="poll",
@@ -41,15 +45,15 @@ while True:
         )
 
     elif len(ai_response["next_actions"]) == 0:
-        print("---")
+        print("***")
         break
 
     else:
         print("BOOP")
         break
 
-    print(">>", json.dumps(event))
+    # print(">>", json.dumps(event))
     response = requests.post(f"{HOST}/v1/event", json=event)
     response.raise_for_status()
     ai_response = response.json()
-    print("<<", json.dumps(ai_response))
+    # print("<<", json.dumps(ai_response))

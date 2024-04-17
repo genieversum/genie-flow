@@ -144,7 +144,7 @@ class ClaimsMachine(GenieStateMachine):
         try:
             extracted_categories = json.loads(self.model.actor_input)
             for k, v in extracted_categories.items():
-                setattr(self, k, v)
+                setattr(self.model, k, v)
         except (JSONDecodeError, KeyError) as e:
             logging.warning("Could not parse JSON from event data: %s", e)
             self.model.further_info = self.model.actor_input
