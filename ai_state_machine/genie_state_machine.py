@@ -17,6 +17,20 @@ from ai_state_machine.store import get_fully_qualified_name_from_class
 
 
 class GenieModel(Model):
+    """
+    The base model for all models that will carry data in the dialogue. Contains the attributes
+    that are required and expected by the `GenieStateMachine` such as `state` and `session_id`/
+
+    This class also carries the dialogue - a list of `DialogueElement`s of the previous chat.
+
+    And it carries a number of state-dependent attributes that are important to the progress of
+    the dialogue, such as `running_task_id` which indicates if there is a currently running task,
+    as well as `actor` and `actor_text`, both indicators for the most recent interaction.
+
+    This class is a subclass of the pydantic_redis `Model` class, which makes it possible to
+    persist the values into Reids and retrieve it again by its primary key. The attribute
+    `_primary_key_field` is used to determine the name of the primary key.
+    """
     _primary_key_field: str = "session_id"
 
     state: str | int | None = Field(
@@ -45,16 +59,30 @@ class GenieModel(Model):
 
     @property
     def state_machine_class(self) -> type["GenieStateMachine"]:
+        """
+        Property that returns the class of the state machine that this model should be
+        managed by.
+        """
         raise NotImplementedError()
 
     def create_state_machine(self) -> "GenieStateMachine":
+        """
+        Create and return a newly instantiated state machine, of the appropirate class,
+        that manages this instance of a model.
+        """
         return self.state_machine_class(model=self)
 
     @property
     def current_response(self) -> Optional[DialogueElement]:
+        """
+        Return the most recent `DialogueElement` from the dialogue list.
+        """
         return self.dialogue[-1] if len(self.dialogue) > 0 else None
 
     def format_dialogue(self, target_format: DialogueFormat) -> str:
+        """
+        Apply the given target format to the dialogue of this instance.
+        """
         return DialogueFormat.format(self.dialogue, target_format)
 
 

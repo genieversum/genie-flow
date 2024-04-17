@@ -15,6 +15,11 @@ STORE = Store(
 
 
 def get_fully_qualified_name_from_class(o: Any) -> str:
+    """
+    Creates the fully qualified name of the class of the given object.
+    :param o: The object of which to obtain the FQN form
+    :return: The fully qualified name of the class of the given object
+    """
     cls = o.__class__
     module = cls.__module__
     if module == 'builtins':
@@ -23,6 +28,11 @@ def get_fully_qualified_name_from_class(o: Any) -> str:
 
 
 def get_class_from_fully_qualified_name(class_path):
+    """
+    Get the actual class of the given fully qualified name.
+    :param class_path: The FQN of the class to retrieve
+    :return: The actual class that is referred to by the given FQN
+    """
     try:
         module_name, class_name = class_path.rsplit('.', 1)
         module = importlib.import_module(module_name)
@@ -34,6 +44,11 @@ def get_class_from_fully_qualified_name(class_path):
 
 
 def get_module_from_fully_qualified_name(class_fqn: str) -> ModuleType:
+    """
+    Get the module of the given fully qualified name of a class.
+    :param class_fqn: The FQN of a class to retrieve the module from
+    :return: The module that the class of the given FQN is in
+    """
     try:
         module_name, class_name = class_fqn.rsplit('.', 1)
         return importlib.import_module(module_name)
@@ -42,11 +57,21 @@ def get_module_from_fully_qualified_name(class_fqn: str) -> ModuleType:
         raise
 
 
-def store_model(model: Any) -> None:
+def store_model(model: Model) -> None:
+    """
+    Stores the given model into the configured Redis store.
+    :param model: The object to store
+    """
     model.__class__.insert(model)
 
 
 def retrieve_model(class_fqn: str, session_id: str = None) -> Model:
+    """
+    Retrieves the `GenieModel` that the given FQN refers to, from the configured Redis store
+    :param class_fqn: The FQN of the class to retrieve the model from
+    :param session_id: The id of the session that the object to retrieve belongs to
+    :raises ValueError: If there is zero or more than one instances with the given session_id
+    """
     cls = get_class_from_fully_qualified_name(class_fqn)
     models = cls.select(ids=[session_id])
     assert len(models) == 1
@@ -54,6 +79,12 @@ def retrieve_model(class_fqn: str, session_id: str = None) -> Model:
 
 
 def get_lock_for_session(session_id: str) -> redis_lock.Lock:
+    """
+    Retrieve the lock for the object for the given `session_id`. This ensures that only
+    one process will have access to the model and potentially make changes to it.
+    This lock can function as a context manager. See the documentation of `redis_lock.Lock`
+    :param session_id: The session id that the object in question belongs to
+    """
     lock = redis_lock.Lock(
         STORE.redis_store,
         name=f"lock-{session_id}",
