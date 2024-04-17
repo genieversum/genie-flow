@@ -87,6 +87,11 @@ class GenieModel(Model):
 
 
 class GenieStateMachine(StateMachine):
+    """
+    A State Machine class that is able to manage an AI driven dialogue and extract information
+    from it. The extracted information is stored in an accompanying data model (based on the
+    `GenieModel` class.
+    """
 
     def __init__(
             self,
@@ -160,6 +165,7 @@ class GenieStateMachine(StateMachine):
             return {k: self.render_template(t) for k, t in template.items()}
         if isinstance(template, Task):
             return template(self.render_data)
+        raise TypeError(f"Unsupported type of template {type(template)}")
 
     def get_target_rendering(self, target: State) -> str:
         """

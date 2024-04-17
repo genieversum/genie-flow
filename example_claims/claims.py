@@ -122,7 +122,7 @@ class ClaimsMachine(GenieStateMachine):
             return False
 
         ai_output = event_data.args[0]
-        return ai_output is not None and ai_output != "undefined"
+        return (ai_output is not None) and ("undetermined" not in ai_output)
 
     def have_all_info(self, event_data: EventData):
         if len(event_data.args) == 0:

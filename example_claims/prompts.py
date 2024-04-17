@@ -26,10 +26,11 @@ The user roles that you can choose from are the following:
 - 'packaging specialist': someone who deals with all packaging aspects of a product
 - 'claims manager': someone who specialises in the claims that are made about a product
 
-If the user input does not provide enough information to classify the role of the user,
-answer with the user role 'unknown' and friendly ask the user again for their role. 
+If you can determine the role of the user, make sure that you only output the name of that role.
 
-Make sure that you only output the name of the role that you have determined.
+If you cannot determine the role, say "Your role is undetermined. I need more information",
+followed with a simple question, giving examples of the user roles above, for the user to better
+understand their task and give a response from which you can determine their role.
 
 Here follows the user input:
 {{actor_input}}
