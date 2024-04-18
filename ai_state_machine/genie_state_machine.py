@@ -286,20 +286,26 @@ class GenieStateMachine(StateMachine):
             return template.s(self.render_data)
 
         if isinstance(template, list):
-            return chain(*[self._compile_task(t) for t in template])
+            chained = None
+            for t in template:
+                if chained is None:
+                    chained = t
+                else:
+                    chained |= t
+            return chained
         if isinstance(template, dict):
-            dict_keys = template.keys()  # make sure to go through keys in fixed order
-            return chain(
-                group(*[self._compile_task(template[k]) for k in dict_keys]),
+            dict_keys = list(template.keys())  # make sure to go through keys in fixed order
+            return (
+                group(*[self._compile_task(template[k]) for k in dict_keys]) |
                 combine_group_to_dict.s(dict_keys)
             )
         raise ValueError(f"trying to compile a task for a render of type '{type(template)}'")
 
     def create_ai_task(self, template: CompositeTemplateType, event_to_send_after: str):
         fqn = get_fully_qualified_name_from_class(self.model)
-        return chain(
-            self._compile_task(template),
-            trigger_ai_event.s(fqn, self.model.session_id, event_to_send_after),
+        return (
+            self._compile_task(template) |
+            trigger_ai_event.s(fqn, self.model.session_id, event_to_send_after)
         )
 
     def run_task(self, event_data: EventData) -> str:

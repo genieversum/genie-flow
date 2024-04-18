@@ -140,7 +140,7 @@ I will now conduct some background research on this. Bear with me.
     """
 )
 
-AI_CONDUCTING_RESEARCH_PROMPT = Template(
+AI_CONDUCTING_RESEARCH_PROMPT_INGREDIENTS = Template(
     """   
 You are an insightful AI that understands people and marketing.
 The task is to generate a statement that advertises a product designed for a target_persona.
@@ -150,11 +150,148 @@ Before this task takes place, it's time to step back and answer a few questions.
 marketed, "product_description", the target persona to be marketed to, "target_persona", and any
 further information, "further_info".
 
-You must use the information provided below to answer the following questions:
+You must use the information provided below to answer the following question:
 1. Would the target persona be interested in knowing about the ingredients of a product?
+
+---
+user role: 
+{{user_role}}
+
+---
+product description:
+{{product_description}}
+
+---
+target_persona:
+{{target_persona}}
+
+---
+further_info:
+{{further_info}}
+
+---
+Your response should be all the answers to these questions with the given information.
+Answer the questions in the order they are given in and explain why your answer is the most
+appropriate answer for each question.
+    """
+)
+
+AI_CONDUCTING_RESEARCH_PROMPT_BENEFITS = Template(
+    """   
+You are an insightful AI that understands people and marketing.
+The task is to generate a statement that advertises a product designed for a target_persona.
+Before this task takes place, it's time to step back and answer a few questions. 
+
+'user_information' contains the role of the user, "user_role", a description of the product to be 
+marketed, "product_description", the target persona to be marketed to, "target_persona", and any
+further information, "further_info".
+
+You must use the information provided below to answer the following question:
 2. What benefits in the product would the target persona be interested in?
+
+---
+user role: 
+{{user_role}}
+
+---
+product description:
+{{product_description}}
+
+---
+target_persona:
+{{target_persona}}
+
+---
+further_info:
+{{further_info}}
+
+---
+Your response should be all the answers to these questions with the given information.
+Answer the questions in the order they are given in and explain why your answer is the most
+appropriate answer for each question.
+    """
+)
+AI_CONDUCTING_RESEARCH_PROMPT_SENSORY = Template(
+    """   
+You are an insightful AI that understands people and marketing.
+The task is to generate a statement that advertises a product designed for a target_persona.
+Before this task takes place, it's time to step back and answer a few questions. 
+
+'user_information' contains the role of the user, "user_role", a description of the product to be 
+marketed, "product_description", the target persona to be marketed to, "target_persona", and any
+further information, "further_info".
+
+You must use the information provided below to answer the following question:
 3. What sort of sensory experience would the target persona be interested in with the product?
+
+---
+user role: 
+{{user_role}}
+
+---
+product description:
+{{product_description}}
+
+---
+target_persona:
+{{target_persona}}
+
+---
+further_info:
+{{further_info}}
+
+---
+Your response should be all the answers to these questions with the given information.
+Answer the questions in the order they are given in and explain why your answer is the most
+appropriate answer for each question.
+    """
+)
+AI_CONDUCTING_RESEARCH_PROMPT_MARKETING = Template(
+    """   
+You are an insightful AI that understands people and marketing.
+The task is to generate a statement that advertises a product designed for a target_persona.
+Before this task takes place, it's time to step back and answer a few questions. 
+
+'user_information' contains the role of the user, "user_role", a description of the product to be 
+marketed, "product_description", the target persona to be marketed to, "target_persona", and any
+further information, "further_info".
+
+You must use the information provided below to answer the following question:
 4. How would you market the product to the target persona?
+
+---
+user role: 
+{{user_role}}
+
+---
+product description:
+{{product_description}}
+
+---
+target_persona:
+{{target_persona}}
+
+---
+further_info:
+{{further_info}}
+
+---
+Your response should be all the answers to these questions with the given information.
+Answer the questions in the order they are given in and explain why your answer is the most
+appropriate answer for each question.
+    """
+)
+AI_CONDUCTING_RESEARCH_PROMPT_PACKAGING = Template(
+    """   
+You are an insightful AI that understands people and marketing.
+The task is to generate a statement that advertises a product designed for a target_persona.
+Before this task takes place, it's time to step back and answer a few questions. 
+
+'user_information' contains the role of the user, "user_role", a description of the product to be 
+marketed, "product_description", the target persona to be marketed to, "target_persona", and any
+further information, "further_info".
+
+You must use the information provided below to answer the following question:
 5. If the user role is not a packaging specialist, then ignore this question. If the user role is a 
 packaging specialist, then what specific recommendations do you have to package the product that 
 would appeal to the target persona?

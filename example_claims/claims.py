@@ -34,8 +34,7 @@ class ClaimsModel(GenieModel):
         None,
         description="any further relevant information",
     )
-
-    step_back_research: Optional[str] = Field(
+    step_back_research: Optional[dict[str, str]] = Field(
         None,
         description="output of the step-back research",
     )
@@ -110,7 +109,13 @@ class ClaimsMachine(GenieStateMachine):
         user_views_start_of_generation=p.USER_VIEWING_START_OF_GENERATION,
         ai_extracts_categories=p.AI_EXTRACTING_CATEGORIES_PROMPT,
         user_views_categories=p.USER_VIEWING_CATEGORIES_PROMPT,
-        ai_conducts_research=p.AI_CONDUCTING_RESEARCH_PROMPT,
+        ai_conducts_research=dict(
+            ingredients=p.AI_CONDUCTING_RESEARCH_PROMPT_INGREDIENTS,
+            benefits=p.AI_CONDUCTING_RESEARCH_PROMPT_BENEFITS,
+            sensory=p.AI_CONDUCTING_RESEARCH_PROMPT_SENSORY,
+            marketing=p.AI_CONDUCTING_RESEARCH_PROMPT_MARKETING,
+            packaging=p.AI_CONDUCTING_RESEARCH_PROMPT_PACKAGING,
+        ),
         user_views_research=p.USER_VIEWING_BACKGROUND_RESEARCH_PROMPT,
         ai_generates_claims=p.AI_GENERATES_CLAIMS_PROMPT,
         user_views_claims=p.USER_VIEWS_GENERATED_CLAIMS,
