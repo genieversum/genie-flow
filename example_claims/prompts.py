@@ -151,7 +151,7 @@ marketed, "product_description", the target persona to be marketed to, "target_p
 further information, "further_info".
 
 You must use the information provided below to answer the following question:
-1. Would the target persona be interested in knowing about the ingredients of a product?
+Would the target persona be interested in knowing about the ingredients of a product?
 
 ---
 user role: 
@@ -170,9 +170,9 @@ further_info:
 {{further_info}}
 
 ---
-Your response should be all the answers to these questions with the given information.
-Answer the questions in the order they are given in and explain why your answer is the most
-appropriate answer for each question.
+
+Your response should be the answers to the question, using the given information.
+Explain why your answer is the most appropriate answer for that question.
     """
 )
 
@@ -187,7 +187,7 @@ marketed, "product_description", the target persona to be marketed to, "target_p
 further information, "further_info".
 
 You must use the information provided below to answer the following question:
-2. What benefits in the product would the target persona be interested in?
+What benefits in the product would the target persona be interested in?
 
 ---
 user role: 
@@ -206,9 +206,9 @@ further_info:
 {{further_info}}
 
 ---
-Your response should be all the answers to these questions with the given information.
-Answer the questions in the order they are given in and explain why your answer is the most
-appropriate answer for each question.
+
+Your response should be the answers to the question, using the given information.
+Explain why your answer is the most appropriate answer for that question.
     """
 )
 AI_CONDUCTING_RESEARCH_PROMPT_SENSORY = Template(
@@ -222,7 +222,7 @@ marketed, "product_description", the target persona to be marketed to, "target_p
 further information, "further_info".
 
 You must use the information provided below to answer the following question:
-3. What sort of sensory experience would the target persona be interested in with the product?
+What sort of sensory experience would the target persona be interested in with the product?
 
 ---
 user role: 
@@ -241,9 +241,9 @@ further_info:
 {{further_info}}
 
 ---
-Your response should be all the answers to these questions with the given information.
-Answer the questions in the order they are given in and explain why your answer is the most
-appropriate answer for each question.
+
+Your response should be the answers to the question, using the given information.
+Explain why your answer is the most appropriate answer for that question.
     """
 )
 AI_CONDUCTING_RESEARCH_PROMPT_MARKETING = Template(
@@ -257,7 +257,7 @@ marketed, "product_description", the target persona to be marketed to, "target_p
 further information, "further_info".
 
 You must use the information provided below to answer the following question:
-4. How would you market the product to the target persona?
+How would you market the product to the target persona?
 
 ---
 user role: 
@@ -276,9 +276,9 @@ further_info:
 {{further_info}}
 
 ---
-Your response should be all the answers to these questions with the given information.
-Answer the questions in the order they are given in and explain why your answer is the most
-appropriate answer for each question.
+
+Your response should be the answers to the question, using the given information.
+Explain why your answer is the most appropriate answer for that question.
     """
 )
 AI_CONDUCTING_RESEARCH_PROMPT_PACKAGING = Template(
@@ -292,9 +292,8 @@ marketed, "product_description", the target persona to be marketed to, "target_p
 further information, "further_info".
 
 You must use the information provided below to answer the following question:
-5. If the user role is not a packaging specialist, then ignore this question. If the user role is a 
-packaging specialist, then what specific recommendations do you have to package the product that 
-would appeal to the target persona?
+What specific recommendations do you have to package the product that would appeal to the
+target persona?
 
 ---
 user role: 
@@ -313,9 +312,9 @@ further_info:
 {{further_info}}
 
 ---
-Your response should be all the answers to these questions with the given information.
-Answer the questions in the order they are given in and explain why your answer is the most
-appropriate answer for each question.
+
+Your response should be the answers to the question, using the given information.
+Explain why your answer is the most appropriate answer for that question.
     """
 )
 

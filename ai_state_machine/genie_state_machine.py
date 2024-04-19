@@ -2,7 +2,7 @@ import logging
 from typing import Optional
 
 from celery import chain, group, Task
-from celery.canvas import Signature
+from celery.canvas import Signature, chord
 from jinja2 import Template
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -295,16 +295,16 @@ class GenieStateMachine(StateMachine):
             return chained
         if isinstance(template, dict):
             dict_keys = list(template.keys())  # make sure to go through keys in fixed order
-            return (
-                group(*[self._compile_task(template[k]) for k in dict_keys]) |
+            return chord(
+                group(*[self._compile_task(template[k]) for k in dict_keys]),
                 combine_group_to_dict.s(dict_keys)
             )
         raise ValueError(f"trying to compile a task for a render of type '{type(template)}'")
 
     def create_ai_task(self, template: CompositeTemplateType, event_to_send_after: str):
         fqn = get_fully_qualified_name_from_class(self.model)
-        return (
-            self._compile_task(template) |
+        return chord(
+            self._compile_task(template),
             trigger_ai_event.s(fqn, self.model.session_id, event_to_send_after)
         )
 
