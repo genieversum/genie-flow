@@ -2,7 +2,7 @@ import logging
 from typing import Optional
 
 from celery import chain, group, Task
-from celery.canvas import Signature
+from celery.canvas import Signature, chord
 from jinja2 import Template
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -286,10 +286,16 @@ class GenieStateMachine(StateMachine):
             return template.s(self.render_data)
 
         if isinstance(template, list):
-            return chain(*[self._compile_task(t) for t in template])
+            chained = None
+            for t in template:
+                if chained is None:
+                    chained = t
+                else:
+                    chained |= t
+            return chained
         if isinstance(template, dict):
-            dict_keys = template.keys()  # make sure to go through keys in fixed order
-            return chain(
+            dict_keys = list(template.keys())  # make sure to go through keys in fixed order
+            return chord(
                 group(*[self._compile_task(template[k]) for k in dict_keys]),
                 combine_group_to_dict.s(dict_keys)
             )
@@ -297,9 +303,9 @@ class GenieStateMachine(StateMachine):
 
     def create_ai_task(self, template: CompositeTemplateType, event_to_send_after: str):
         fqn = get_fully_qualified_name_from_class(self.model)
-        return chain(
+        return chord(
             self._compile_task(template),
-            trigger_ai_event.s(fqn, self.model.session_id, event_to_send_after),
+            trigger_ai_event.s(fqn, self.model.session_id, event_to_send_after)
         )
 
     def run_task(self, event_data: EventData) -> str:

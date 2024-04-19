@@ -34,8 +34,7 @@ class ClaimsModel(GenieModel):
         None,
         description="any further relevant information",
     )
-
-    step_back_research: Optional[str] = Field(
+    step_back_research: Optional[dict[str, str]] = Field(
         None,
         description="output of the step-back research",
     )
@@ -70,6 +69,7 @@ class ClaimsMachine(GenieStateMachine):
     ai_extracts_categories = State(value=310)
     user_views_categories = State(value=320)
     ai_conducts_research = State(value=330)
+    ai_conducts_research_with_packaging = State(value=332)
     user_views_research = State(value=340)
     ai_generates_claims = State(value=350)
     user_views_claims = State(value=360, final=True)
@@ -90,12 +90,20 @@ class ClaimsMachine(GenieStateMachine):
         ai_extracts_information.to(user_enters_additional_information, unless="have_all_info") |
         ai_extracts_categories.to(user_views_categories) |
         ai_conducts_research.to(user_views_research) |
+        ai_conducts_research_with_packaging.to(user_views_research) |
         ai_generates_claims.to(user_views_claims)
     )
 
     advance = (
         user_views_start_of_generation.to(ai_extracts_categories) |
-        user_views_categories.to(ai_conducts_research) |
+        user_views_categories.to(
+            ai_conducts_research,
+            unless="user_is_packaging_specialist",
+        ) |
+        user_views_categories.to(
+            ai_conducts_research_with_packaging,
+            cond="user_is_packaging_specialist",
+        ) |
         user_views_research.to(ai_generates_claims)
     )
 
@@ -110,7 +118,19 @@ class ClaimsMachine(GenieStateMachine):
         user_views_start_of_generation=p.USER_VIEWING_START_OF_GENERATION,
         ai_extracts_categories=p.AI_EXTRACTING_CATEGORIES_PROMPT,
         user_views_categories=p.USER_VIEWING_CATEGORIES_PROMPT,
-        ai_conducts_research=p.AI_CONDUCTING_RESEARCH_PROMPT,
+        ai_conducts_research=dict(
+            ingredients=p.AI_CONDUCTING_RESEARCH_PROMPT_INGREDIENTS,
+            benefits=p.AI_CONDUCTING_RESEARCH_PROMPT_BENEFITS,
+            sensory=p.AI_CONDUCTING_RESEARCH_PROMPT_SENSORY,
+            marketing=p.AI_CONDUCTING_RESEARCH_PROMPT_MARKETING,
+        ),
+        ai_conducts_research_with_packaging=dict(
+            ingredients=p.AI_CONDUCTING_RESEARCH_PROMPT_INGREDIENTS,
+            benefits=p.AI_CONDUCTING_RESEARCH_PROMPT_BENEFITS,
+            sensory=p.AI_CONDUCTING_RESEARCH_PROMPT_SENSORY,
+            marketing=p.AI_CONDUCTING_RESEARCH_PROMPT_MARKETING,
+            packaging=p.AI_CONDUCTING_RESEARCH_PROMPT_PACKAGING,
+        ),
         user_views_research=p.USER_VIEWING_BACKGROUND_RESEARCH_PROMPT,
         ai_generates_claims=p.AI_GENERATES_CLAIMS_PROMPT,
         user_views_claims=p.USER_VIEWS_GENERATED_CLAIMS,
@@ -129,6 +149,9 @@ class ClaimsMachine(GenieStateMachine):
             return False
 
         return "STOP" in event_data.args[0]
+
+    def user_is_packaging_specialist(self):
+        return self.model.user_role == "packaging specialist"
 
     # ACTIONS
     def on_exit_ai_extracts_user_role(self, event_data: EventData):
@@ -153,4 +176,7 @@ class ClaimsMachine(GenieStateMachine):
             self.model.further_info = self.model.actor_input
 
     def on_exit_ai_conducts_research(self, event_data: EventData):
+        self.model.step_back_research = self.model.actor_input
+
+    def on_exit_ai_conducts_research_with_packaging(self, event_data: EventData):
         self.model.step_back_research = self.model.actor_input
