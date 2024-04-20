@@ -4,8 +4,9 @@ import time
 import requests
 
 HOST = 'http://127.0.0.1:8000'
+BASE_URL = HOST + "/v1/ai/claims_genie"
 
-response = requests.get(f"{HOST}/v1/start_session")
+response = requests.get(f"{BASE_URL}/start_session")
 ai_response = response.json()
 session_id = ai_response['session_id']
 
@@ -53,7 +54,7 @@ while True:
         break
 
     # print(">>", json.dumps(event))
-    response = requests.post(f"{HOST}/v1/event", json=event)
+    response = requests.post(f"{BASE_URL}/event", json=event)
     response.raise_for_status()
     ai_response = response.json()
     # print("<<", json.dumps(ai_response))
