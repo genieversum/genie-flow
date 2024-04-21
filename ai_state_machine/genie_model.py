@@ -12,7 +12,7 @@ class GenieModel(Model):
     The base model for all models that will carry data in the dialogue. Contains the attributes
     that are required and expected by the `GenieStateMachine` such as `state` and `session_id`/
 
-    This class also carries the dialogue - a list of `DialogueElement`s of the previous chat.
+    This class also carries the dialogue - a list of `DialogueElement`s of the chat so far.
 
     And it carries a number of state-dependent attributes that are important to the progress of
     the dialogue, such as `running_task_id` which indicates if there is a currently running task,
@@ -29,7 +29,7 @@ class GenieModel(Model):
         description="The current state that this model is in, represented by the value of the state"
     )
     session_id: str = Field(
-        description="The ID of the session this claims belongs to."
+        description="The ID of the session this data model object belongs to."
     )
     dialogue: list[DialogueElement] = Field(
         default_factory=list,
@@ -58,7 +58,7 @@ class GenieModel(Model):
 
     def create_state_machine(self) -> "GenieStateMachine":
         """
-        Create and return a newly instantiated state machine, of the appropirate class,
+        Create and return a newly instantiated state machine, of the appropriate class,
         that manages this instance of a model.
         """
         return self.state_machine_class(model=self)

@@ -162,7 +162,8 @@ def get_model(session_id: str, model_class: type[GenieModel]) -> GenieModel:
     """
     with get_lock_for_session(session_id):
         models = model_class.select(ids=[session_id])
-        assert len(models) == 1
-        model = models[0]
-
-        return model
+        if len(models) == 0:
+            raise KeyError(f"No model with id {session_id}")
+        if len(models) > 1:
+            raise RuntimeError(f"Multiple models with id {session_id}")
+        return models[0]

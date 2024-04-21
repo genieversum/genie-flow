@@ -11,7 +11,8 @@ from statemachine.event_data import EventData
 from ai_state_machine.genie_model import GenieModel
 from ai_state_machine.model import DialogueElement, DialogueFormat, CompositeTemplateType, \
     CompositeContentType
-from ai_state_machine.celery_tasks import call_llm_api, combine_group_to_dict, trigger_ai_event
+from ai_state_machine.celery_tasks import call_llm_api, combine_group_to_dict, trigger_ai_event, \
+    chained_template
 from ai_state_machine.store import get_fully_qualified_name_from_class
 
 
@@ -188,6 +189,10 @@ class GenieStateMachine(StateMachine):
         return self.run_task(event_data)
 
     def after_transition(self, state: State, **kwargs):
+        """
+        A generic hook that gets called after a transition has been completed. This is used
+        to add to the dialogue a new `DialogueElement` with the current actor and actor input.
+        """
         logger.info(f"== concluding transition into state {state.name} ({state.id})")
 
         if self.model.actor is not None:
@@ -218,9 +223,19 @@ class GenieStateMachine(StateMachine):
             chained = None
             for t in template:
                 if chained is None:
-                    chained = t
+                    chained = self._compile_task(t)
                 else:
-                    chained |= t
+                    if isinstance(t, Template):
+                        template_content = t
+                    chained |= (
+                        chained_template.s(
+                            self._compile_task(t),
+                            get_fully_qualified_name_from_class(self.model),
+                            self.model.session_id,
+                        ) |
+                        call_llm_api.s()
+                    )
+
             return chained
         if isinstance(template, dict):
             dict_keys = list(template.keys())  # make sure to go through keys in fixed order
@@ -228,7 +243,7 @@ class GenieStateMachine(StateMachine):
                 group(*[self._compile_task(template[k]) for k in dict_keys]),
                 combine_group_to_dict.s(dict_keys)
             )
-        raise ValueError(f"trying to compile a task for a render of type '{type(template)}'")
+        raise ValueError(f"cannot compile a task for a render of type '{type(template)}'")
 
     def create_ai_task(self, template: CompositeTemplateType, event_to_send_after: str):
         fqn = get_fully_qualified_name_from_class(self.model)

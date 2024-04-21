@@ -1,14 +1,13 @@
-import json
 import os
-import time
 
 from celery import Celery
 import openai
+from jinja2 import Template
 from openai.types.chat.completion_create_params import ResponseFormat
 
 from ai_state_machine.model import CompositeContentType
-from ai_state_machine.store import store_model, retrieve_model, STORE, get_lock_for_session
-
+from ai_state_machine.store import store_model, retrieve_model, get_lock_for_session, \
+    get_class_from_fully_qualified_name
 
 app = Celery(
     "My Little AI App",
@@ -50,7 +49,6 @@ def call_llm_api(prompt: str) -> str:
     )
 
     try:
-        # result_data = json.loads(response['choices'][0]['message']['content'])
         return response.choices[0].message.content
     except Exception as e:
         print(f"Error: {e}")
@@ -58,8 +56,27 @@ def call_llm_api(prompt: str) -> str:
 
 
 @app.task
-def combine_group_to_dict(results: list[CompositeContentType], keys: list[str]) -> CompositeContentType:
+def combine_group_to_dict(
+        results: list[CompositeContentType],
+        keys: list[str]
+) -> CompositeContentType:
     return {
         keys[i]: results[i]
         for i in range(len(keys))
     }
+
+
+@app.task
+def chained_template(
+        result_of_previous_call: CompositeContentType,
+        template_content: str,
+        model_class_fqn: str,
+        session_id: str,
+) -> CompositeContentType:
+    with get_lock_for_session(session_id):
+        model = retrieve_model(model_class_fqn, session_id=session_id)
+
+    render_data = model.model_dump()
+    render_data["previous_result"] = result_of_previous_call
+    template = Template(template_content)
+    return template.render(render_data)
