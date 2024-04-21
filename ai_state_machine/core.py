@@ -2,7 +2,7 @@ import uuid
 
 from statemachine.exceptions import TransitionNotAllowed
 
-from ai_state_machine.genie_state_machine import GenieModel
+from ai_state_machine.genie_model import GenieModel
 from ai_state_machine.model import EventInput, AIResponse, AIStatusResponse
 from ai_state_machine.store import get_lock_for_session
 

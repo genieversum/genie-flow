@@ -8,7 +8,8 @@ from pydantic import Field
 from statemachine import State
 from statemachine.event_data import EventData
 
-from ai_state_machine.genie_state_machine import GenieStateMachine, GenieModel
+from ai_state_machine.genie_state_machine import GenieStateMachine
+from ai_state_machine.genie_model import GenieModel
 import example_claims.prompts as p
 from ai_state_machine.store import STORE
 

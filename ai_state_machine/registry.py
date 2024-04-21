@@ -1,5 +1,4 @@
-from ai_state_machine.genie_state_machine import GenieModel
-
+from ai_state_machine.genie_model import GenieModel
 
 _REGISTRY: dict[str, type[GenieModel]] = dict()
 
