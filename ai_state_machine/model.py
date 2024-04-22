@@ -13,8 +13,8 @@ from pydantic_redis import Model
 
 from ai_state_machine.store import STORE
 
-TemplateType = str | Template
-ExecutableTemplateType = TemplateType | Task
+TemplateNameType = str
+ExecutableTemplateType = TemplateNameType | Task
 CompositeTemplateType = Union[
     ExecutableTemplateType,
     list[ExecutableTemplateType],

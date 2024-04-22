@@ -3,7 +3,7 @@ from typing import Optional
 
 from celery import group, Task
 from celery.canvas import Signature, chord
-from jinja2 import Template
+from jinja2 import Template, TemplateNotFound
 from loguru import logger
 from statemachine import StateMachine, State
 from statemachine.event_data import EventData
@@ -14,6 +14,7 @@ from ai_state_machine.model import DialogueElement, DialogueFormat, CompositeTem
 from ai_state_machine.celery_tasks import call_llm_api, combine_group_to_dict, trigger_ai_event, \
     chained_template
 from ai_state_machine.store import get_fully_qualified_name_from_class
+from ai_state_machine.templates import ENVIRONMENT
 
 
 class GenieStateMachine(StateMachine):
@@ -38,22 +39,36 @@ class GenieStateMachine(StateMachine):
         self.current_template: Optional[CompositeTemplateType] = None
         super(GenieStateMachine, self).__init__(model=model)
 
-        templates = getattr(self, templates_property_name)
-        missing_templates = [
-            state.id
-            for state in self.states
-            if state.id not in templates
-        ]
-        if missing_templates:
-            raise ValueError(f"Missing templates for states: {', '.join(missing_templates)}")
-
         if new_session:
+            self._validate_state_templates()
+
             initial_prompt = self.get_target_rendering(self.current_state)
             self.model.dialogue.append(
                 DialogueElement(
                     actor=self._ai_actor_name,
                     actor_text=initial_prompt,
                 )
+            )
+
+    def _validate_state_templates(self):
+        templates = getattr(self, self.templates_property_name)
+        states_without_template = [
+            state.id
+            for state in self.states
+            if state.id not in templates
+        ]
+
+        unknown_template_names = []
+        for state in set(self.states) - set(states_without_template):
+            try:
+                _ = ENVIRONMENT.get_template(templates[state.id])
+            except TemplateNotFound:
+                unknown_template_names.append(templates[state.id])
+
+        if states_without_template or unknown_template_names:
+            raise ValueError(
+                f"Missing templates for states: {', '.join(states_without_template)} and "
+                f"Cannot find templates with names: {', '.join(unknown_template_names)}"
             )
 
     @property
@@ -211,10 +226,7 @@ class GenieStateMachine(StateMachine):
         Compiles a Celery task that follows the structure of the composite template.
         """
         if isinstance(template, str):
-            return call_llm_api.s(template)
-        if isinstance(template, Template):
-            prompt = self.render_template(template)
-            return call_llm_api.s(prompt)
+            return call_llm_api.s(template, self.render_data)
 
         if isinstance(template, Task):
             return template.s(self.render_data)
@@ -225,18 +237,10 @@ class GenieStateMachine(StateMachine):
                 if chained is None:
                     chained = self._compile_task(t)
                 else:
-                    if isinstance(t, Template):
-                        template_content = t
-                    chained |= (
-                        chained_template.s(
-                            self._compile_task(t),
-                            get_fully_qualified_name_from_class(self.model),
-                            self.model.session_id,
-                        ) |
-                        call_llm_api.s()
-                    )
-
+                    chained |= chained_template.s(t, self.render_data)
+                    chained |= self._compile_task(t)
             return chained
+
         if isinstance(template, dict):
             dict_keys = list(template.keys())  # make sure to go through keys in fixed order
             return chord(
@@ -246,16 +250,23 @@ class GenieStateMachine(StateMachine):
         raise ValueError(f"cannot compile a task for a render of type '{type(template)}'")
 
     def create_ai_task(self, template: CompositeTemplateType, event_to_send_after: str):
-        fqn = get_fully_qualified_name_from_class(self.model)
-        return chord(
-            self._compile_task(template),
-            trigger_ai_event.s(fqn, self.model.session_id, event_to_send_after)
+        return (
+
+
         )
 
     def run_task(self, event_data: EventData) -> str:
         # TODO what if there are more than one event leading out the the future state
         event_to_send_after = event_data.target.transitions.unique_events[0]
-        task = self.create_ai_task(self.current_template, event_to_send_after)
+
+        task = (
+                self._compile_task(self.current_template) |
+                trigger_ai_event.s(
+                    get_fully_qualified_name_from_class(self.model),
+                    self.model.session_id,
+                    event_to_send_after
+                )
+        )
         self.model.running_task_id = task.apply_async().id
         return self.model.running_task_id
 
