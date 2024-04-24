@@ -10,7 +10,6 @@ from statemachine.event_data import EventData
 
 from ai_state_machine.genie_state_machine import GenieStateMachine
 from ai_state_machine.genie_model import GenieModel
-import example_claims.prompts as p
 from ai_state_machine.store import STORE
 
 
@@ -110,31 +109,31 @@ class ClaimsMachine(GenieStateMachine):
 
     # TEMPLATES
     templates: dict[str, Union[str, Template, dict[str]]] = dict(
-        user_entering_role="instruction_opening.jinja2",
-        ai_extracts_user_role="prompt_extract_user_role.jinja2",
-        user_entering_role_retry="feedback_cannot_extract_role.jinja2",
-        user_entering_initial_information="instruction_initial_information.jinja2",
-        ai_extracts_information="prompt_extract_information.jinja2",
-        user_enters_additional_information="feedback_need_more_information.jinja2",
-        user_views_start_of_generation="feedback_start_generation.jinja2",
-        ai_extracts_categories="prompt_extract_categories.jinja2",
-        user_views_categories="feedback_view_categories.jinja2",
+        user_entering_role="claims/instruction_opening.jinja2",
+        ai_extracts_user_role="claims/prompt_extract_user_role.jinja2",
+        user_entering_role_retry="claims/feedback_cannot_extract_role.jinja2",
+        user_entering_initial_information="claims/instruction_initial_information.jinja2",
+        ai_extracts_information="claims/prompt_extract_information.jinja2",
+        user_enters_additional_information="claims/feedback_need_more_information.jinja2",
+        user_views_start_of_generation="claims/feedback_start_generation.jinja2",
+        ai_extracts_categories="claims/prompt_extract_categories.jinja2",
+        user_views_categories="claims/feedback_view_categories.jinja2",
         ai_conducts_research=dict(
-            ingredients="prompt_research_ingredients.jinja2",
-            benefits="prompt_research_benefits.jinja2",
-            sensory="prompt_research_sensory.jinja2",
-            marketing="prompt_research_marketing.jinja2",
+            ingredients="claims/prompt_research_ingredients.jinja2",
+            benefits="claims/prompt_research_benefits.jinja2",
+            sensory="claims/prompt_research_sensory.jinja2",
+            marketing="claims/prompt_research_marketing.jinja2",
         ),
         ai_conducts_research_with_packaging=dict(
-            ingredients="prompt_research_ingredients.jinja2",
-            benefits="prompt_research_benefits.jinja2",
-            sensory="prompt_research_sensory.jinja2",
-            marketing="prompt_research_marketing.jinja2",
-            packaging="prompt_research_packaging.jinja2",
+            ingredients="claims/prompt_research_ingredients.jinja2",
+            benefits="claims/prompt_research_benefits.jinja2",
+            sensory="claims/prompt_research_sensory.jinja2",
+            marketing="claims/prompt_research_marketing.jinja2",
+            packaging="claims/prompt_research_packaging.jinja2",
         ),
-        user_views_research="feedback_view_research.jinja2",
-        ai_generates_claims="prompt_generate_claims.jinja2",
-        user_views_claims="feedback_view_claims.jinja2",
+        user_views_research="claims/feedback_view_research.jinja2",
+        ai_generates_claims="claims/prompt_generate_claims.jinja2",
+        user_views_claims="claims/feedback_view_claims.jinja2",
     )
 
     # CONDITIONS

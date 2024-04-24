@@ -1,9 +1,8 @@
-import logging
 from typing import Optional
 
 from celery import group, Task
 from celery.canvas import Signature, chord
-from jinja2 import Template, TemplateNotFound
+from jinja2 import TemplateNotFound
 from loguru import logger
 from statemachine import StateMachine, State
 from statemachine.event_data import EventData
@@ -14,7 +13,7 @@ from ai_state_machine.model import DialogueElement, DialogueFormat, CompositeTem
 from ai_state_machine.celery_tasks import call_llm_api, combine_group_to_dict, trigger_ai_event, \
     chained_template
 from ai_state_machine.store import get_fully_qualified_name_from_class
-from ai_state_machine.templates import ENVIRONMENT
+from ai_state_machine.templates import get_environment
 
 
 class GenieStateMachine(StateMachine):
@@ -53,7 +52,7 @@ class GenieStateMachine(StateMachine):
     def _non_existing_templates(self, template: CompositeTemplateType) -> list:
         if isinstance(template, str):
             try:
-                _ = ENVIRONMENT.get_template(template)
+                _ = get_environment().get_template(template)
                 return []
             except TemplateNotFound:
                 return [template]
@@ -130,7 +129,7 @@ class GenieStateMachine(StateMachine):
         :raises TypeError: If the template is of a type that we cannot render
         """
         if isinstance(template, str):
-            template = ENVIRONMENT.get_template(template)
+            template = get_environment().get_template(template)
             return template.render(self.render_data)
         if isinstance(template, list):
             return [self.render_template(t) for t in template]

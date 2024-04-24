@@ -7,13 +7,15 @@ from openai.types.chat.completion_create_params import ResponseFormat
 
 from ai_state_machine.model import CompositeContentType
 from ai_state_machine.store import store_model, retrieve_model, get_lock_for_session
-from ai_state_machine.templates import ENVIRONMENT
+from ai_state_machine.templates import get_environment, register_template_directory
 
 app = Celery(
     "My Little AI App",
     backend="redis://localhost",
     broker="pyamqp://",
 )
+
+register_template_directory("claims", "example_claims/templates")
 
 
 _OPENAI_CLIENT = openai.AzureOpenAI(
@@ -41,7 +43,7 @@ def call_llm_api(
         template_name: str,
         render_data: dict[str, str],
 ) -> str:
-    template = ENVIRONMENT.get_template(template_name)
+    template = get_environment().get_template(template_name)
     prompt = template.render(render_data)
 
     response_format = ResponseFormat(type="json_object") if "JSON" in prompt else None
