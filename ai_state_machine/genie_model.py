@@ -3,7 +3,6 @@ from typing import Optional
 from pydantic import Field
 from pydantic_redis import Model
 
-from ai_state_machine.genie_state_machine import GenieStateMachine
 from ai_state_machine.model import DialogueElement, DialogueFormat
 
 
