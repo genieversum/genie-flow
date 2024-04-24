@@ -118,12 +118,16 @@ class GenieStateMachine(StateMachine):
 
     def render_template(self, template: CompositeTemplateType) -> CompositeContentType:
         """
-        Render a given template with the `render_data`. If the template is a string, it is
-        assumed to be the name of the template that needs to be retrieved from the template
-        environment. If the template is a list, the templates within that list are rendered.
-        If the template is a dictionary, the result is a dictionary with each of the
-        renderings per key of that dictionary. Finally, if the template is a Task, that
-        task is called with the current render data.
+        Render a given template with the `render_data`. This rendering is done synchronously.
+        If the template is a string, it is assumed to be the name of the template that needs
+        to be retrieved from the template environment. If the template is a list, the templates
+        within that list are rendered. If the template is a dictionary, the result is a dictionary
+        with each of the renderings per key of that dictionary. Finally, if the template is a Task,
+        that task is called with the current render data.
+
+        :param template: The template to render
+        :return: The rendered template
+        :raises TypeError: If the template is of a type that we cannot render
         """
         if isinstance(template, str):
             template = ENVIRONMENT.get_template(template)
@@ -137,7 +141,23 @@ class GenieStateMachine(StateMachine):
         raise TypeError(f"Unsupported type of template {type(template)}")
 
     def get_template_for_state(self, state: State) -> CompositeTemplateType:
-        return getattr(self, self.templates_property_name).get(state.id)
+        """
+        Retrieve the template for a given state. Raises an exception if the given
+        state does not have a template defined.
+
+        :param state: The state for which to retrieve the template for
+        :return: The template for the given state
+        :raises AttributeError: If this object does not have an attribute that carries the templates
+        :raises KeyError: If there is no template defined for the given state
+        """
+        try:
+            return getattr(self, self.templates_property_name).get(state.id)
+        except AttributeError:
+            logger.error(f"No attribute named '{self.templates_property_name}' with the templates")
+            raise
+        except KeyError:
+            logger.error(f"No template for state {state.id}")
+            raise
 
     # EVENT HANDLERS
     def before_transition(self, event_data: EventData):
