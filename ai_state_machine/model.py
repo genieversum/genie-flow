@@ -13,16 +13,14 @@ from pydantic_redis import Model
 
 from ai_state_machine.store import STORE
 
-TemplateNameType = str
-ExecutableTemplateType = TemplateNameType | Task
-CompositeTemplateType = Union[
-    ExecutableTemplateType,
-    list[ExecutableTemplateType],
-    dict[str, ExecutableTemplateType],
-]
+CompositeTemplateType = (
+    str |
+    Task |
+    list["CompositeTemplateType"] |
+    dict[str, "CompositeTemplateType"]
+)
 
-ContentType = str
-CompositeContentType = ContentType | list[ContentType] | dict[str, ContentType]
+CompositeContentType = str | list["CompositeContentType"] | dict[str, "CompositeContentType"]
 
 
 class DialogueElement(Model):

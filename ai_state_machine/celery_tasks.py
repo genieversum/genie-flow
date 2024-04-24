@@ -41,7 +41,7 @@ def call_llm_api(
         template_name: str,
         render_data: dict[str, str],
 ) -> str:
-    template = ENVIRONMENT.load_template(template_name)
+    template = ENVIRONMENT.get_template(template_name)
     prompt = template.render(render_data)
 
     response_format = ResponseFormat(type="json_object") if "JSON" in prompt else None

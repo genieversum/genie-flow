@@ -1,7 +1,6 @@
-from jinja2 import PackageLoader, Environment
+from jinja2 import Environment, FileSystemLoader
 
 ENVIRONMENT = Environment(
-    loader=PackageLoader('ai_state_machine', 'example_claims'),
+    loader=FileSystemLoader('example_claims/templates'),
     autoescape=False,
 )
-
