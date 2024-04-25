@@ -116,7 +116,12 @@ class ClaimsMachine(GenieStateMachine):
         ai_extracts_information="claims/prompt_extract_information.jinja2",
         user_enters_additional_information="claims/feedback_need_more_information.jinja2",
         user_views_start_of_generation="claims/feedback_start_generation.jinja2",
-        ai_extracts_categories="claims/prompt_extract_categories.jinja2",
+        ai_extracts_categories=dict(
+            user_role="claims/prompt_extract_categories_user_role.jinja2",
+            product_description="claims/prompt_extract_categories_product_description.jinja2",
+            target_persona="claims/prompt_extract_categories_target_persona.jinja2",
+            further_info="claims/prompt_extract_categories_further_information.jinja2",
+        ),
         user_views_categories="claims/feedback_view_categories.jinja2",
         ai_conducts_research=dict(
             ingredients="claims/prompt_research_ingredients.jinja2",
@@ -165,8 +170,7 @@ class ClaimsMachine(GenieStateMachine):
         We can expect that `self.actor_input` has been provided to process.
         """
         try:
-            extracted_categories = json.loads(self.model.actor_input)
-            for k, v in extracted_categories.items():
+            for k, v in self.model.actor_input.items():
                 setattr(self.model, k, v)
         except (JSONDecodeError, KeyError) as e:
             logging.warning("Could not parse JSON from event data: %s", e)

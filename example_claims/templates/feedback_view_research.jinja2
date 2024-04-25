@@ -1,6 +1,20 @@
 I have now done some background research, and I find the following:
 
-{{ actor_input }}
+---
+INGREDIENTS
+{{ actor_input.ingredients }}
+---
+MARKETING
+{{ actor_input.marketing }}
+---
+SENSORY
+{{ actor_input.sensory }}
+---
+{% if user_role == 'packaging specialist' %}
+PACKAGING
+{{ actor_input.packaging }}
+---
+{% endif %}
 
 Now, with all the information that is provided, let me generate three claims for you.
 Please hang on.
