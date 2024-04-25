@@ -1,31 +1,4 @@
-You are an insightful AI that understands people and marketing.
-The task is to generate a statement that advertises a product designed for a target_persona.
-Before this task takes place, it's time to step back and answer a few questions.
-
-'user_information' contains the role of the user, "user_role", a description of the product to be
-marketed, "product_description", the target persona to be marketed to, "target_persona", and any
-further information, "further_info".
-
-You must use the information provided below to answer the following question:
+{% extends claims/prompt_research_base.jinja2 %}
+{% block research_question %}
 Would the target persona be interested in knowing about the ingredients of a product?
-
----
-user role:
-{{user_role}}
-
----
-product description:
-{{product_description}}
-
----
-target_persona:
-{{target_persona}}
-
----
-further_info:
-{{further_info}}
-
----
-
-Your response should be the answers to the question, using the given information.
-Explain why your answer is the most appropriate answer for that question.
+{% endblock %}
