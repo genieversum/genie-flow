@@ -1,9 +1,10 @@
+from os import PathLike
 from typing import Optional, List
 
-from jinja2 import Environment, FileSystemLoader, ChoiceLoader, PrefixLoader
+from jinja2 import Environment, FileSystemLoader, PrefixLoader, BaseLoader
 
 _ENVIRONMENT: Optional[Environment] = None
-_TEMPLATE_DIRECTORIES: dict[str, str] = dict()
+_TEMPLATE_DIRECTORIES: dict[str, BaseLoader] = dict()
 
 
 def get_environment() -> Environment:
@@ -11,17 +12,10 @@ def get_environment() -> Environment:
     global _TEMPLATE_DIRECTORIES
 
     if _ENVIRONMENT is None:
-        _ENVIRONMENT = Environment(
-            loader=PrefixLoader(
-                {
-                    k: FileSystemLoader(v)
-                    for k, v in _TEMPLATE_DIRECTORIES.items()
-                }
-            )
-        )
+        _ENVIRONMENT = Environment(loader=PrefixLoader(_TEMPLATE_DIRECTORIES))
     return _ENVIRONMENT
 
 
-def register_template_directory(prefix: str, director: str):
+def register_template_directory(prefix: str, directory: str | PathLike):
     global _TEMPLATE_DIRECTORIES
-    _TEMPLATE_DIRECTORIES[prefix] = director
+    _TEMPLATE_DIRECTORIES[prefix] = FileSystemLoader(directory)
