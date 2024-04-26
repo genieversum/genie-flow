@@ -10,7 +10,6 @@ from statemachine.event_data import EventData
 
 from ai_state_machine.genie_state_machine import GenieStateMachine
 from ai_state_machine.genie_model import GenieModel
-import example_claims.prompts as p
 from ai_state_machine.store import STORE
 
 
@@ -110,31 +109,36 @@ class ClaimsMachine(GenieStateMachine):
 
     # TEMPLATES
     templates: dict[str, Union[str, Template, dict[str]]] = dict(
-        user_entering_role=p.USER_ENTERING_ROLE_PROMPT,
-        ai_extracts_user_role=p.AI_EXTRACTING_USER_ROLE,
-        user_entering_role_retry=Template("Sorry. I cannot make out your role.\n{{actor_input}}"),
-        user_entering_initial_information=p.USE_ENTERING_INITIAL_INFORMATION,
-        ai_extracts_information=p.AI_EXTRACTING_INFO_PROMPT,
-        user_enters_additional_information=Template("I need more information.\n{{actor_input}}"),
-        user_views_start_of_generation=p.USER_VIEWING_START_OF_GENERATION,
-        ai_extracts_categories=p.AI_EXTRACTING_CATEGORIES_PROMPT,
-        user_views_categories=p.USER_VIEWING_CATEGORIES_PROMPT,
+        user_entering_role="claims/instruction_opening.jinja2",
+        ai_extracts_user_role="claims/prompt_extract_user_role.jinja2",
+        user_entering_role_retry="claims/feedback_cannot_extract_role.jinja2",
+        user_entering_initial_information="claims/instruction_initial_information.jinja2",
+        ai_extracts_information="claims/prompt_extract_information.jinja2",
+        user_enters_additional_information="claims/feedback_need_more_information.jinja2",
+        user_views_start_of_generation="claims/feedback_start_generation.jinja2",
+        ai_extracts_categories=dict(
+            user_role="claims/prompt_extract_categories_user_role.jinja2",
+            product_description="claims/prompt_extract_categories_product_description.jinja2",
+            target_persona="claims/prompt_extract_categories_target_persona.jinja2",
+            further_info="claims/prompt_extract_categories_further_information.jinja2",
+        ),
+        user_views_categories="claims/feedback_view_categories.jinja2",
         ai_conducts_research=dict(
-            ingredients=p.AI_CONDUCTING_RESEARCH_PROMPT_INGREDIENTS,
-            benefits=p.AI_CONDUCTING_RESEARCH_PROMPT_BENEFITS,
-            sensory=p.AI_CONDUCTING_RESEARCH_PROMPT_SENSORY,
-            marketing=p.AI_CONDUCTING_RESEARCH_PROMPT_MARKETING,
+            ingredients="claims/prompt_research_ingredients.jinja2",
+            benefits="claims/prompt_research_benefits.jinja2",
+            sensory="claims/prompt_research_sensory.jinja2",
+            marketing="claims/prompt_research_marketing.jinja2",
         ),
         ai_conducts_research_with_packaging=dict(
-            ingredients=p.AI_CONDUCTING_RESEARCH_PROMPT_INGREDIENTS,
-            benefits=p.AI_CONDUCTING_RESEARCH_PROMPT_BENEFITS,
-            sensory=p.AI_CONDUCTING_RESEARCH_PROMPT_SENSORY,
-            marketing=p.AI_CONDUCTING_RESEARCH_PROMPT_MARKETING,
-            packaging=p.AI_CONDUCTING_RESEARCH_PROMPT_PACKAGING,
+            ingredients="claims/prompt_research_ingredients.jinja2",
+            benefits="claims/prompt_research_benefits.jinja2",
+            sensory="claims/prompt_research_sensory.jinja2",
+            marketing="claims/prompt_research_marketing.jinja2",
+            packaging="claims/prompt_research_packaging.jinja2",
         ),
-        user_views_research=p.USER_VIEWING_BACKGROUND_RESEARCH_PROMPT,
-        ai_generates_claims=p.AI_GENERATES_CLAIMS_PROMPT,
-        user_views_claims=p.USER_VIEWS_GENERATED_CLAIMS,
+        user_views_research="claims/feedback_view_research.jinja2",
+        ai_generates_claims="claims/prompt_generate_claims.jinja2",
+        user_views_claims="claims/feedback_view_claims.jinja2",
     )
 
     # CONDITIONS
@@ -166,8 +170,7 @@ class ClaimsMachine(GenieStateMachine):
         We can expect that `self.actor_input` has been provided to process.
         """
         try:
-            extracted_categories = json.loads(self.model.actor_input)
-            for k, v in extracted_categories.items():
+            for k, v in self.model.actor_input.items():
                 setattr(self.model, k, v)
         except (JSONDecodeError, KeyError) as e:
             logging.warning("Could not parse JSON from event data: %s", e)

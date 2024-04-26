@@ -1,19 +1,21 @@
+import logging
 import os
 
 from celery import Celery
 import openai
-from jinja2 import Template
 from openai.types.chat.completion_create_params import ResponseFormat
 
 from ai_state_machine.model import CompositeContentType
-from ai_state_machine.store import store_model, retrieve_model, get_lock_for_session, \
-    get_class_from_fully_qualified_name
+from ai_state_machine.store import store_model, retrieve_model, get_lock_for_session
+from ai_state_machine.templates import get_environment, register_template_directory
 
 app = Celery(
     "My Little AI App",
     backend="redis://localhost",
     broker="pyamqp://",
 )
+
+register_template_directory("claims", "example_claims/templates")
 
 
 _OPENAI_CLIENT = openai.AzureOpenAI(
@@ -31,18 +33,25 @@ def trigger_ai_event(response: str, cls_fqn: str, session_id: str, event_name: s
         model.running_task_id = None
 
         state_machine = model.create_state_machine()
+        logging.debug(f"sending {event_name} to model for session {session_id}")
         state_machine.send(event_name, response)
 
         store_model(model)
 
 
 @app.task
-def call_llm_api(prompt: str) -> str:
+def call_llm_api(
+        template_name: str,
+        render_data: dict[str, str],
+) -> str:
+    template = get_environment().get_template(template_name)
+    prompt = template.render(render_data)
+    logging.debug(f"sending the following prompt to LLM: {prompt}")
+
     response_format = ResponseFormat(type="json_object") if "JSON" in prompt else None
     response = _OPENAI_CLIENT.chat.completions.create(
         model=deployment_name,
         messages=[
-            # {"role": "system", "content": json_instructions},
             {"role": "user", "content": prompt}
         ],
         response_format=response_format,
@@ -51,7 +60,7 @@ def call_llm_api(prompt: str) -> str:
     try:
         return response.choices[0].message.content
     except Exception as e:
-        print(f"Error: {e}")
+        logging.warning(f"Failed to call OpenAI: {str(e)}")
         return f"** call to OpenAI API failed; error: {str(e)}"
 
 
@@ -60,23 +69,14 @@ def combine_group_to_dict(
         results: list[CompositeContentType],
         keys: list[str]
 ) -> CompositeContentType:
-    return {
-        keys[i]: results[i]
-        for i in range(len(keys))
-    }
+    return dict(zip(keys, results))
 
 
 @app.task
 def chained_template(
         result_of_previous_call: CompositeContentType,
-        template_content: str,
-        model_class_fqn: str,
-        session_id: str,
+        template_name: str,
+        render_data: dict[str, str],
 ) -> CompositeContentType:
-    with get_lock_for_session(session_id):
-        model = retrieve_model(model_class_fqn, session_id=session_id)
-
-    render_data = model.model_dump()
     render_data["previous_result"] = result_of_previous_call
-    template = Template(template_content)
-    return template.render(render_data)
+    return template_name, render_data

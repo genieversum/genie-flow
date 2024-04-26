@@ -2,12 +2,14 @@ from fastapi import FastAPI, HTTPException
 
 from ai_state_machine import core
 from ai_state_machine import registry
+from ai_state_machine.templates import register_template_directory
 from example_claims.claims import ClaimsModel
 from ai_state_machine.model import EventInput
 
 app = FastAPI()
 
 registry.register("claims_genie", ClaimsModel)
+register_template_directory("claims", "example_claims/templates")
 
 
 def _unknown_state_machine_exception(state_machine_key: str) -> HTTPException:

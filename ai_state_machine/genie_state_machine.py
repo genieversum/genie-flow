@@ -1,9 +1,8 @@
-import logging
 from typing import Optional
 
 from celery import group, Task
 from celery.canvas import Signature, chord
-from jinja2 import Template
+from jinja2 import TemplateNotFound
 from loguru import logger
 from statemachine import StateMachine, State
 from statemachine.event_data import EventData
@@ -14,6 +13,7 @@ from ai_state_machine.model import DialogueElement, DialogueFormat, CompositeTem
 from ai_state_machine.celery_tasks import call_llm_api, combine_group_to_dict, trigger_ai_event, \
     chained_template
 from ai_state_machine.store import get_fully_qualified_name_from_class
+from ai_state_machine.templates import get_environment
 
 
 class GenieStateMachine(StateMachine):
@@ -38,22 +38,60 @@ class GenieStateMachine(StateMachine):
         self.current_template: Optional[CompositeTemplateType] = None
         super(GenieStateMachine, self).__init__(model=model)
 
-        templates = getattr(self, templates_property_name)
-        missing_templates = [
-            state.id
-            for state in self.states
-            if state.id not in templates
-        ]
-        if missing_templates:
-            raise ValueError(f"Missing templates for states: {', '.join(missing_templates)}")
-
         if new_session:
-            initial_prompt = self.get_target_rendering(self.current_state)
+            self._validate_state_templates()
+
+            initial_prompt = self.render_template(self.get_template_for_state(self.initial_state))
             self.model.dialogue.append(
                 DialogueElement(
                     actor=self._ai_actor_name,
                     actor_text=initial_prompt,
                 )
+            )
+
+    def _non_existing_templates(self, template: CompositeTemplateType) -> list:
+        if isinstance(template, str):
+            try:
+                _ = get_environment().get_template(template)
+                return []
+            except TemplateNotFound:
+                return [template]
+
+        if isinstance(template, Task):
+            # TODO might want to check if the task exists
+            return []
+
+        if isinstance(template, list):
+            result = []
+            for t in template:
+                result.extend(self._non_existing_templates(t))
+            return result
+
+        if isinstance(template, dict):
+            result = []
+            for key in template.keys():
+                result.extend([f"{key}/{t}" for t in self._non_existing_templates(template[key])])
+            return result
+
+    def _validate_state_templates(self):
+        templates = getattr(self, self.templates_property_name)
+        states_without_template = {
+            state.id
+            for state in self.states
+            if state.id not in templates
+        }
+
+        unknown_template_names = self._non_existing_templates(
+            [
+                templates[t]
+                for t in set(state.id for state in self.states) - states_without_template
+            ]
+        )
+
+        if states_without_template or unknown_template_names:
+            raise ValueError(
+                f"Missing templates for states: [{', '.join(states_without_template)}] and "
+                f"cannot find templates with names: [{', '.join(unknown_template_names)}]"
             )
 
     @property
@@ -77,17 +115,21 @@ class GenieStateMachine(StateMachine):
         )
         return render_data
 
-    def get_state_template(self, target: State) -> CompositeTemplateType:
-        try:
-            return getattr(self, self.templates_property_name).get(target.id)
-        except KeyError:
-            logging.error(f"Failed to find template for state {target.id}")
-            raise
-
     def render_template(self, template: CompositeTemplateType) -> CompositeContentType:
+        """
+        Render a given template with the `render_data`. This rendering is done synchronously.
+        If the template is a string, it is assumed to be the name of the template that needs
+        to be retrieved from the template environment. If the template is a list, the templates
+        within that list are rendered. If the template is a dictionary, the result is a dictionary
+        with each of the renderings per key of that dictionary. Finally, if the template is a Task,
+        that task is called with the current render data.
+
+        :param template: The template to render
+        :return: The rendered template
+        :raises TypeError: If the template is of a type that we cannot render
+        """
         if isinstance(template, str):
-            return template
-        if isinstance(template, Template):
+            template = get_environment().get_template(template)
             return template.render(self.render_data)
         if isinstance(template, list):
             return [self.render_template(t) for t in template]
@@ -97,25 +139,24 @@ class GenieStateMachine(StateMachine):
             return template(self.render_data)
         raise TypeError(f"Unsupported type of template {type(template)}")
 
-    def get_target_rendering(self, target: State) -> str:
+    def get_template_for_state(self, state: State) -> CompositeTemplateType:
         """
-        Render the structure of rendered prompts that are recorded for the target state.
-        If the target state has a template, return the rendered template using the
-        `self.render_data` property.
-        If the target state as a template that is as string, that string is returned.
-        If the target state has a template of any other value, return the string representation
-        of that value.
+        Retrieve the template for a given state. Raises an exception if the given
+        state does not have a template defined.
 
-        If the target state has no template, just return the name of the target state.
+        :param state: The state for which to retrieve the template for
+        :return: The template for the given state
+        :raises AttributeError: If this object does not have an attribute that carries the templates
+        :raises KeyError: If there is no template defined for the given state
         """
-        template = self.get_state_template(target)
-        if isinstance(template, Template):
-            return template.render(self.render_data)
-        if isinstance(template, str):
-            return template
-
-        logger.warning(f"Trying to render a template of type {type(template)}")
-        return str(template)
+        try:
+            return getattr(self, self.templates_property_name).get(state.id)
+        except AttributeError:
+            logger.error(f"No attribute named '{self.templates_property_name}' with the templates")
+            raise
+        except KeyError:
+            logger.error(f"No template for state {state.id}")
+            raise
 
     # EVENT HANDLERS
     def before_transition(self, event_data: EventData):
@@ -144,7 +185,7 @@ class GenieStateMachine(StateMachine):
             logger.debug("Starting a transition without an actor input")
             self.model.actor_input = ""
 
-        self.current_template = self.get_state_template(event_data.target)
+        self.current_template = self.get_template_for_state(event_data.target)
 
     def on_user_input(self, event_data: EventData):
         """
@@ -161,7 +202,7 @@ class GenieStateMachine(StateMachine):
         logger.debug(f"User input event received")
         self.model.actor = self._user_actor_name
 
-        return self.run_task(event_data)
+        return self.enqueue_task(event_data)
 
     def on_ai_extraction(self, target: State):
         """
@@ -173,6 +214,7 @@ class GenieStateMachine(StateMachine):
         logger.debug(f"AI extraction event received")
         self.model.actor = self._ai_actor_name
         self.model.actor_input = self.render_template(self.current_template)
+        logger.debug(f"AI output rendered into: \n{self.model.actor_input}")
 
         return None
 
@@ -186,7 +228,7 @@ class GenieStateMachine(StateMachine):
         logger.debug(f"Advance event received")
         self.model.actor = self._ai_actor_name
 
-        return self.run_task(event_data)
+        return self.enqueue_task(event_data)
 
     def after_transition(self, state: State, **kwargs):
         """
@@ -211,10 +253,7 @@ class GenieStateMachine(StateMachine):
         Compiles a Celery task that follows the structure of the composite template.
         """
         if isinstance(template, str):
-            return call_llm_api.s(template)
-        if isinstance(template, Template):
-            prompt = self.render_template(template)
-            return call_llm_api.s(prompt)
+            return call_llm_api.s(template, self.render_data)
 
         if isinstance(template, Task):
             return template.s(self.render_data)
@@ -225,18 +264,10 @@ class GenieStateMachine(StateMachine):
                 if chained is None:
                     chained = self._compile_task(t)
                 else:
-                    if isinstance(t, Template):
-                        template_content = t
-                    chained |= (
-                        chained_template.s(
-                            self._compile_task(t),
-                            get_fully_qualified_name_from_class(self.model),
-                            self.model.session_id,
-                        ) |
-                        call_llm_api.s()
-                    )
-
+                    chained |= chained_template.s(t, self.render_data)
+                    chained |= self._compile_task(t)
             return chained
+
         if isinstance(template, dict):
             dict_keys = list(template.keys())  # make sure to go through keys in fixed order
             return chord(
@@ -246,16 +277,27 @@ class GenieStateMachine(StateMachine):
         raise ValueError(f"cannot compile a task for a render of type '{type(template)}'")
 
     def create_ai_task(self, template: CompositeTemplateType, event_to_send_after: str):
-        fqn = get_fully_qualified_name_from_class(self.model)
-        return chord(
-            self._compile_task(template),
-            trigger_ai_event.s(fqn, self.model.session_id, event_to_send_after)
+        return (
+            self._compile_task(template) |
+            trigger_ai_event.s(
+                get_fully_qualified_name_from_class(self.model),
+                self.model.session_id,
+                event_to_send_after,
+            )
         )
 
-    def run_task(self, event_data: EventData) -> str:
+    def enqueue_task(self, event_data: EventData) -> str:
         # TODO what if there are more than one event leading out the the future state
         event_to_send_after = event_data.target.transitions.unique_events[0]
-        task = self.create_ai_task(self.current_template, event_to_send_after)
+
+        task = (
+                self._compile_task(self.current_template) |
+                trigger_ai_event.s(
+                    get_fully_qualified_name_from_class(self.model),
+                    self.model.session_id,
+                    event_to_send_after
+                )
+        )
         self.model.running_task_id = task.apply_async().id
         return self.model.running_task_id
 
