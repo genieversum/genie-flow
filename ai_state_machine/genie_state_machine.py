@@ -214,6 +214,7 @@ class GenieStateMachine(StateMachine):
         logger.debug(f"AI extraction event received")
         self.model.actor = self._ai_actor_name
         self.model.actor_input = self.render_template(self.current_template)
+        logger.debug(f"AI output rendered into: \n{self.model.actor_input}")
 
         return None
 

@@ -33,6 +33,7 @@ def trigger_ai_event(response: str, cls_fqn: str, session_id: str, event_name: s
         model.running_task_id = None
 
         state_machine = model.create_state_machine()
+        logging.debug(f"sending {event_name} to model for session {session_id}")
         state_machine.send(event_name, response)
 
         store_model(model)
@@ -45,12 +46,12 @@ def call_llm_api(
 ) -> str:
     template = get_environment().get_template(template_name)
     prompt = template.render(render_data)
+    logging.debug(f"sending the following prompt to LLM: {prompt}")
 
     response_format = ResponseFormat(type="json_object") if "JSON" in prompt else None
     response = _OPENAI_CLIENT.chat.completions.create(
         model=deployment_name,
         messages=[
-            # {"role": "system", "content": json_instructions},
             {"role": "user", "content": prompt}
         ],
         response_format=response_format,
