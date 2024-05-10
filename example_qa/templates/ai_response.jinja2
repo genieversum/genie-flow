@@ -9,8 +9,12 @@ Your aim is to respond logically, taking the dialogue you had into account.
 
 ---
 *** MOST RECENT HUMAN STATEMENT ***
+{{ actor_input }}
 ___
 
-Now, respond.
+First assert if the most recent human statement indicated that the user wants to stop the dialog.
+If the user wants to stop the dialogue, just say **STOP**.
+
+If the user does not want to stop, respond.
 Be succinct, to the point, but friendly.
 Stick to the language that the user start their conversation in.

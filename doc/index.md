@@ -139,7 +139,7 @@ The `GenieStateMachine` class implements the base logic of the Genie Flow. A Sta
 the different states (nodes in a graph) and the transitions (edges in the graph) that can be made
 between these states.
 
-## example: Question and Answer
+### example: Question and Answer
 A simple Question and Answer dialogue flow would look like this:
 
 ![state diagram of simple Q and A](../example_qa.q_and_a.QandAModel.png)
@@ -161,5 +161,39 @@ state where a newly instantiated state machine starts in.
 
 transitions
 : From any state there can be zero, one or more transitions into other states. If there are
-zero states, that state is a final state, of which there can be multiple (or none as in the
-Q and A example). 
+zero states, that state is a final state, of which there can be multiple, or none as in the
+Q and A example. Every transition has the name of an event, which is the event that will
+trigger that particular transition.
+
+events
+: An event is what makes the state machine transition from one state to the next. In Genie
+Flow, events are either sent through the API or received from the internal workings, for 
+instance, when an LLM has finished rendering an it's output is ready for processing.
+
+### example Question and Answer with conditions
+This first example gives a good impression of the elements that are relevant for creating a
+Genie Flow application. The dialogue, however, is simplistic and never-ending. Now, consider
+the following flow diagram:
+
+![state diagram of Q and A with conditions](../example_qa.q_and_a_cond.QandACondModel.png)
+
+It is almost the same Question and Answer flow, except that we have now introduced conditions.
+There are now two `ai_extraction` event transitions from the state `Ai creates response`. One
+that has the connotation `user_wants_to_quit` and the other with `!user_wants_to_quit`.
+Indicating that the user wants to quit, or the user does not want to quit - indicated by 
+the `!` mark, pronounced as "not".
+
+So when the LLM determines the user wants to quit, we want the flow to go to the state called
+"Outro". If not, we follow the normal path towards the state "User enters query".
+
+A similar thing has been done with the `user_input` events out of the state "User enters query".
+Here we have another condition called `user_says_stop` that tells the state machine to either
+go to the "Ai creates response", in the case where "Not user says stop" (`!user_says_stop`),
+or to the state "Outro" in the case where "user says stop" (`user_says_stop`).
+
+These conditions are a first step towards creating more complex dialogues. It enables us to
+make different paths through the dialogue.
+
+### example Question and Answer with data capture
+So far we have not yet seen how data that is entered by the user is captured and stored. Now
+imagine the following Genie Flow:
