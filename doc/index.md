@@ -36,7 +36,7 @@ Best not to be touched by the developer.
 developer.
 
 `dialogue`
-: A list of `DialogueElement`s that is the sequence of utterings by the different actors involved
+: A list of `DialogueElement`s that is the sequence of uttering by the different actors involved
 in the dialogue.
 
 `running_task_id`
@@ -130,7 +130,7 @@ Flow framework.
 Remember that this also needs to be done for any additional models that may be referred to by this
 `MyNewModel` class.
 
-## State Machine
+## State Machine - the principles
 The backbone of the Genie Flow framework is defined by the State Machine. The Genie Flow State
 Machine is based on the package [Python State Machine](https://python-statemachine.readthedocs.io/en/latest/)
 and the `GenieStateMachine` is a direct subclass of the `StateMachine` class that is defined there.
@@ -168,7 +168,7 @@ trigger that particular transition.
 events
 : An event is what makes the state machine transition from one state to the next. In Genie
 Flow, events are either sent through the API or received from the internal workings, for 
-instance, when an LLM has finished rendering an it's output is ready for processing.
+instance, when an LLM has finished rendering, and it's output is ready for processing.
 
 ### example Question and Answer with conditions
 This first example gives a good impression of the elements that are relevant for creating a
@@ -197,3 +197,32 @@ make different paths through the dialogue.
 ### example Question and Answer with data capture
 So far we have not yet seen how data that is entered by the user is captured and stored. Now
 imagine the following Genie Flow:
+
+![state diagram of Q and A with data capture](../example_qa.q_and_a_capture.QandACaptureModel.png)
+
+In this flow, the user is asked for their name. That username is extracted and stored in the
+data model. The extraction is done through an LLM. The response of that LLM should be either
+the name of the user or the term `UNDEFINED`. In the latter case, the user is asked again to
+state their name (state `Need to retry`). The condition `name_is_defined` ensures the state 
+machine directs the user towards the Welcome message or that retry.
+
+One new element on state `Ai extracts name` is the `exit / on_exit_ai_extracts_name` method.
+This is the method that is called when the state machine exists the state `Ai extracts name`.
+So this is when the LLM has conducted it extraction and the response is available. This is the
+moment during the conversation that the programmer has control to change values in the data
+model attached to the state machine.
+
+actions
+: When entering or exiting states, the programmer has control over what happens. Typically,
+these moments are used to capture responses from the LLM or users and adapt the content of an
+attached data model object.
+
+### conclusion
+In the previous examples we have seen how, through `states`, `transitions`, `events`, `conditions`
+and `actions`, the programmer has complete control over how a dialogue flows and how data is
+captured along the way.
+
+In the next chapter, we will go through these same three examples, but then with the actual 
+Genie Flow code.
+
+## Genie Flow Code Examples
