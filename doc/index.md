@@ -340,9 +340,19 @@ The event `ai_extraction` is defined to trigger the remaining transition of this
 which is the transition between `ai_creates_respponse` to `user_enters_query`.
 
 #### state machine - templates
-And finally, we define the templates that are linked to each and every state. At initiation
-of a new Genie Flow state machine, it is checked to see if all states have a template
-assigned and will raise an exception if not all of them have one.
+And finally, we define the templates that are linked to each and every state. This is done by
+implementing a class property called `templates` that is instantiated with a dictionary. Every
+state should be a key in that dictionary, referring to the path to the Jinja2 file with the
+given template.
+
+> At this point in time, the Jinja2 environment needs to be told where to find the templates.
+> This is done at application start-up by calling the following function:
+> `register_template_directory("q_and_a", "example_qa/templates")`, imported as
+> `from ai_state_machine.templates import register_template_directory`. The prefix `q_and_a`
+> serving as a virtual directory when referring to a specific file.
+
+At initiation of a new Genie Flow state machine, it is checked to see if all states have a
+template assigned and will raise an exception if not all of them have one.
 
 Templates are used to both render the output that needs to be sent to the user as well as the
 prompt that needs to be sent to the LLM. They are Jinja2 templates, and are rendered with the
@@ -394,6 +404,8 @@ That makes the template for state `user_enters_query` straight forward:
 
 Meaning that it just prints the output of the LLM. Because, when this template gets rendered,
 the actor was the LLM and the attribute `actor_input` will be the output of the LLM.
+
+Developing a subclass of
 
 ### Question and Answer with Conditions
 Putting conditions on transitions is straight forward. In the source code of 
@@ -520,8 +532,97 @@ contains the value that is returned by the LLM. In the sunny day scenario, that 
 that is stated by the user. We therefore assign it to the data model property `user_name`.
 
 Bear in mind that at this stage, we only know we are transitioning out of the `ai_extracts_name` state,
-not if the username has been extracted. So we could be assigning the value `UNDEFINED` to
-`model.user_name`.
+not if the username has been extracted. That is determined by the condition. So we could be assigning
+the value `UNDEFINED` to `model.user_name`. An alternative would be to create the following method:
 
-> This method is called after the Genie Flow framework has had a chance to process information. So
-we can refer to `model.actor_input`.
+```python
+from ai_state_machine.genie_state_machine import GenieStateMachine
+
+class QandACaptureMachine(GenieStateMachine):
+
+    ...
+
+    def on_enter_welcome_message(self):
+        self.model.user_name = self.model.actor_input
+```
+
+This message would be called when we enter the state `welcome_message`, a point in the flow where we know
+we have a username that is different from `UNDEFINED`.
+
+> Either of these methods is called after the Genie Flow framework has had a chance to process
+> information. So we can refer to `model.actor_input`.
+
+#### conclusion
+We have now seen how the concepts laid out in the previous chapter can be expressed in code.
+
+## Advanced Genie Flow concepts
+With the tools described so far, one is already able to create sensible dialogues. But there are some
+nifty tricks to pull even more from the framework.
+
+With the `user_input` and `ai_extraction` events, dialogues that play tennis between the user
+and an LLM can be implemented. The order always look something like:
+
+1. Genie Flow sends an initial text to the user
+2. User sends their input as part of a `user_input` event
+3. LLM compiles a response and sends their input as part of an `ai_extraction` event
+4. Genie Flow sends that response to the user
+5. Repeat from step 2, unless a final state has been reached
+
+Running LLM queries can be time-consuming. Also, the true power of using LLMs comes to bear when
+a prompt is split into multiple parts. For instance, for
+[Step Back Prompting](https://arxiv.org/pdf/2310.06117), you want a first prompt like "do a step
+back and tell me about the general rules that apply to this problem" and then adding the response
+to that step back prompt as context to the original query. But there are many cases where you
+would want to string together a number of consecutive prompts.
+
+Genie Flow has a number of advanced features that enable the programmer to do exactly that.
+
+### the `advance` event
+When the intermediate results of a string of prompts need to be fed back to the user, the
+programmer can introduce transitions on an `advance` event. These events can be sent to the
+state machine to make it advance onto the next transition without receiving any new user input.
+
+For example, look at the following summary from the
+[Claims Genie code](../example_claims/claims.py). That example implements the following Genie Flow
+
+![Claims Genie flow](../example_claims.claims.ClaimsModel.png)
+
+Some interesting parts from that code are:
+
+```python
+from statemachine import State
+
+from ai_state_machine.genie_state_machine import GenieStateMachine
+
+class ClaimsMachine(GenieStateMachine):
+    ...
+    # STATES
+    ai_extracts_information = State(value=200)
+    user_views_start_of_generation = State(value=300)
+    ai_extracts_categories = State(value=310)
+
+    # EVENTS AND TRANSITIONS
+    ai_extraction = ai_extracts_information.to(user_views_start_of_generation, cond="have_all_info")
+
+    advance = user_views_start_of_generation.to(ai_extracts_categories) 
+
+    ...
+```
+
+The dialogue at some stage enters the state `ai_extracts_information`, meaning that some information
+is extracted from the dialogue. When all the information is gathered (`cond="have_all_info"`) the
+user is shown this summary.
+
+Here we have defined a transition from the state `user_views_start_of_generation` towards the
+state `ai_extracts_categories`. The idea being that when that first state is reached, the user is
+sent some intermediate results (in this case a summary of the information gathered so far) upon
+the user front-end has the option to advance the state machine by sending it an `advance` event.
+The state machine then advances towards the state `ai_extracts_categories` where further processing
+is done.
+
+This means that the output of an LLM, in this case from the prompt attached to state `ai_extracts`
+
+## Genie Flow API
+When a Genie Flow data model and state machine is implemented, we can talk to it through a simple API.
+This API enables us to start a new session (create a new state machine), send a `user_input` event,
+get the status of longer running background processes, get a dump of the data model, etc.
