@@ -746,7 +746,171 @@ Celery Tasks can be used as part of a chain or branch - and the same rules will 
 
 This give the programmer to execute arbitrary code.
 
+## Background Tasks
+Retrieving a response from an LLM can take some time. A string of prompts, one feeding off of
+another may take up to minutes to complete. One does not want any client that interacts with
+Genie Flow to have to wait for a response. It hogs the flow of the client logic where one could
+potentially do more sensible work than to wait for the result to come back.
+
+To overcome this, Genie Flow will always respond immediately. Either with a result or with the
+promise of a result. It is up to the client to poll at their leisure to see if a background process
+has concluded and a new result can be obtained.
+
+> It is our goal to move away from polling and implement a channel approach where a client can
+> subscribe to messages about the finalisation of a background process.
+
+Background processes are implemented using [Celery](https://docs.celeryq.dev/en/stable/index.html),
+a Python framework for distributed queueing and parallel processing.
+
+If a background process is started (typically by a `user_input` event or an `advance` event,
+the Genie Flow framework will inform that client that (one of) the possible next actions is
+to send a `poll` event. That event will send a response that either has the output of the
+longer running background, if that has concluded. If the background process is still running,
+the response will carry no other information than the fact that the next possible action is
+to send another `poll` event.
+
+Via this mechanism, the client is free to conduct other work and is able to check the status
+of any longer running process by sending a `poll` event.
+
+### Running
+As a consequence of running background tasks using Celery, in order to be able to run any Genie
+Flow application, you would need to run two different processes:
+
+1. The API that any client can talk to
+2. At least one Celery Worker that can pick up background tasks
+
+Besides these two processes, you need to run a Broker and a Backend. Excellent documentation on
+how to operate a Celery based application can be found on their website.
+
 ## Genie Flow API
-When a Genie Flow data model and state machine is implemented, we can talk to it through a simple API.
-This API enables us to start a new session (create a new state machine), send a `user_input` event,
-get the status of longer running background processes, get a dump of the data model, etc.
+When a Genie Flow data model and state machine is implemented, we can talk to it through a simple
+API. This API enables us to start a new session (create a new state machine), send a `user_input`
+event, get the status of longer running background processes, get a dump of the data model, etc.
+
+The `main.py` script sets up all necessary registrations. The following objects need to be
+registered:
+
+### registering your model
+The data model (which is closely coupled with your state machine) needs to be registered with
+the API broker. This is done as follows:
+
+```python
+from ai_state_machine import registry
+
+from example_claims.claims import ClaimsModel
+
+
+registry.register("claims_genie", ClaimsModel)
+```
+
+This line will register a Genie Flow Model (`ClaimsModel`) as a potential model and state machine
+to which the API can talk. Here `claims_genie` is the state machine key that is needed in the
+endpoint to ensure API calls are directed towards the correct state machine logic.
+
+So this means that one instance of Genie Flow can handle multiple different state machine
+logic and models simultaneously. One can register the different Q and A examples discussed in
+this documentation, at the same time:
+
+```python
+from ai_state_machine import registry
+
+from example_qa import (
+    q_and_a,
+    q_and_a_cond,
+    q_and_a_capture,
+    q_and_a_trans,
+)
+
+
+
+registry.register("q_and_a", q_and_a.QandAModel)
+registry.register("q_and_a_cond", q_and_a_cond.QandACondModel)
+registry.register("q_and_a_capture", q_and_a_capture.QandACaptureModel)
+registry.register("q_and_a_trans", q_and_a_trans.QandATransModel)
+```
+
+This way, any client can start a new session for any of these different models and state machines.
+
+### registering templates
+The second aspect that needs to be registered is where Genie Flow can find the templates. Here it
+is also required to give a key and the actual path to the directory where to find the templates. For
+instance:
+
+```python
+from ai_state_machine.templates import register_template_directory
+
+register_template_directory("claims", "example_claims/templates")
+```
+Here we are registering the fact that templates for "Claims Genie" can be found at the relative
+path `example_claims/templates`. That path is relative to the working directory. The key `claims`
+is used in the code as the "virtual directory" when assigning templates to states. These then look
+like: `some_state_name="claims/my-template.jinja2`.
+
+### running
+The API is implemented using [FastAPI](https://fastapi.tiangolo.com/), a Python package for
+production ready API implementations. Excellent documentation on how to run a FastAPI application
+can be found on their website.
+
+### events
+Typically, the client interaction with Genie Flow goes as follows:
+
+1. Create a new session - this creates a new data object and initialized state machine
+2. Memorize the session id
+3. Present the response from Genie Flow to the user
+4. If the possible next actions contain 'user_input', capture user input and send that input
+to the Genie Flow API with a `user_input` event.
+5. If the possible next actions contain `poll`, wait a bit and send the `poll` event without user
+input
+6. If the possible next actions contain `advance`, send the `advance` event without further input
+7. If there are no possible next actions, the client is done and the session can be terminated
+
+### endpoints
+The following endpoints have been implemented:
+
+#### starting a session with endpoint `/v1/ai/{state_machine_key}/start_session`
+A GET request to this endpoint starts a new session. It returns a unique ID that represents the
+session between the client and the Genie Flow backend application. In the background, the Genie 
+Flow framework creates a newly instantiated data model and an accompanying state machine.
+The state machine is initiated at the initial state. For any subsequent API calls this unique
+identifier should be passed.
+
+The returned object will be a JSON representation of a Genie Flow `AIResponse` object,
+which has the following attributes:
+
+session_id (str)
+: The unique ID representing the session.
+
+next_actions (list[str])
+: A list of potential next events that can be sent to the state machine.
+
+error (Optional[str])
+: An optional error string if an error occurred during processing of the call.
+
+response (Optional[str])
+: An optional string response from the event.
+
+#### sending an event - `/v1/ai/{state_machine_key}/event/`
+When the client wants to POST a JSON representation of an `EventInput` object to the Genie 
+Flow API, with the following attributes:
+
+session_id (str)
+: The unique id of the session the API call refers to.
+
+event (str)
+: The name of the event that is being sent.
+
+event_input (str)
+: Additional input that should accompany the event - can be an empty string, but not `null`.
+
+The client will again receive a Genie Flow `AIResponse` object back, carrying the reponse and
+possible next actions.
+
+#### checking state of background task - `/v1/ai/{state_machine_key/task_state/{session_id}`
+Through this GET request, the client will receive a JSON representation of a `AIStatusResponse`
+object that carries the following attributes: `session_id`, `next_actions` - the same as with
+the `AIResponse`. And additionally:
+
+ready (bool)
+A boolean that indicates if the task has finished processing or not.
+
+#### 
