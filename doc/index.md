@@ -864,6 +864,24 @@ input
 6. If the possible next actions contain `advance`, send the `advance` event without further input
 7. If there are no possible next actions, the client is done and the session can be terminated
 
+```mermaid
+
+flowchart LR
+    start([start]) --> create_session
+    create_session[client creates session] --> memorize[client memorizes session_id]
+    memorize --> present_response[client presents response]
+    present_response --> action_decision{next_actions<br/>contains...}
+    action_decision -->|user_input|get_user_input
+    action_decision -->|poll|event_poll[event: 'poll']
+    action_decision -->|advance|event_advance[event: 'advance']
+    action_decision -->|none|done([finish])
+    event_poll --> send_event
+    event_advance --> send_event
+    get_user_input --> event_user_input[event: 'user_input' with user input]
+    event_user_input --> send_event[client sends event]
+    send_event --> present_response
+```
+
 ### endpoints
 The following endpoints have been implemented:
 
@@ -913,4 +931,6 @@ the `AIResponse`. And additionally:
 ready (bool)
 A boolean that indicates if the task has finished processing or not.
 
-#### 
+#### getting model data - `/v1/ai/{state_machine_key}/model/{session_id}`
+This GET request will retrieve the current state of the data model that is connected to the
+given `session_id`. A JSON representation of the data model object will be returned.
