@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 
 from ai_state_machine import core
 from ai_state_machine import registry
-from ai_state_machine.templates import register_template_directory
+from ai_state_machine.templates.jinja import register_template_directory
 from example_claims.claims import ClaimsModel
 from ai_state_machine.model import EventInput
 

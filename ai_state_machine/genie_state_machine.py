@@ -13,7 +13,7 @@ from ai_state_machine.model import DialogueElement, DialogueFormat, CompositeTem
 from ai_state_machine.celery_tasks import call_llm_api, combine_group_to_dict, trigger_ai_event, \
     chained_template
 from ai_state_machine.store import get_fully_qualified_name_from_class
-from ai_state_machine.templates import get_environment
+from ai_state_machine.templates.jinja import get_environment
 
 
 class GenieStateMachine(StateMachine):

@@ -7,7 +7,7 @@ from openai.types.chat.completion_create_params import ResponseFormat
 
 from ai_state_machine.model import CompositeContentType
 from ai_state_machine.store import store_model, retrieve_model, get_lock_for_session
-from ai_state_machine.templates import get_environment, register_template_directory
+from ai_state_machine.templates.jinja import get_environment, register_template_directory
 
 app = Celery(
     "My Little AI App",
