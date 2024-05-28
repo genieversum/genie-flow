@@ -4,9 +4,12 @@ from typing import Optional
 
 from openai._base_client import BaseClient
 from openai.lib.azure import AzureOpenAI
+from openai.types.chat import ChatCompletionMessage, ChatCompletionSystemMessageParam, \
+    ChatCompletionUserMessageParam, ChatCompletionAssistantMessageParam
 from openai.types.chat.completion_create_params import ResponseFormat
 
 from ai_state_machine.invoker import GenieInvoker
+from ai_state_machine.model import DialogueElement
 
 
 class AbstractAzureOpenAIInvoker(GenieInvoker, ABC):
@@ -33,12 +36,27 @@ class AzureOpenAIChatInvoker(AbstractAzureOpenAIInvoker, ABC):
     def _response_format(self) -> Optional[ResponseFormat]:
         return None
 
-    def invoke(self, content: str) -> str:
+    def invoke(self, content: str, dialogue: list[DialogueElement]) -> str:
+        messages = [
+            ChatCompletionAssistantMessageParam(
+                role="assistant",
+                content=element.actor_text,
+            ) if element.actor == "LLM" else
+            ChatCompletionUserMessageParam(
+                role="user",
+                content=element.actor_text,
+            )
+            for element in dialogue
+        ]
+        messages.append(
+            ChatCompletionUserMessageParam(
+                role="user",
+                content=content,
+            )
+        )
         response = self._client.chat.completions.create(
             model=self._deployment_name,
-            messages=[
-                {"role": "user", "content": content},
-            ],
+            messages=messages,
             response_format=self._response_format,
         )
         try:

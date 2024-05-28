@@ -1,4 +1,7 @@
 from abc import ABC, abstractmethod
+from typing import Optional
+
+from ai_state_machine.model import DialogueElement
 
 
 class GenieInvoker(ABC):
@@ -13,11 +16,12 @@ class GenieInvoker(ABC):
     """
 
     @abstractmethod
-    def invoke(self, content: str) -> str:
+    def invoke(self, content: str, dialogue: list[DialogueElement]) -> str:
         """
-        Invoke the underlying service with the supplied content.
+        Invoke the underlying service with the supplied content and dialogue.
 
         :param content: The text content to invoke the underlying service.
+        :param dialogue: The dialogue to invoke the underlying service.
         :return: The result string.
         """
         raise NotImplementedError()

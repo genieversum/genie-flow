@@ -23,6 +23,12 @@ CompositeTemplateType = (
 CompositeContentType = str | list["CompositeContentType"] | dict[str, "CompositeContentType"]
 
 
+class ActorType(str, Enum):
+    SYSTEM = "system"
+    ASSISTANT = "assistant"
+    USER = "user"
+
+
 class DialogueElement(Model):
     """
     An element of a dialogue. Typically, a phrase that is output by an originator.
@@ -30,7 +36,7 @@ class DialogueElement(Model):
     _primary_key_field: str = "id"
     id: str = Field(default_factory=lambda: uuid.uuid4().hex)
 
-    actor: str = Field(description="the originator of the dialogue element")
+    actor: ActorType = Field(description="the originator of the dialogue element")
     timestamp: datetime = Field(
         default_factory=datetime.now,
         description="the timestamp when this dialogue element was created"

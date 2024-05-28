@@ -9,7 +9,7 @@ from statemachine.event_data import EventData
 
 from ai_state_machine.genie_model import GenieModel
 from ai_state_machine.model import DialogueElement, DialogueFormat, CompositeTemplateType, \
-    CompositeContentType
+    CompositeContentType, ActorType
 from ai_state_machine.celery_tasks import call_llm_api, combine_group_to_dict, trigger_ai_event, \
     chained_template
 from ai_state_machine.store import get_fully_qualified_name_from_class
@@ -27,12 +27,8 @@ class GenieStateMachine(StateMachine):
             self,
             model: GenieModel,
             new_session: bool = False,
-            user_actor_name: str = "USER",
-            ai_actor_name: str = "LLM",
             templates_property_name: str = "templates"
     ):
-        self._user_actor_name = user_actor_name
-        self._ai_actor_name = ai_actor_name
         self.templates_property_name = templates_property_name
 
         self.current_template: Optional[CompositeTemplateType] = None
@@ -44,7 +40,7 @@ class GenieStateMachine(StateMachine):
             initial_prompt = self.render_template(self.get_template_for_state(self.initial_state))
             self.model.dialogue.append(
                 DialogueElement(
-                    actor=self._ai_actor_name,
+                    actor=ActorType.ASSISTANT,
                     actor_text=initial_prompt,
                 )
             )
@@ -200,7 +196,7 @@ class GenieStateMachine(StateMachine):
         and returned.
         """
         logger.debug(f"User input event received")
-        self.model.actor = self._user_actor_name
+        self.model.actor = ActorType.USER
 
         return self.enqueue_task(event_data)
 
@@ -212,7 +208,7 @@ class GenieStateMachine(StateMachine):
         need to be done before; typically in a `on_exit_<state>` method.
         """
         logger.debug(f"AI extraction event received")
-        self.model.actor = self._ai_actor_name
+        self.model.actor = ActorType.ASSISTANT
         self.model.actor_input = self.render_template(self.current_template)
         logger.debug(f"AI output rendered into: \n{self.model.actor_input}")
 
