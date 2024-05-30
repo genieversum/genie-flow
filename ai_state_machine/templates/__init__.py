@@ -1,48 +1,52 @@
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import Any, Optional
 
-from ai_state_machine.genie_model import GenieModel
-from ai_state_machine.invoker import GenieInvoker
+from celery import Task
+
+from ai_state_machine.model import DialogueElement
+from ai_state_machine.environment import GenieEnvironment
 
 
 class GenieTemplate(ABC):
     """
     The abstract template for rendering content from a data model or dictionary. This is the
-    abstraction around any form of template that can be rendered. The template is always
-    connected to an invoker, which means the template can be invoked with a data context.
-    Invoking a template means rendering it and then invoking the attached invoker with the
-    output of that rendering.
+    abstraction around any form of template that can be rendered.
 
     This is an abstract base class which should be overridden for specific templates..
     """
 
-    def __init__(self, invoker: Optional[GenieInvoker] = None):
-        self._invoker = invoker
+    def __init__(self, template_path: str, genie_environment: GenieEnvironment):
+        self.template_path = template_path
+        self.genie_environment = genie_environment
 
-    @abstractmethod
-    def _render(self, data_context: dict[str, Any]) -> str:
-        """
-        Render this template with the given data context which is a dictionary of keywords
-        with a value.
-
-        This method should be overridden by subclasses.
-
-        :param data_context: data context to be used to render placeholders in the template.
-        :return: rendered template.
-        """
-        raise NotImplementedError()
-
-    def render(self, data_context: dict[str, Any] | GenieModel) -> str:
+    def render(self, data_context: dict[str, Any]) -> str:
         """
         Render this template with the given data context into a string.
 
         :param data_context: a dict or GenieModel that is used as context for the rendering.
         :return: the rendered string.
         """
-        if isinstance(data_context, GenieModel):
-            return self._render(data_context.model_dump())
-        return self._render(data_context)
+        return self.genie_environment.render_template(self.template_path, data_context)
 
-    def invoke(self, data_context: dict[str, Any] | GenieModel) -> str:
-        rendered_template = self.render(data_context)
-        return self._invoker.invoke(rendered_template)
+    def invoke(
+            self,
+            data_context: dict[str, Any],
+            dialogue: Optional[list[DialogueElement]] = None,
+    ) -> str:
+        """
+        Render this template with the given data context and invoke the underlying invoker
+        with the optional dialogue. Return the output of the invocation.
+        :param data_context: a dict that is used as context for the rendering.
+        :param dialogue: an optional list of dialogue elements that can be used in the invocation.
+        :return: the output of the invocation.
+        """
+        return self.genie_environment.invoke_template(
+            self.template_path,
+            data_context,
+            dialogue
+        )
+
+
+TemplateDictionary = dict[str, "CompositeTemplate"]
+TemplateList = list["CompositeTemplate"]
+CompositeTemplate = GenieTemplate | TemplateDictionary | TemplateList | Task

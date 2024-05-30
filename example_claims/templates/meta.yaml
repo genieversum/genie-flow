@@ -1,0 +1,4 @@
+invoker:
+  type: azure_openai_chat
+  api_version: 2024-02-15-preview
+  deployment_name: SOME DEPLOYMENT NAME

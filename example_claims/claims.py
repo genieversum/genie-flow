@@ -11,6 +11,10 @@ from statemachine.event_data import EventData
 from ai_state_machine.genie_state_machine import GenieStateMachine
 from ai_state_machine.genie_model import GenieModel
 from ai_state_machine.store import STORE
+from ai_state_machine.templates import GenieTemplate, CompositeTemplate
+from ai_state_machine.templates.jinja import JinjaTemplate, JinjaTemplateFactory, get_environment
+
+JINJA_FACTORY = JinjaTemplateFactory(get_environment())
 
 
 class ClaimsModel(GenieModel):
@@ -108,37 +112,37 @@ class ClaimsMachine(GenieStateMachine):
     )
 
     # TEMPLATES
-    templates: dict[str, Union[str, Template, dict[str]]] = dict(
-        user_entering_role="claims/instruction_opening.jinja2",
-        ai_extracts_user_role="claims/prompt_extract_user_role.jinja2",
-        user_entering_role_retry="claims/feedback_cannot_extract_role.jinja2",
-        user_entering_initial_information="claims/instruction_initial_information.jinja2",
-        ai_extracts_information="claims/prompt_extract_information.jinja2",
-        user_enters_additional_information="claims/feedback_need_more_information.jinja2",
-        user_views_start_of_generation="claims/feedback_start_generation.jinja2",
+    templates: CompositeTemplate = dict(
+        user_entering_role=JINJA_FACTORY.create("claims/instruction_opening.jinja2"),
+        ai_extracts_user_role=JINJA_FACTORY.create("claims/prompt_extract_user_role.jinja2"),
+        user_entering_role_retry=JINJA_FACTORY.create("claims/feedback_cannot_extract_role.jinja2"),
+        user_entering_initial_information=JINJA_FACTORY.create("claims/instruction_initial_information.jinja2"),
+        ai_extracts_information=JINJA_FACTORY.create("claims/prompt_extract_information.jinja2"),
+        user_enters_additional_information=JINJA_FACTORY.create("claims/feedback_need_more_information.jinja2"),
+        user_views_start_of_generation=JINJA_FACTORY.create("claims/feedback_start_generation.jinja2"),
         ai_extracts_categories=dict(
-            user_role="claims/prompt_extract_categories_user_role.jinja2",
-            product_description="claims/prompt_extract_categories_product_description.jinja2",
-            target_persona="claims/prompt_extract_categories_target_persona.jinja2",
-            further_info="claims/prompt_extract_categories_further_information.jinja2",
+            user_role=JINJA_FACTORY.create("claims/prompt_extract_categories_user_role.jinja2"),
+            product_description=JINJA_FACTORY.create("claims/prompt_extract_categories_product_description.jinja2"),
+            target_persona=JINJA_FACTORY.create("claims/prompt_extract_categories_target_persona.jinja2"),
+            further_info=JINJA_FACTORY.create("claims/prompt_extract_categories_further_information.jinja2"),
         ),
-        user_views_categories="claims/feedback_view_categories.jinja2",
+        user_views_categories=JINJA_FACTORY.create("claims/feedback_view_categories.jinja2"),
         ai_conducts_research=dict(
-            ingredients="claims/prompt_research_ingredients.jinja2",
-            benefits="claims/prompt_research_benefits.jinja2",
-            sensory="claims/prompt_research_sensory.jinja2",
-            marketing="claims/prompt_research_marketing.jinja2",
+            ingredients=JINJA_FACTORY.create("claims/prompt_research_ingredients.jinja2"),
+            benefits=JINJA_FACTORY.create("claims/prompt_research_benefits.jinja2"),
+            sensory=JINJA_FACTORY.create("claims/prompt_research_sensory.jinja2"),
+            marketing=JINJA_FACTORY.create("claims/prompt_research_marketing.jinja2"),
         ),
         ai_conducts_research_with_packaging=dict(
-            ingredients="claims/prompt_research_ingredients.jinja2",
-            benefits="claims/prompt_research_benefits.jinja2",
-            sensory="claims/prompt_research_sensory.jinja2",
-            marketing="claims/prompt_research_marketing.jinja2",
-            packaging="claims/prompt_research_packaging.jinja2",
+            ingredients=JINJA_FACTORY.create("claims/prompt_research_ingredients.jinja2"),
+            benefits=JINJA_FACTORY.create("claims/prompt_research_benefits.jinja2"),
+            sensory=JINJA_FACTORY.create("claims/prompt_research_sensory.jinja2"),
+            marketing=JINJA_FACTORY.create("claims/prompt_research_marketing.jinja2"),
+            packaging=JINJA_FACTORY.create("claims/prompt_research_packaging.jinja2"),
         ),
-        user_views_research="claims/feedback_view_research.jinja2",
-        ai_generates_claims="claims/prompt_generate_claims.jinja2",
-        user_views_claims="claims/feedback_view_claims.jinja2",
+        user_views_research=JINJA_FACTORY.create("claims/feedback_view_research.jinja2"),
+        ai_generates_claims=JINJA_FACTORY.create("claims/prompt_generate_claims.jinja2"),
+        user_views_claims=JINJA_FACTORY.create("claims/feedback_view_claims.jinja2"),
     )
 
     # CONDITIONS

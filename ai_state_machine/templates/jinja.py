@@ -3,9 +3,6 @@ from typing import Any, Optional
 
 from jinja2 import Environment, BaseLoader, PrefixLoader, FileSystemLoader
 
-from ai_state_machine.invoker import GenieInvoker
-from ai_state_machine.templates import GenieTemplate
-
 
 _ENVIRONMENT: Optional[Environment] = None
 _TEMPLATE_DIRECTORIES: dict[str, BaseLoader] = dict()
@@ -23,14 +20,3 @@ def get_environment() -> Environment:
 def register_template_directory(prefix: str, directory: str | PathLike):
     global _TEMPLATE_DIRECTORIES
     _TEMPLATE_DIRECTORIES[prefix] = FileSystemLoader(directory)
-
-
-class JinjaTemplate(GenieTemplate):
-
-    def __init__(self, template_path: str, invoker: GenieInvoker):
-        super().__init__(invoker)
-        self.template_path = template_path
-
-    def _render(self, data_context: dict[str, Any]) -> str:
-        template = get_environment().get_template(self.template_path)
-        return template.render(data_context)

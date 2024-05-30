@@ -1,15 +1,37 @@
 import logging
+import os
 from abc import ABC
 from typing import Optional
 
-from openai._base_client import BaseClient
+import openai
 from openai.lib.azure import AzureOpenAI
-from openai.types.chat import ChatCompletionMessage, ChatCompletionSystemMessageParam, \
-    ChatCompletionUserMessageParam, ChatCompletionAssistantMessageParam
+from openai.types.chat import ChatCompletionSystemMessageParam, \
+    ChatCompletionUserMessageParam, ChatCompletionAssistantMessageParam, ChatCompletionMessageParam
 from openai.types.chat.completion_create_params import ResponseFormat
 
-from ai_state_machine.invoker import GenieInvoker
-from ai_state_machine.model import DialogueElement
+from ai_state_machine.invoker.genie import GenieInvoker
+from ai_state_machine.model import DialogueElement, ActorType
+
+
+def chat_completion_message(dialogue_element: DialogueElement) -> ChatCompletionMessageParam:
+    match dialogue_element.actor:
+        case ActorType.SYSTEM:
+            return ChatCompletionSystemMessageParam(
+                role="system",
+                content=dialogue_element.actor_text,
+            )
+        case ActorType.ASSISTANT:
+            return ChatCompletionAssistantMessageParam(
+                role="assistant",
+                content=dialogue_element.actor_text,
+            )
+        case ActorType.USER:
+            return ChatCompletionUserMessageParam(
+                role="user",
+                content=dialogue_element.actor_text,
+            )
+        case _:
+            raise ValueError(f"Unexpected actor type: {dialogue_element.actor}")
 
 
 class AbstractAzureOpenAIInvoker(GenieInvoker, ABC):
@@ -26,28 +48,35 @@ class AbstractAzureOpenAIInvoker(GenieInvoker, ABC):
         self._client = openai_client
         self._deployment_name = deployment_name
 
+    @classmethod
+    def _create_client(cls, config: dict[str, str]) -> AzureOpenAI:
+        return openai.AzureOpenAI(
+            api_key=os.getenv("AZURE_OPENAI_API_KEY") or config["api_key"],
+            api_version=config["api_version"],
+            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT") or config["azure_endpoint"],
+        )
 
-class AzureOpenAIChatInvoker(AbstractAzureOpenAIInvoker, ABC):
+
+class AzureOpenAIChatInvoker(AbstractAzureOpenAIInvoker):
     """
     A Chat Completion invoker for Azure OpenAI clients.
     """
+
+    @classmethod
+    def from_config(cls, config: dict[str, str]) -> "AzureOpenAIChatInvoker":
+        return cls(
+            openai_client=cls._create_client(config),
+            deployment_name=config["deployment_name"],
+        )
 
     @property
     def _response_format(self) -> Optional[ResponseFormat]:
         return None
 
-    def invoke(self, content: str, dialogue: list[DialogueElement]) -> str:
-        messages = [
-            ChatCompletionAssistantMessageParam(
-                role="assistant",
-                content=element.actor_text,
-            ) if element.actor == "LLM" else
-            ChatCompletionUserMessageParam(
-                role="user",
-                content=element.actor_text,
-            )
-            for element in dialogue
-        ]
+    def invoke(self, content: str, dialogue: Optional[list[DialogueElement]] = None) -> str:
+        if dialogue is None:
+            dialogue = []
+        messages = [chat_completion_message(element) for element in dialogue]
         messages.append(
             ChatCompletionUserMessageParam(
                 role="user",
@@ -68,8 +97,9 @@ class AzureOpenAIChatInvoker(AbstractAzureOpenAIInvoker, ABC):
 
 class AzureOpenAIChatJSONInvoker(AzureOpenAIChatInvoker):
     """
-    A chat completion invoker for Azure OpenAI clients witch will return JSON strings.
+    A chat completion invoker for Azure OpenAI clients witch will return a JSON string.
     """
 
+    @property
     def _response_format(self) -> Optional[ResponseFormat]:
         return ResponseFormat(type="json_object")
