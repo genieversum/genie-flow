@@ -11,10 +11,12 @@ import yaml
 from celery import Celery
 from jinja2 import Environment, PrefixLoader
 
+from ai_state_machine.celery_tasks import register_tasks
+from ai_state_machine.genie_state_machine import register_genie_environment
 from ai_state_machine.invoker import GenieInvoker, create_genie_invoker
 from ai_state_machine.model import DialogueElement
 
-_META_FILENAME: Literal["meta.yaml"] = "meta.yaml"
+_META_FILENAME: str = "meta.yaml"
 _T = TypeVar("_T")
 
 
@@ -61,20 +63,17 @@ class GenieEnvironment(metaclass=Singleton):
 
     def __init__(
             self,
-            template_root_path: str | PathLike = "./",
+            celery_app: Celery,
+            template_root_path: str | PathLike,
             pool_size: int = 1,
-            celery_backend: str = "redis://localhost",
-            celery_broker: str = "pyamqp://",
     ):
         self.template_root_path = Path(template_root_path).resolve()
         self.pool_size = pool_size
         self._jinja_env: Optional[Environment] = None
         self._template_directories: dict[str, _TemplateDirectory] = {}
-        self.celery = Celery(
-            "Genie Flow",
-            backend=celery_backend,
-            broker=celery_broker,
-        )
+        self.celery = celery_app
+        register_tasks(self)
+        register_genie_environment(self)
 
     def _walk_directory_tree_upward(
             self,
@@ -84,7 +83,7 @@ class GenieEnvironment(metaclass=Singleton):
         start_directory = start_directory.resolve()
         if start_directory == self.template_root_path:
             return execute(start_directory, None)
-        if start_directory == Path("/"):  # .root:
+        if start_directory.parent == start_directory:  # we reached the top-most directory
             raise ValueError("start_directory not part of the template directory tree")
         parent_directory = start_directory.parent
         parent_result = self._walk_directory_tree_upward(parent_directory, execute)

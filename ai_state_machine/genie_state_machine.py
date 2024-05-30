@@ -11,13 +11,18 @@ from ai_state_machine.environment import GenieEnvironment
 from ai_state_machine.genie_model import GenieModel
 from ai_state_machine.model import DialogueElement, DialogueFormat, CompositeTemplateType, \
     CompositeContentType
-from ai_state_machine.celery_tasks import call_llm_api, combine_group_to_dict, trigger_ai_event, \
-    chained_template
+# from ai_state_machine.celery_tasks import call_llm_api, combine_group_to_dict, trigger_ai_event, \
+#     chained_template
 from ai_state_machine.store import get_fully_qualified_name_from_class
 # from ai_state_machine.templates.jinja import get_environment
 
 
-_genie_environment = GenieEnvironment()
+_genie_environment: Optional[GenieEnvironment]
+
+
+def register_genie_environment(genie_environment: GenieEnvironment):
+    global _genie_environment
+    _genie_environment = genie_environment
 
 
 class GenieStateMachine(StateMachine):
