@@ -1,4 +1,6 @@
 import logging
+import threading
+from collections import defaultdict
 from os import PathLike
 from pathlib import Path
 from queue import Queue
@@ -6,12 +8,13 @@ from typing import TypedDict, Callable, Optional, Literal, TypeVar, Any
 
 import jinja2
 import yaml
+from celery import Celery
 from jinja2 import Environment, PrefixLoader
 
 from ai_state_machine.invoker import GenieInvoker, create_genie_invoker
 from ai_state_machine.model import DialogueElement
 
-_META_FILENAME: Literal["meta.yaml"]
+_META_FILENAME: Literal["meta.yaml"] = "meta.yaml"
 _T = TypeVar("_T")
 
 
@@ -36,6 +39,17 @@ class InvokersPool:
             self._current_invoker = None
 
 
+class Singleton(type):
+    _instances: dict["Singleton", Any] = {}
+    _locks: dict["Singleton", threading.Lock] = defaultdict(threading.Lock)
+
+    def __call__(cls, *args, **kwargs):
+        if cls not in cls._instances:
+            with cls._locks[cls]:
+                cls._instances[cls] = super(Singleton, cls).__call__(*args, **kwargs)
+        return cls._instances[cls]
+
+
 class _TemplateDirectory(TypedDict):
     directory: Path
     config: dict
@@ -43,16 +57,24 @@ class _TemplateDirectory(TypedDict):
     invokers: InvokersPool
 
 
-class GenieEnvironment:
+class GenieEnvironment(metaclass=Singleton):
+
     def __init__(
             self,
-            template_root_path: str | PathLike,
+            template_root_path: str | PathLike = "./",
             pool_size: int = 1,
+            celery_backend: str = "redis://localhost",
+            celery_broker: str = "pyamqp://",
     ):
-        self.template_root_path = Path(template_root_path)
+        self.template_root_path = Path(template_root_path).resolve()
         self.pool_size = pool_size
         self._jinja_env: Optional[Environment] = None
         self._template_directories: dict[str, _TemplateDirectory] = {}
+        self.celery = Celery(
+            "Genie Flow",
+            backend=celery_backend,
+            broker=celery_broker,
+        )
 
     def _walk_directory_tree_upward(
             self,
@@ -62,7 +84,7 @@ class GenieEnvironment:
         start_directory = start_directory.resolve()
         if start_directory == self.template_root_path:
             return execute(start_directory, None)
-        if start_directory == Path.root:
+        if start_directory == Path("/"):  # .root:
             raise ValueError("start_directory not part of the template directory tree")
         parent_directory = start_directory.parent
         parent_result = self._walk_directory_tree_upward(parent_directory, execute)
@@ -124,6 +146,9 @@ class GenieEnvironment:
             invokers=self._create_invoker_pool(config["invoker"])
         )
         self._jinja_env = None  # clear the Environment
+
+    def get_template(self, template_path: str) -> jinja2.Template:
+        return self.jinja_env.get_template(template_path)
 
     def render_template(self, template_path: str, data_context: dict[str, Any]) -> str:
         template = self.jinja_env.get_template(template_path)

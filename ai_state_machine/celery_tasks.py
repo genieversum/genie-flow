@@ -1,35 +1,19 @@
 import logging
-import os
+from typing import Any
 
-from celery import Celery
-import openai
-from openai.types.chat.completion_create_params import ResponseFormat
-
-from ai_state_machine.model import CompositeContentType
+from ai_state_machine.environment import GenieEnvironment
+from ai_state_machine.genie_model import GenieModel
+from ai_state_machine.model import CompositeContentType, DialogueElement
 from ai_state_machine.store import store_model, retrieve_model, get_lock_for_session
-from ai_state_machine.templates.jinja import get_environment, register_template_directory
 
-app = Celery(
-    "My Little AI App",
-    backend="redis://localhost",
-    broker="pyamqp://",
-)
-
-register_template_directory("claims", "example_claims/templates")
+_genie_environment = GenieEnvironment()
 
 
-_OPENAI_CLIENT = openai.AzureOpenAI(
-    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-    api_version="2024-02-15-preview",
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-)
-deployment_name = 'SOME DEPLOYMENT NAME'
-
-
-@app.task
+@_genie_environment.celery.task
 def trigger_ai_event(response: str, cls_fqn: str, session_id: str, event_name: str):
     with get_lock_for_session(session_id):
         model = retrieve_model(cls_fqn, session_id=session_id)
+        assert isinstance(model, GenieModel)
         model.running_task_id = None
 
         state_machine = model.create_state_machine()
@@ -39,32 +23,21 @@ def trigger_ai_event(response: str, cls_fqn: str, session_id: str, event_name: s
         store_model(model)
 
 
-@app.task
+@_genie_environment.celery.task
 def call_llm_api(
         template_name: str,
-        render_data: dict[str, str],
+        render_data: dict[str, Any],
 ) -> str:
-    template = get_environment().get_template(template_name)
-    prompt = template.render(render_data)
-    logging.debug(f"sending the following prompt to LLM: {prompt}")
-
-    response_format = ResponseFormat(type="json_object") if "JSON" in prompt else None
-    response = _OPENAI_CLIENT.chat.completions.create(
-        model=deployment_name,
-        messages=[
-            {"role": "user", "content": prompt}
-        ],
-        response_format=response_format,
+    dialogue_raw: list[dict] = getattr(render_data, "dialogue", list())
+    dialogue = [DialogueElement(**x) for x in dialogue_raw]
+    return _genie_environment.invoke_template(
+        template_name,
+        render_data,
+        dialogue,
     )
 
-    try:
-        return response.choices[0].message.content
-    except Exception as e:
-        logging.warning(f"Failed to call OpenAI: {str(e)}")
-        return f"** call to OpenAI API failed; error: {str(e)}"
 
-
-@app.task
+@_genie_environment.celery.task
 def combine_group_to_dict(
         results: list[CompositeContentType],
         keys: list[str]
@@ -72,7 +45,7 @@ def combine_group_to_dict(
     return dict(zip(keys, results))
 
 
-@app.task
+@_genie_environment.celery.task
 def chained_template(
         result_of_previous_call: CompositeContentType,
         template_name: str,

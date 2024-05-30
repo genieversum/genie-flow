@@ -10,28 +10,23 @@ from openai.types.chat import ChatCompletionSystemMessageParam, \
 from openai.types.chat.completion_create_params import ResponseFormat
 
 from ai_state_machine.invoker.genie import GenieInvoker
-from ai_state_machine.model import DialogueElement, ActorType
+from ai_state_machine.model import DialogueElement
 
+
+_CHAT_COMPLETION_MAP = {
+    "system": ChatCompletionSystemMessageParam,
+    "assistant": ChatCompletionAssistantMessageParam,
+    "user": ChatCompletionUserMessageParam,
+}
 
 def chat_completion_message(dialogue_element: DialogueElement) -> ChatCompletionMessageParam:
-    match dialogue_element.actor:
-        case ActorType.SYSTEM:
-            return ChatCompletionSystemMessageParam(
-                role="system",
-                content=dialogue_element.actor_text,
-            )
-        case ActorType.ASSISTANT:
-            return ChatCompletionAssistantMessageParam(
-                role="assistant",
-                content=dialogue_element.actor_text,
-            )
-        case ActorType.USER:
-            return ChatCompletionUserMessageParam(
-                role="user",
-                content=dialogue_element.actor_text,
-            )
-        case _:
-            raise ValueError(f"Unexpected actor type: {dialogue_element.actor}")
+    try:
+        return _CHAT_COMPLETION_MAP[dialogue_element.actor](
+            role=dialogue_element.actor,
+            content=dialogue_element.actor_text,
+        )
+    except KeyError:
+        raise ValueError(f"Unexpected actor type: {dialogue_element.actor}")
 
 
 class AbstractAzureOpenAIInvoker(GenieInvoker, ABC):

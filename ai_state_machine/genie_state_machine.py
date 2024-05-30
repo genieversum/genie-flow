@@ -7,13 +7,17 @@ from loguru import logger
 from statemachine import StateMachine, State
 from statemachine.event_data import EventData
 
+from ai_state_machine.environment import GenieEnvironment
 from ai_state_machine.genie_model import GenieModel
 from ai_state_machine.model import DialogueElement, DialogueFormat, CompositeTemplateType, \
-    CompositeContentType, ActorType
+    CompositeContentType
 from ai_state_machine.celery_tasks import call_llm_api, combine_group_to_dict, trigger_ai_event, \
     chained_template
 from ai_state_machine.store import get_fully_qualified_name_from_class
-from ai_state_machine.templates.jinja import get_environment
+# from ai_state_machine.templates.jinja import get_environment
+
+
+_genie_environment = GenieEnvironment()
 
 
 class GenieStateMachine(StateMachine):
@@ -40,7 +44,7 @@ class GenieStateMachine(StateMachine):
             initial_prompt = self.render_template(self.get_template_for_state(self.initial_state))
             self.model.dialogue.append(
                 DialogueElement(
-                    actor=ActorType.ASSISTANT,
+                    actor="assistant",
                     actor_text=initial_prompt,
                 )
             )
@@ -48,7 +52,7 @@ class GenieStateMachine(StateMachine):
     def _non_existing_templates(self, template: CompositeTemplateType) -> list:
         if isinstance(template, str):
             try:
-                _ = get_environment().get_template(template)
+                _ = _genie_environment.get_template(template)
                 return []
             except TemplateNotFound:
                 return [template]
@@ -125,8 +129,7 @@ class GenieStateMachine(StateMachine):
         :raises TypeError: If the template is of a type that we cannot render
         """
         if isinstance(template, str):
-            template = get_environment().get_template(template)
-            return template.render(self.render_data)
+            return _genie_environment.render_template(template, self.render_data)
         if isinstance(template, list):
             return [self.render_template(t) for t in template]
         if isinstance(template, dict):
@@ -196,7 +199,7 @@ class GenieStateMachine(StateMachine):
         and returned.
         """
         logger.debug(f"User input event received")
-        self.model.actor = ActorType.USER
+        self.model.actor = "user"
 
         return self.enqueue_task(event_data)
 
@@ -208,7 +211,7 @@ class GenieStateMachine(StateMachine):
         need to be done before; typically in a `on_exit_<state>` method.
         """
         logger.debug(f"AI extraction event received")
-        self.model.actor = ActorType.ASSISTANT
+        self.model.actor = "assistant"
         self.model.actor_input = self.render_template(self.current_template)
         logger.debug(f"AI output rendered into: \n{self.model.actor_input}")
 

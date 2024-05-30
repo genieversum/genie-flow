@@ -4,11 +4,11 @@ import uuid
 from abc import abstractmethod, ABC
 from datetime import datetime
 from enum import Enum
-from typing import overload, Iterable, MutableSequence, Union, Optional
+from typing import overload, Iterable, MutableSequence, Union, Optional, Literal
 
 from celery import Task
 from jinja2 import Template
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_redis import Model
 
 from ai_state_machine.store import STORE
@@ -23,12 +23,6 @@ CompositeTemplateType = (
 CompositeContentType = str | list["CompositeContentType"] | dict[str, "CompositeContentType"]
 
 
-class ActorType(str, Enum):
-    SYSTEM = "system"
-    ASSISTANT = "assistant"
-    USER = "user"
-
-
 class DialogueElement(Model):
     """
     An element of a dialogue. Typically, a phrase that is output by an originator.
@@ -36,7 +30,9 @@ class DialogueElement(Model):
     _primary_key_field: str = "id"
     id: str = Field(default_factory=lambda: uuid.uuid4().hex)
 
-    actor: ActorType = Field(description="the originator of the dialogue element")
+    actor: str = Field(
+        description="the originator of the dialogue element",
+    )
     timestamp: datetime = Field(
         default_factory=datetime.now,
         description="the timestamp when this dialogue element was created"
@@ -44,6 +40,13 @@ class DialogueElement(Model):
     actor_text: str = Field(
         description="the text that was produced bu the actor"
     )
+
+    @field_validator("actor")
+    @classmethod
+    def known_actors(cls, value: str) -> str:
+        if value not in ["system", "assistant", "user"]:
+            raise ValueError(f"unknown actor: '{value}'")
+        return value
 
 
 STORE.register_model(DialogueElement)
