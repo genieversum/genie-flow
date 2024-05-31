@@ -2,27 +2,21 @@ from typing import Optional
 
 from celery import group, Task
 from celery.canvas import Signature, chord
+from dependency_injector.wiring import Provide
 from jinja2 import TemplateNotFound
 from loguru import logger
 from statemachine import StateMachine, State
 from statemachine.event_data import EventData
 
+from ai_state_machine.containers import GenieFlowContainer
 from ai_state_machine.environment import GenieEnvironment
 from ai_state_machine.genie_model import GenieModel
 from ai_state_machine.model import DialogueElement, DialogueFormat, CompositeTemplateType, \
     CompositeContentType
-# from ai_state_machine.celery_tasks import call_llm_api, combine_group_to_dict, trigger_ai_event, \
-#     chained_template
+from ai_state_machine.celery_tasks import call_llm_api, combine_group_to_dict, trigger_ai_event, \
+    chained_template
 from ai_state_machine.store import get_fully_qualified_name_from_class
 # from ai_state_machine.templates.jinja import get_environment
-
-
-_genie_environment: Optional[GenieEnvironment]
-
-
-def register_genie_environment(genie_environment: GenieEnvironment):
-    global _genie_environment
-    _genie_environment = genie_environment
 
 
 class GenieStateMachine(StateMachine):
@@ -54,10 +48,14 @@ class GenieStateMachine(StateMachine):
                 )
             )
 
-    def _non_existing_templates(self, template: CompositeTemplateType) -> list:
+    def _non_existing_templates(
+            self,
+            template: CompositeTemplateType,
+            genie_environment: GenieEnvironment = Provide[GenieFlowContainer.genie_environment],
+    ) -> list:
         if isinstance(template, str):
             try:
-                _ = _genie_environment.get_template(template)
+                _ = genie_environment.get_template(template)
                 return []
             except TemplateNotFound:
                 return [template]
@@ -120,7 +118,11 @@ class GenieStateMachine(StateMachine):
         )
         return render_data
 
-    def render_template(self, template: CompositeTemplateType) -> CompositeContentType:
+    def render_template(
+            self,
+            template: CompositeTemplateType,
+            genie_environment: GenieEnvironment = Provide[GenieFlowContainer.genie_environment],
+    ) -> CompositeContentType:
         """
         Render a given template with the `render_data`. This rendering is done synchronously.
         If the template is a string, it is assumed to be the name of the template that needs
@@ -130,11 +132,12 @@ class GenieStateMachine(StateMachine):
         that task is called with the current render data.
 
         :param template: The template to render
+        :param genie_environment: The GenieEnvironment to use
         :return: The rendered template
         :raises TypeError: If the template is of a type that we cannot render
         """
         if isinstance(template, str):
-            return _genie_environment.render_template(template, self.render_data)
+            return genie_environment.render_template(template, self.render_data)
         if isinstance(template, list):
             return [self.render_template(t) for t in template]
         if isinstance(template, dict):

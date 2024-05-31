@@ -19,6 +19,7 @@ _CHAT_COMPLETION_MAP = {
     "user": ChatCompletionUserMessageParam,
 }
 
+
 def chat_completion_message(dialogue_element: DialogueElement) -> ChatCompletionMessageParam:
     try:
         return _CHAT_COMPLETION_MAP[dialogue_element.actor](

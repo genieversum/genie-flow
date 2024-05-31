@@ -5,13 +5,17 @@ from types import ModuleType
 from typing import Any
 
 import redis_lock
+from dependency_injector.wiring import inject, Provide
 from pydantic_redis import Model, Store, RedisConfig
+from redis import Redis
 
-STORE = Store(
-    name="genie",
-    redis_config=RedisConfig(db=1),
-    life_span_in_seconds=86400,
-)
+from ai_state_machine.containers import GenieFlowContainer
+
+# STORE = Store(
+#     name="genie",
+#     redis_config=RedisConfig(db=1),
+#     life_span_in_seconds=86400,
+# )
 
 
 def get_fully_qualified_name_from_class(o: Any) -> str:
@@ -78,17 +82,24 @@ def retrieve_model(class_fqn: str, session_id: str = None) -> Model:
     return models[0]
 
 
-def get_lock_for_session(session_id: str) -> redis_lock.Lock:
+@inject
+def get_lock_for_session(
+        session_id: str,
+        redis_store: Redis = Provide[GenieFlowContainer.redis_lock_store],
+        lock_expiration: int = Provide[GenieFlowContainer.config.lock_expiration],
+) -> redis_lock.Lock:
     """
     Retrieve the lock for the object for the given `session_id`. This ensures that only
     one process will have access to the model and potentially make changes to it.
     This lock can function as a context manager. See the documentation of `redis_lock.Lock`
     :param session_id: The session id that the object in question belongs to
+    :param redis_store: The Redis client that should be used to create the lock in
+    :param lock_expiration: The expiration time of the lock in seconds.
     """
     lock = redis_lock.Lock(
-        STORE.redis_store,
+        redis_store,
         name=f"lock-{session_id}",
-        expire=60,
+        expire=lock_expiration,
         auto_renewal=True,
     )
     return lock

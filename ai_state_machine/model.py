@@ -1,17 +1,15 @@
-import collections
 import json
 import uuid
-from abc import abstractmethod, ABC
+from abc import ABC
 from datetime import datetime
 from enum import Enum
-from typing import overload, Iterable, MutableSequence, Union, Optional, Literal
+from typing import Optional
 
 from celery import Task
-from jinja2 import Template
 from pydantic import BaseModel, Field, field_validator
 from pydantic_redis import Model
 
-from ai_state_machine.store import STORE
+# from ai_state_machine.store import STORE
 
 CompositeTemplateType = (
     str |
@@ -49,7 +47,7 @@ class DialogueElement(Model):
         return value
 
 
-STORE.register_model(DialogueElement)
+# STORE.register_model(DialogueElement)
 
 
 class DialogueFormat(Enum):

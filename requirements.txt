@@ -10,3 +10,4 @@ python-redis-lock~=4.0.0
 openai~=1.28.1
 PyYAML~=6.0.1
 requests~=2.31.0
+dependency-injector

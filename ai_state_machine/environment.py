@@ -1,18 +1,14 @@
 import logging
-import threading
-from collections import defaultdict
 from os import PathLike
 from pathlib import Path
 from queue import Queue
-from typing import TypedDict, Callable, Optional, Literal, TypeVar, Any
+from typing import TypedDict, Callable, Optional, TypeVar, Any
 
 import jinja2
 import yaml
-from celery import Celery
+from dependency_injector.wiring import inject
 from jinja2 import Environment, PrefixLoader
 
-from ai_state_machine.celery_tasks import register_tasks
-from ai_state_machine.genie_state_machine import register_genie_environment
 from ai_state_machine.invoker import GenieInvoker, create_genie_invoker
 from ai_state_machine.model import DialogueElement
 
@@ -41,17 +37,6 @@ class InvokersPool:
             self._current_invoker = None
 
 
-class Singleton(type):
-    _instances: dict["Singleton", Any] = {}
-    _locks: dict["Singleton", threading.Lock] = defaultdict(threading.Lock)
-
-    def __call__(cls, *args, **kwargs):
-        if cls not in cls._instances:
-            with cls._locks[cls]:
-                cls._instances[cls] = super(Singleton, cls).__call__(*args, **kwargs)
-        return cls._instances[cls]
-
-
 class _TemplateDirectory(TypedDict):
     directory: Path
     config: dict
@@ -59,11 +44,11 @@ class _TemplateDirectory(TypedDict):
     invokers: InvokersPool
 
 
-class GenieEnvironment(metaclass=Singleton):
+class GenieEnvironment:
 
+    @inject
     def __init__(
             self,
-            celery_app: Celery,
             template_root_path: str | PathLike,
             pool_size: int = 1,
     ):
@@ -71,9 +56,6 @@ class GenieEnvironment(metaclass=Singleton):
         self.pool_size = pool_size
         self._jinja_env: Optional[Environment] = None
         self._template_directories: dict[str, _TemplateDirectory] = {}
-        self.celery = celery_app
-        register_tasks(self)
-        register_genie_environment(self)
 
     def _walk_directory_tree_upward(
             self,
