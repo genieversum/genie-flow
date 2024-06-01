@@ -1,14 +1,19 @@
+from os import PathLike
 from typing import Optional
 
 from celery import Celery
 from dependency_injector import containers, providers
+from fastapi import FastAPI
 from redis import Redis
 import pydantic_redis
 
+import ai_state_machine
+from ai_state_machine import __version__, __doc__
+from ai_state_machine import app
 from ai_state_machine.environment import GenieEnvironment
+from ai_state_machine.genie_model import GenieModel
 from ai_state_machine.model import DialogueElement
-
-_CONTAINER: Optional[containers.Container] = None
+from ai_state_machine.registry import ModelKeyRegistryType
 
 
 class CeleryApp(Celery):
@@ -41,11 +46,29 @@ class GenieFlowContainer(containers.DeclarativeContainer):
 
     config = providers.Configuration()
 
+    fastapi_app = providers.Singleton(
+        FastAPI,
+        title="GenieFlow",
+        summary="Genie Flow API",
+        description=__doc__,
+        version=__version__,
+        debug=config.fastapi.debug or False,
+        openapi_url=config.fastapi.openapi_url or None,
+        docs_url=config.fastapi.docs_url or None,
+        redoc_url=config.fastapi.redoc_url or None,
+        terms_of_service=config.fastapi.terms_of_service or None,
+        contact=config.fastapi.contact or None,
+        license_info=config.fastapi.license or None,
+        root_path=config.fastapi.root_path or "/api/v1",
+    )
+
+    model_key_registry = providers.Singleton(ModelKeyRegistryType)
+
     celery_app = providers.Singleton(
         CeleryApp,
-        broker=config.celery.broker,  # "amqp://guest:guest@localhost:5672//",
-        backend=config.celery.backend,  # "redis://localhost:6379/0"
-        celery_db=config.celery.db,  # 0
+        broker=config.celery.broker,
+        backend=config.celery.backend,
+        celery_db=config.celery.db,
     )
 
     pydantic_redis_store = providers.Singleton(
@@ -67,23 +90,35 @@ class GenieFlowContainer(containers.DeclarativeContainer):
         GenieEnvironment,
         config.template_root_path,
         config.pool_size,
+        pydantic_redis_store,
+        model_key_registry,
     )
 
 
-def _create_container() -> GenieFlowContainer:
-    container = GenieFlowContainer()
-    container.wire(modules=[
-        "."
-    ])
-    container.init_resources()
-
-    container.pydantic_redis_store().register_model(DialogueElement)
-
-    return container
+_CONTAINER: Optional[GenieFlowContainer] = None
 
 
-def get_container() -> GenieFlowContainer:
+def init_genie_flow(config_file_path: str | PathLike) -> GenieEnvironment:
     global _CONTAINER
+
+    if _CONTAINER is not None:
+        raise RuntimeError("Already initialized")
+
+    _CONTAINER = GenieFlowContainer()
+    _CONTAINER.config.from_yaml(config_file_path, required=True)
+    _CONTAINER.wire(modules=["ai_state_machine"])
+    _CONTAINER.init_resources()
+
+    _CONTAINER.fastapi_app().include_router(ai_state_machine.app.router)
+    _CONTAINER.pydantic_redis_store().register_model(DialogueElement)
+
+    return _CONTAINER.genie_environment()
+
+
+def get_environment() -> GenieEnvironment:
+    global _CONTAINER
+
     if _CONTAINER is None:
-        _CONTAINER = _create_container()
-    return _CONTAINER
+        raise RuntimeError("Not initialized")
+
+    return _CONTAINER.genie_environment()

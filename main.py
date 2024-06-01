@@ -1,19 +1,10 @@
-from celery import Celery
-from fastapi import FastAPI
-
-import ai_state_machine.app
 from ai_state_machine import registry
-from ai_state_machine.environment import GenieEnvironment
+from ai_state_machine.containers import init_genie_flow
 from example_claims.claims import ClaimsModel
 
-app = FastAPI()
-app.include_router(ai_state_machine.app.router)
+genie_environment = init_genie_flow("config.yaml")
 
 registry.register("claims_genie", ClaimsModel)
+genie_environment.register_model(ClaimsModel)
 
-celery_app = Celery(
-    broker="amqp://guest:guest@localhost:5672//",
-    backend="redis://localhost:6379/0"
-)
-genie_environment = GenieEnvironment(celery_app, "example_claims/templates")
 genie_environment.register_template_directory("claims", "example_claims/templates")

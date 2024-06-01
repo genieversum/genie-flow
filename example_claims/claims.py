@@ -3,16 +3,14 @@ import logging
 from json import JSONDecodeError
 from typing import Optional, Union
 
-from jinja2 import Template
 from pydantic import Field
 from statemachine import State
 from statemachine.event_data import EventData
 
 from ai_state_machine.genie_state_machine import GenieStateMachine
 from ai_state_machine.genie_model import GenieModel
-from ai_state_machine.store import STORE
+from ai_state_machine.store import register_model
 from ai_state_machine.templates import GenieTemplate, CompositeTemplate
-# from ai_state_machine.templates.jinja import JinjaTemplate, JinjaTemplateFactory, get_environment
 
 
 class ClaimsModel(GenieModel):
@@ -40,9 +38,6 @@ class ClaimsModel(GenieModel):
         None,
         description="output of the step-back research",
     )
-
-
-STORE.register_model(ClaimsModel)
 
 
 class ClaimsMachine(GenieStateMachine):

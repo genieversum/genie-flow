@@ -2,13 +2,16 @@ import logging
 from os import PathLike
 from pathlib import Path
 from queue import Queue
-from typing import TypedDict, Callable, Optional, TypeVar, Any
+from typing import TypedDict, Callable, Optional, TypeVar, Any, Type
 
 import jinja2
 import yaml
-from dependency_injector.wiring import inject
+from dependency_injector.wiring import inject, Provide
 from jinja2 import Environment, PrefixLoader
+from pydantic_redis import Model, Store
 
+from ai_state_machine.containers import GenieFlowContainer
+from ai_state_machine.genie_model import GenieModel
 from ai_state_machine.invoker import GenieInvoker, create_genie_invoker
 from ai_state_machine.model import DialogueElement
 
@@ -50,10 +53,14 @@ class GenieEnvironment:
     def __init__(
             self,
             template_root_path: str | PathLike,
-            pool_size: int = 1,
+            pool_size: int,
+            object_store: Store,
+            model_key_registry: dict[str, Type[Model]],
     ):
         self.template_root_path = Path(template_root_path).resolve()
         self.pool_size = pool_size
+        self.object_store = object_store
+        self.model_key_registry = model_key_registry
         self._jinja_env: Optional[Environment] = None
         self._template_directories: dict[str, _TemplateDirectory] = {}
 
@@ -65,9 +72,11 @@ class GenieEnvironment:
         start_directory = start_directory.resolve()
         if start_directory == self.template_root_path:
             return execute(start_directory, None)
-        if start_directory.parent == start_directory:  # we reached the top-most directory
-            raise ValueError("start_directory not part of the template directory tree")
+
         parent_directory = start_directory.parent
+        if parent_directory == start_directory:  # we reached the top-most directory
+            raise ValueError("start_directory not part of the template directory tree")
+
         parent_result = self._walk_directory_tree_upward(parent_directory, execute)
         return execute(start_directory, parent_result)
 
@@ -113,6 +122,18 @@ class GenieEnvironment:
             queue.put(create_genie_invoker(config))
 
         return InvokersPool(queue)
+
+    def register_model(self, model_key: str, model_class: Type[Model]):
+        """
+        Register a model class, so it can be stored in the object store. Also registers
+        the model with the given model_key for the API.
+
+        :param model_key: the key at which the genie flow is reachable for the given model_class
+        :param model_class: the class of the model that needs to be registered
+        """
+        if not issubclass(model_class, GenieModel):
+            raise ValueError(f"Can only register subclasses of GenieModel, not {model_class}")
+        self.object_store.register_model(model_class)
 
     def register_template_directory(self, prefix: str, directory: str | PathLike):
         if prefix in self._template_directories:

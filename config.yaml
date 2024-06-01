@@ -1,0 +1,12 @@
+celery:
+  broker: amqp://guest:guest@localhost:5672//
+  backend: redis://localhost:6379
+  db: 0
+model_store:
+  redis_host: localhost
+  redis_port: 5672
+  redis_db: 1
+lock_store:
+  redis_host: localhost
+  redis_port: 5672
+  redis_db: 2

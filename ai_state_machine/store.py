@@ -2,20 +2,14 @@ import builtins
 import importlib
 import logging
 from types import ModuleType
-from typing import Any
+from typing import Any, Type
 
 import redis_lock
 from dependency_injector.wiring import inject, Provide
-from pydantic_redis import Model, Store, RedisConfig
+from pydantic_redis import Model, Store
 from redis import Redis
 
 from ai_state_machine.containers import GenieFlowContainer
-
-# STORE = Store(
-#     name="genie",
-#     redis_config=RedisConfig(db=1),
-#     life_span_in_seconds=86400,
-# )
 
 
 def get_fully_qualified_name_from_class(o: Any) -> str:
@@ -59,6 +53,18 @@ def get_module_from_fully_qualified_name(class_fqn: str) -> ModuleType:
     except ValueError:
         logging.error(f"Failed to get module from fqn {class_fqn}")
         raise
+
+
+def register_model(
+        model_class: Type[Model],
+        store: Store = Provide[GenieFlowContainer.pydantic_redis_store]
+):
+    """
+    Register a model class, so it can be stored in the object store.
+    :param model_class: the class of the model that needs to be registered
+    :param store: the provided Pydantic Redis store
+    """
+    store.register_model(model_class)
 
 
 def store_model(model: Model) -> None:
