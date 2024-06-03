@@ -9,8 +9,7 @@ from statemachine.event_data import EventData
 
 from ai_state_machine.genie_state_machine import GenieStateMachine
 from ai_state_machine.genie_model import GenieModel
-from ai_state_machine.store import register_model
-from ai_state_machine.templates import GenieTemplate, CompositeTemplate
+from ai_state_machine.templates import CompositeTemplate
 
 
 class ClaimsModel(GenieModel):

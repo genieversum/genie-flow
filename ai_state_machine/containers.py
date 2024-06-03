@@ -7,21 +7,24 @@ from fastapi import FastAPI
 from redis import Redis
 import pydantic_redis
 
-import ai_state_machine
-from ai_state_machine import __version__, __doc__
-from ai_state_machine import app
-from ai_state_machine.environment import GenieEnvironment
+from ai_state_machine import __version__
+from ai_state_machine.app import GenieFlowRouterBuilder
+from ai_state_machine.celery_tasks import TriggerAIEventTask, InvokeTask, CombineGroupToDictTask, \
+    ChainedTemplateTask
 from ai_state_machine.genie_model import GenieModel
+from ai_state_machine.session import SessionManager, SessionLockManager
+from ai_state_machine.environment import GenieEnvironment
 from ai_state_machine.model import DialogueElement
 from ai_state_machine.registry import ModelKeyRegistryType
+from ai_state_machine.store import StoreManager
 
 
 class CeleryApp(Celery):
-    def __init__(self, broker: str, backend: str, celery_db: int):
+    def __init__(self, broker: str, backend: str):
         super().__init__(
             "genie_flow",
-            broker=f"{broker}/{celery_db}",
-            backend=f"{backend}/{celery_db}",
+            broker=f"{broker}",
+            backend=f"{backend}",
             redis_socket_timeout=4.0,
             redis_socket_connect_timeout=4.0,
         )
@@ -52,14 +55,14 @@ class GenieFlowContainer(containers.DeclarativeContainer):
         summary="Genie Flow API",
         description=__doc__,
         version=__version__,
-        debug=config.fastapi.debug or False,
-        openapi_url=config.fastapi.openapi_url or None,
-        docs_url=config.fastapi.docs_url or None,
-        redoc_url=config.fastapi.redoc_url or None,
-        terms_of_service=config.fastapi.terms_of_service or None,
-        contact=config.fastapi.contact or None,
-        license_info=config.fastapi.license or None,
-        root_path=config.fastapi.root_path or "/api/v1",
+        debug=config.fastapi.debug() or False,
+        openapi_url=config.fastapi.openapi_url() or None,
+        docs_url=config.fastapi.docs_url() or None,
+        redoc_url=config.fastapi.redoc_url() or None,
+        terms_of_service=config.fastapi.terms_of_service() or None,
+        contact=config.fastapi.contact() or None,
+        license_info=config.fastapi.license() or None,
+        root_path=config.fastapi.root_path() or "/api/v1",
     )
 
     model_key_registry = providers.Singleton(ModelKeyRegistryType)
@@ -68,7 +71,6 @@ class GenieFlowContainer(containers.DeclarativeContainer):
         CeleryApp,
         broker=config.celery.broker,
         backend=config.celery.backend,
-        celery_db=config.celery.db,
     )
 
     pydantic_redis_store = providers.Singleton(
@@ -86,12 +88,31 @@ class GenieFlowContainer(containers.DeclarativeContainer):
         db=config.lock_store.redis_db,
     )
 
+    store_manager = providers.Singleton(
+        StoreManager,
+        store=pydantic_redis_store,
+    )
+
+    session_lock_manager = providers.Singleton(
+        SessionLockManager,
+        redis_lock_store=redis_lock_store,
+        lock_expiration_seconds=config.lock_store.lock_expiration_seconds,
+    )
+
+    session_manager = providers.Singleton(
+        SessionManager,
+        session_lock_manager=session_lock_manager,
+        model_key_registry=model_key_registry,
+    )
+
     genie_environment = providers.Singleton(
         GenieEnvironment,
         config.template_root_path,
         config.pool_size,
         pydantic_redis_store,
         model_key_registry,
+        fastapi_app,
+        celery_app,
     )
 
 
@@ -104,13 +125,33 @@ def init_genie_flow(config_file_path: str | PathLike) -> GenieEnvironment:
     if _CONTAINER is not None:
         raise RuntimeError("Already initialized")
 
+    # create and wire the container
     _CONTAINER = GenieFlowContainer()
     _CONTAINER.config.from_yaml(config_file_path, required=True)
     _CONTAINER.wire(modules=["ai_state_machine"])
     _CONTAINER.init_resources()
 
-    _CONTAINER.fastapi_app().include_router(ai_state_machine.app.router)
+    # register Celery tasks
+    celery_tasks = _CONTAINER.celery_app().tasks
+    celery_tasks.register(
+        TriggerAIEventTask(
+            _CONTAINER.session_lock_manager(),
+            _CONTAINER.store_manager(),
+        )
+    )
+    celery_tasks.register(InvokeTask(_CONTAINER.genie_environment()))
+    celery_tasks.register(CombineGroupToDictTask())
+    celery_tasks.register(ChainedTemplateTask())
+
+    # wire the FastAPI routes
+    _CONTAINER.fastapi_app().include_router(
+        GenieFlowRouterBuilder(_CONTAINER.session_manager()).router,
+        prefix=_CONTAINER.config.api.prefix() or "/v1/ai",
+    )
+
+    # register base classes for storage
     _CONTAINER.pydantic_redis_store().register_model(DialogueElement)
+    _CONTAINER.pydantic_redis_store().register_model(GenieModel)
 
     return _CONTAINER.genie_environment()
 

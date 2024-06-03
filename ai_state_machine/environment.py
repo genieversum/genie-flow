@@ -6,14 +6,15 @@ from typing import TypedDict, Callable, Optional, TypeVar, Any, Type
 
 import jinja2
 import yaml
-from dependency_injector.wiring import inject, Provide
+from celery import Celery
+from fastapi import FastAPI
 from jinja2 import Environment, PrefixLoader
 from pydantic_redis import Model, Store
 
-from ai_state_machine.containers import GenieFlowContainer
 from ai_state_machine.genie_model import GenieModel
 from ai_state_machine.invoker import GenieInvoker, create_genie_invoker
 from ai_state_machine.model import DialogueElement
+from ai_state_machine.registry import ModelKeyRegistryType
 
 _META_FILENAME: str = "meta.yaml"
 _T = TypeVar("_T")
@@ -49,18 +50,21 @@ class _TemplateDirectory(TypedDict):
 
 class GenieEnvironment:
 
-    @inject
     def __init__(
             self,
             template_root_path: str | PathLike,
             pool_size: int,
             object_store: Store,
-            model_key_registry: dict[str, Type[Model]],
+            model_key_registry: ModelKeyRegistryType,
+            fastapi_app: FastAPI,
+            celery_app: Celery,
     ):
         self.template_root_path = Path(template_root_path).resolve()
         self.pool_size = pool_size
         self.object_store = object_store
         self.model_key_registry = model_key_registry
+        self.fastapi_app = fastapi_app
+        self.celery_app = celery_app
         self._jinja_env: Optional[Environment] = None
         self._template_directories: dict[str, _TemplateDirectory] = {}
 
@@ -133,7 +137,11 @@ class GenieEnvironment:
         """
         if not issubclass(model_class, GenieModel):
             raise ValueError(f"Can only register subclasses of GenieModel, not {model_class}")
+        if model_key in self.model_key_registry:
+            raise ValueError(f"Model key {model_key} already registered")
+
         self.object_store.register_model(model_class)
+        self.model_key_registry[model_key] = model_class
 
     def register_template_directory(self, prefix: str, directory: str | PathLike):
         if prefix in self._template_directories:

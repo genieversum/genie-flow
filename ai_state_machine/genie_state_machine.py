@@ -1,6 +1,6 @@
 from typing import Optional
 
-from celery import group, Task
+from celery import group, Task, Celery
 from celery.canvas import Signature, chord
 from dependency_injector.wiring import Provide
 from jinja2 import TemplateNotFound
@@ -13,10 +13,7 @@ from ai_state_machine.environment import GenieEnvironment
 from ai_state_machine.genie_model import GenieModel
 from ai_state_machine.model import DialogueElement, DialogueFormat, CompositeTemplateType, \
     CompositeContentType
-from ai_state_machine.celery_tasks import call_llm_api, combine_group_to_dict, trigger_ai_event, \
-    chained_template
 from ai_state_machine.store import get_fully_qualified_name_from_class
-# from ai_state_machine.templates.jinja import get_environment
 
 
 class GenieStateMachine(StateMachine):
@@ -30,9 +27,11 @@ class GenieStateMachine(StateMachine):
             self,
             model: GenieModel,
             new_session: bool = False,
-            templates_property_name: str = "templates"
+            templates_property_name: str = "templates",
+            celery_app: Celery = Provide[GenieFlowContainer.celery_app]
     ):
         self.templates_property_name = templates_property_name
+        self.celery_app = celery_app
 
         self.current_template: Optional[CompositeTemplateType] = None
         super(GenieStateMachine, self).__init__(model=model)
@@ -260,33 +259,40 @@ class GenieStateMachine(StateMachine):
         Compiles a Celery task that follows the structure of the composite template.
         """
         if isinstance(template, str):
-            return call_llm_api.s(template, self.render_data)
+            invoke_task = self.celery_app.tasks["genie_flow.invoke_task"]
+            return invoke_task.s(template, self.render_data)
 
         if isinstance(template, Task):
             return template.s(self.render_data)
 
         if isinstance(template, list):
+            chained_template_task = self.celery_app.tasks["genie_flow.chained_task"]
+
             chained = None
             for t in template:
                 if chained is None:
                     chained = self._compile_task(t)
                 else:
-                    chained |= chained_template.s(t, self.render_data)
+                    chained |= chained_template_task.s(t, self.render_data)
                     chained |= self._compile_task(t)
             return chained
 
         if isinstance(template, dict):
+            combine_group_to_dict_task = self.celery_app.tasks["genie_flow.combine_group_to_dict"]
+
             dict_keys = list(template.keys())  # make sure to go through keys in fixed order
             return chord(
                 group(*[self._compile_task(template[k]) for k in dict_keys]),
-                combine_group_to_dict.s(dict_keys)
+                combine_group_to_dict_task.s(dict_keys)
             )
         raise ValueError(f"cannot compile a task for a render of type '{type(template)}'")
 
     def create_ai_task(self, template: CompositeTemplateType, event_to_send_after: str):
+        trigger_ai_event_task = self.celery_app.tasks["genie_flow.trigger_ai_event"]
+
         return (
             self._compile_task(template) |
-            trigger_ai_event.s(
+            trigger_ai_event_task.s(
                 get_fully_qualified_name_from_class(self.model),
                 self.model.session_id,
                 event_to_send_after,
@@ -294,12 +300,14 @@ class GenieStateMachine(StateMachine):
         )
 
     def enqueue_task(self, event_data: EventData) -> str:
+        trigger_ai_event_task = self.celery_app.tasks["genie_flow.trigger_ai_event"]
+
         # TODO what if there are more than one event leading out the the future state
         event_to_send_after = event_data.target.transitions.unique_events[0]
 
         task = (
                 self._compile_task(self.current_template) |
-                trigger_ai_event.s(
+                trigger_ai_event_task.s(
                     get_fully_qualified_name_from_class(self.model),
                     self.model.session_id,
                     event_to_send_after
@@ -319,4 +327,3 @@ class GenieStateMachine(StateMachine):
                 event_data.args[0] != "",
             ]
         )
-
