@@ -20,10 +20,26 @@ class GenieFlowRouterBuilder:
     @property
     def router(self) -> APIRouter:
         router = APIRouter()
-        router.add_api_route("/{state_machine_key}/start_session", self.start_session)
-        router.add_api_route("/{state_machine_key}/event", self.start_event)
-        router.add_api_route("/{state_machine_key}/task_state/{session_id}", self.get_task_state)
-        router.add_api_route("/{state_machine_key}/model/{session_id}", self.get_model)
+        router.add_api_route(
+            "/{state_machine_key}/start_session",
+            self.start_session,
+            methods=["GET"],
+        )
+        router.add_api_route(
+            "/{state_machine_key}/event",
+            self.start_event,
+            methods=["POST"],
+        )
+        router.add_api_route(
+            "/{state_machine_key}/task_state/{session_id}",
+            self.get_task_state,
+            methods=["GET"],
+        )
+        router.add_api_route(
+            "/{state_machine_key}/model/{session_id}",
+            self.get_model,
+            methods=["GET"],
+        )
         return router
 
     def start_session(self, state_machine_key: str) -> AIResponse:

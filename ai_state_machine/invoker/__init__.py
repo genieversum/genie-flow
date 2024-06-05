@@ -14,3 +14,12 @@ _REGISTRY: dict[str, Type[GenieInvoker]] = dict(
 def create_genie_invoker(invoker_config: dict[str]) -> GenieInvoker:
     cls = _REGISTRY[invoker_config["type"]]
     return cls.from_config(invoker_config)
+
+
+def register_invoker(invoker_name: str, invoker_class: Type[GenieInvoker]):
+    """
+    Register your own invoker. It then becomes
+    """
+    if invoker_name in _REGISTRY:
+        raise ValueError(f"'{invoker_name}' is already registered")
+    _REGISTRY[invoker_name] = invoker_class

@@ -9,8 +9,12 @@ import pydantic_redis
 
 from ai_state_machine import __version__
 from ai_state_machine.app import GenieFlowRouterBuilder
-from ai_state_machine.celery_tasks import TriggerAIEventTask, InvokeTask, CombineGroupToDictTask, \
-    ChainedTemplateTask
+from ai_state_machine.celery_tasks import (
+    add_trigger_ai_event_task,
+    add_invoke_task,
+    add_combine_group_to_dict,
+    add_chained_template,
+)
 from ai_state_machine.genie_model import GenieModel
 from ai_state_machine.session import SessionManager, SessionLockManager
 from ai_state_machine.environment import GenieEnvironment
@@ -96,7 +100,7 @@ class GenieFlowContainer(containers.DeclarativeContainer):
     session_lock_manager = providers.Singleton(
         SessionLockManager,
         redis_lock_store=redis_lock_store,
-        lock_expiration_seconds=config.lock_store.lock_expiration_seconds,
+        lock_expiration_seconds=config.lock_store.lock_expiration_seconds() or 120,
     )
 
     session_manager = providers.Singleton(
@@ -128,20 +132,21 @@ def init_genie_flow(config_file_path: str | PathLike) -> GenieEnvironment:
     # create and wire the container
     _CONTAINER = GenieFlowContainer()
     _CONTAINER.config.from_yaml(config_file_path, required=True)
-    _CONTAINER.wire(modules=["ai_state_machine"])
+    _CONTAINER.wire(packages=["ai_state_machine"])
     _CONTAINER.init_resources()
 
     # register Celery tasks
-    celery_tasks = _CONTAINER.celery_app().tasks
-    celery_tasks.register(
-        TriggerAIEventTask(
-            _CONTAINER.session_lock_manager(),
-            _CONTAINER.store_manager(),
-        )
+    add_trigger_ai_event_task(
+        _CONTAINER.celery_app(),
+        _CONTAINER.session_lock_manager(),
+        _CONTAINER.store_manager(),
     )
-    celery_tasks.register(InvokeTask(_CONTAINER.genie_environment()))
-    celery_tasks.register(CombineGroupToDictTask())
-    celery_tasks.register(ChainedTemplateTask())
+    add_invoke_task(
+        _CONTAINER.celery_app(),
+        _CONTAINER.genie_environment(),
+    )
+    add_combine_group_to_dict(_CONTAINER.celery_app())
+    add_chained_template(_CONTAINER.celery_app())
 
     # wire the FastAPI routes
     _CONTAINER.fastapi_app().include_router(

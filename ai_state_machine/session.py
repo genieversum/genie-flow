@@ -101,7 +101,7 @@ class SessionManager:
         )
 
     @staticmethod
-    def _handle_event(self, event: EventInput, model: GenieModel) -> AIResponse:
+    def _handle_event(event: EventInput, model: GenieModel) -> AIResponse:
         """
         This method handels events from the client. It creates the state machine instance for the
         given object and sends the event to it. It then stores the model instance back into Redis.

@@ -2,7 +2,7 @@ from typing import Optional
 
 from celery import group, Task, Celery
 from celery.canvas import Signature, chord
-from dependency_injector.wiring import Provide
+from dependency_injector.wiring import Provide, inject
 from jinja2 import TemplateNotFound
 from loguru import logger
 from statemachine import StateMachine, State
@@ -23,6 +23,7 @@ class GenieStateMachine(StateMachine):
     `GenieModel` class.
     """
 
+    @inject
     def __init__(
             self,
             model: GenieModel,
@@ -47,6 +48,7 @@ class GenieStateMachine(StateMachine):
                 )
             )
 
+    @inject
     def _non_existing_templates(
             self,
             template: CompositeTemplateType,
@@ -54,6 +56,7 @@ class GenieStateMachine(StateMachine):
     ) -> list:
         if isinstance(template, str):
             try:
+                print(type(genie_environment))
                 _ = genie_environment.get_template(template)
                 return []
             except TemplateNotFound:
@@ -117,6 +120,7 @@ class GenieStateMachine(StateMachine):
         )
         return render_data
 
+    @inject
     def render_template(
             self,
             template: CompositeTemplateType,
