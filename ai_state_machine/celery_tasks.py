@@ -16,7 +16,7 @@ def add_trigger_ai_event_task(
         store_manager: StoreManager,
 ):
     @app.task(name="genie_flow.trigger_ai_event")
-    def trigger_ai_event(self, response: str, cls_fqn: str, session_id: str, event_name: str):
+    def trigger_ai_event(response: str, cls_fqn: str, session_id: str, event_name: str):
         with session_lock_manager.get_lock_for_session(session_id):
             model = store_manager.retrieve_model(cls_fqn, session_id=session_id)
             assert isinstance(model, GenieModel)
@@ -26,7 +26,7 @@ def add_trigger_ai_event_task(
             logging.debug(f"sending {event_name} to model for session {session_id}")
             state_machine.send(event_name, response)
 
-            self.store_manager.store_model(model)
+            store_manager.store_model(model)
 
     return trigger_ai_event
 
@@ -36,7 +36,7 @@ def add_invoke_task(
     genie_environment: GenieEnvironment
 ):
 
-    @app.task(name="genie_flow.invoke_ai_event")
+    @app.task(name="genie_flow.invoke_task")
     def invoke_ai_event(template_name: str, render_data: dict[str, Any]) -> str:
         dialogue_raw: list[dict] = getattr(render_data, "dialogue", list())
         dialogue = [DialogueElement(**x) for x in dialogue_raw]
