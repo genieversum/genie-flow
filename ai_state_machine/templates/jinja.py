@@ -1,7 +1,8 @@
 from os import PathLike
-from typing import Optional, List
+from typing import Any, Optional
 
-from jinja2 import Environment, FileSystemLoader, PrefixLoader, BaseLoader
+from jinja2 import Environment, BaseLoader, PrefixLoader, FileSystemLoader
+
 
 _ENVIRONMENT: Optional[Environment] = None
 _TEMPLATE_DIRECTORIES: dict[str, BaseLoader] = dict()

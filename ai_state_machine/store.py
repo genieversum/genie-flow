@@ -2,16 +2,12 @@ import builtins
 import importlib
 import logging
 from types import ModuleType
-from typing import Any
+from typing import Any, Type
 
 import redis_lock
-from pydantic_redis import Model, Store, RedisConfig
-
-STORE = Store(
-    name="genie",
-    redis_config=RedisConfig(db=1),
-    life_span_in_seconds=86400,
-)
+from dependency_injector.wiring import inject
+from pydantic_redis import Model, Store
+from redis import Redis
 
 
 def get_fully_qualified_name_from_class(o: Any) -> str:
@@ -57,38 +53,33 @@ def get_module_from_fully_qualified_name(class_fqn: str) -> ModuleType:
         raise
 
 
-def store_model(model: Model) -> None:
-    """
-    Stores the given model into the configured Redis store.
-    :param model: The object to store
-    """
-    model.__class__.insert(model)
+class StoreManager:
 
+    def __init__(self, store: Store,):
+        self.store = store
 
-def retrieve_model(class_fqn: str, session_id: str = None) -> Model:
-    """
-    Retrieves the `GenieModel` that the given FQN refers to, from the configured Redis store
-    :param class_fqn: The FQN of the class to retrieve the model from
-    :param session_id: The id of the session that the object to retrieve belongs to
-    :raises ValueError: If there is zero or more than one instances with the given session_id
-    """
-    cls = get_class_from_fully_qualified_name(class_fqn)
-    models = cls.select(ids=[session_id])
-    assert len(models) == 1
-    return models[0]
+    def register_model(self, model_class: Type[Model]):
+        """
+        Register a model class, so it can be stored in the object store.
+        :param model_class: the class of the model that needs to be registered
+        """
+        self.store.register_model(model_class)
 
+    def store_model(self, model: Model) -> None:
+        """
+        Stores the given model into the configured Redis store.
+        :param model: The object to store
+        """
+        model.__class__.insert(model)
 
-def get_lock_for_session(session_id: str) -> redis_lock.Lock:
-    """
-    Retrieve the lock for the object for the given `session_id`. This ensures that only
-    one process will have access to the model and potentially make changes to it.
-    This lock can function as a context manager. See the documentation of `redis_lock.Lock`
-    :param session_id: The session id that the object in question belongs to
-    """
-    lock = redis_lock.Lock(
-        STORE.redis_store,
-        name=f"lock-{session_id}",
-        expire=60,
-        auto_renewal=True,
-    )
-    return lock
+    def retrieve_model(self, class_fqn: str, session_id: str = None) -> Model:
+        """
+        Retrieves the `GenieModel` that the given FQN refers to, from the configured Redis store
+        :param class_fqn: The FQN of the class to retrieve the model from
+        :param session_id: The id of the session that the object to retrieve belongs to
+        :raises ValueError: If there is zero or more than one instances with the given session_id
+        """
+        cls = get_class_from_fully_qualified_name(class_fqn)
+        models = cls.select(ids=[session_id])
+        assert len(models) == 1
+        return models[0]

@@ -1,82 +1,75 @@
 import logging
-import os
+from typing import Any
 
 from celery import Celery
-import openai
-from openai.types.chat.completion_create_params import ResponseFormat
 
-from ai_state_machine.model import CompositeContentType
-from ai_state_machine.store import store_model, retrieve_model, get_lock_for_session
-from ai_state_machine.templates import get_environment, register_template_directory
-
-app = Celery(
-    "My Little AI App",
-    backend="redis://localhost",
-    broker="pyamqp://",
-)
-
-register_template_directory("claims", "example_claims/templates")
+from ai_state_machine.environment import GenieEnvironment
+from ai_state_machine.genie_model import GenieModel
+from ai_state_machine.model import CompositeContentType, DialogueElement
+from ai_state_machine.session import SessionLockManager
+from ai_state_machine.store import StoreManager
 
 
-_OPENAI_CLIENT = openai.AzureOpenAI(
-    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-    api_version="2024-02-15-preview",
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-)
-deployment_name = 'SOME DEPLOYMENT NAME'
+def add_trigger_ai_event_task(
+        app: Celery,
+        session_lock_manager: SessionLockManager,
+        store_manager: StoreManager,
+):
+    @app.task(name="genie_flow.trigger_ai_event")
+    def trigger_ai_event(response: str, cls_fqn: str, session_id: str, event_name: str):
+        with session_lock_manager.get_lock_for_session(session_id):
+            model = store_manager.retrieve_model(cls_fqn, session_id=session_id)
+            assert isinstance(model, GenieModel)
+            model.running_task_id = None
+
+            state_machine = model.create_state_machine()
+            logging.debug(f"sending {event_name} to model for session {session_id}")
+            state_machine.send(event_name, response)
+
+            store_manager.store_model(model)
+
+    return trigger_ai_event
 
 
-@app.task
-def trigger_ai_event(response: str, cls_fqn: str, session_id: str, event_name: str):
-    with get_lock_for_session(session_id):
-        model = retrieve_model(cls_fqn, session_id=session_id)
-        model.running_task_id = None
+def add_invoke_task(
+    app: Celery,
+    genie_environment: GenieEnvironment
+):
 
-        state_machine = model.create_state_machine()
-        logging.debug(f"sending {event_name} to model for session {session_id}")
-        state_machine.send(event_name, response)
+    @app.task(name="genie_flow.invoke_task")
+    def invoke_ai_event(template_name: str, render_data: dict[str, Any]) -> str:
+        dialogue_raw: list[dict] = getattr(render_data, "dialogue", list())
+        dialogue = [DialogueElement(**x) for x in dialogue_raw]
+        return genie_environment.invoke_template(
+            template_name,
+            render_data,
+            dialogue,
+        )
 
-        store_model(model)
-
-
-@app.task
-def call_llm_api(
-        template_name: str,
-        render_data: dict[str, str],
-) -> str:
-    template = get_environment().get_template(template_name)
-    prompt = template.render(render_data)
-    logging.debug(f"sending the following prompt to LLM: {prompt}")
-
-    response_format = ResponseFormat(type="json_object") if "JSON" in prompt else None
-    response = _OPENAI_CLIENT.chat.completions.create(
-        model=deployment_name,
-        messages=[
-            {"role": "user", "content": prompt}
-        ],
-        response_format=response_format,
-    )
-
-    try:
-        return response.choices[0].message.content
-    except Exception as e:
-        logging.warning(f"Failed to call OpenAI: {str(e)}")
-        return f"** call to OpenAI API failed; error: {str(e)}"
+    return invoke_ai_event
 
 
-@app.task
-def combine_group_to_dict(
-        results: list[CompositeContentType],
-        keys: list[str]
-) -> CompositeContentType:
-    return dict(zip(keys, results))
+def add_combine_group_to_dict(app):
+
+    @app.task(name="genie_flow.combine_group_to_dict")
+    def combine_group_to_dict(
+            results: list[CompositeContentType],
+            keys: list[str]
+    ) -> CompositeContentType:
+        return dict(zip(keys, results))
+
+    return combine_group_to_dict
 
 
-@app.task
-def chained_template(
-        result_of_previous_call: CompositeContentType,
-        template_name: str,
-        render_data: dict[str, str],
-) -> CompositeContentType:
-    render_data["previous_result"] = result_of_previous_call
-    return template_name, render_data
+def add_chained_template(app):
+
+    @app.task(name="genie_flow.chained_template")
+    def chained_template(
+            result_of_previous_call: CompositeContentType,
+            template_name: str,
+            render_data: dict[str, str],
+    ) -> tuple[str, dict[str, Any]]:
+        render_data["previous_result"] = result_of_previous_call
+        return template_name, render_data
+
+    return chained_template

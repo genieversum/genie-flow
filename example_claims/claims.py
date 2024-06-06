@@ -3,14 +3,13 @@ import logging
 from json import JSONDecodeError
 from typing import Optional, Union
 
-from jinja2 import Template
 from pydantic import Field
 from statemachine import State
 from statemachine.event_data import EventData
 
 from ai_state_machine.genie_state_machine import GenieStateMachine
 from ai_state_machine.genie_model import GenieModel
-from ai_state_machine.store import STORE
+from ai_state_machine.templates import CompositeTemplate
 
 
 class ClaimsModel(GenieModel):
@@ -38,9 +37,6 @@ class ClaimsModel(GenieModel):
         None,
         description="output of the step-back research",
     )
-
-
-STORE.register_model(ClaimsModel)
 
 
 class ClaimsMachine(GenieStateMachine):
@@ -108,7 +104,7 @@ class ClaimsMachine(GenieStateMachine):
     )
 
     # TEMPLATES
-    templates: dict[str, Union[str, Template, dict[str]]] = dict(
+    templates: CompositeTemplate = dict(
         user_entering_role="claims/instruction_opening.jinja2",
         ai_extracts_user_role="claims/prompt_extract_user_role.jinja2",
         user_entering_role_retry="claims/feedback_cannot_extract_role.jinja2",
