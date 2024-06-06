@@ -115,17 +115,21 @@ When the developed has created a new `GenieModel`, that new model needs to be re
 make that model recognized to the Pydantic-Redis ORM framework. This registration is done as follows:
 
 ```python
+from ai_state_machine.containers import init_genie_flow
 from ai_state_machine.genie_model import GenieModel
-from ai_state_machine.store import STORE
 
 class MyNewModel(GenieModel):
     ...
 
-STORE.register_model(MyNewModel)
+
+genie_environment = init_genie_flow("config.yaml")
+genie_environment.register_model("my_genie", MyNewModel)
+
 ```
 
 From that point onwards, the class `MyNewModel` can be persisted and therefore used by the Genie
-Flow framework.
+Flow framework. This registration also makes the model and accompanying state machine available
+at the API, under the model key `my_genie`.
 
 Remember that this also needs to be done for any additional models that may be referred to by this
 `MyNewModel` class.
@@ -265,7 +269,6 @@ from statemachine import State
 
 from ai_state_machine.genie_state_machine import GenieStateMachine
 from ai_state_machine.genie_model import GenieModel
-from ai_state_machine.store import STORE
 
 
 class QandAModel(GenieModel):
@@ -273,9 +276,6 @@ class QandAModel(GenieModel):
     @property
     def state_machine_class(self) -> type["GenieStateMachine"]:
         return QandAMachine
-
-
-STORE.register_model(QandAModel)
 
 
 class QandAMachine(GenieStateMachine):
@@ -792,15 +792,15 @@ registered:
 
 ### registering your model
 The data model (which is closely coupled with your state machine) needs to be registered with
-the API broker. This is done as follows:
+the API broker. This is done at the same time that you register your model for persistance.
 
 ```python
-from ai_state_machine import registry
+from ai_state_machine.containers import init_genie_flow
 
 from example_claims.claims import ClaimsModel
 
-
-registry.register("claims_genie", ClaimsModel)
+genie_environment = init_genie_flow("config.yaml")
+genie_environment.register_model("claims_genie", ClaimsModel)
 ```
 
 This line will register a Genie Flow Model (`ClaimsModel`) as a potential model and state machine
@@ -812,7 +812,8 @@ logic and models simultaneously. One can register the different Q and A examples
 this documentation, at the same time:
 
 ```python
-from ai_state_machine import registry
+from ai_state_machine.containers import init_genie_flow
+
 
 from example_qa import (
     q_and_a,
@@ -822,11 +823,12 @@ from example_qa import (
 )
 
 
+genie_environment = init_genie_flow("config.yaml")
 
-registry.register("q_and_a", q_and_a.QandAModel)
-registry.register("q_and_a_cond", q_and_a_cond.QandACondModel)
-registry.register("q_and_a_capture", q_and_a_capture.QandACaptureModel)
-registry.register("q_and_a_trans", q_and_a_trans.QandATransModel)
+genie_environment.register_model("q_and_a", q_and_a.QandAModel)
+genie_environment.register_model("q_and_a_cond", q_and_a_cond.QandACondModel)
+genie_environment.register_model("q_and_a_capture", q_and_a_capture.QandACaptureModel)
+genie_environment.register_model("q_and_a_trans", q_and_a_trans.QandATransModel)
 ```
 
 This way, any client can start a new session for any of these different models and state machines.
@@ -837,9 +839,13 @@ is also required to give a key and the actual path to the directory where to fin
 instance:
 
 ```python
-from ai_state_machine.templates import register_template_directory
+from ai_state_machine.containers import init_genie_flow
+from example_claims.claims import ClaimsModel
 
-register_template_directory("claims", "example_claims/templates")
+
+genie_environment = init_genie_flow("config.yaml")
+genie_environment.register_model("claims_genie", ClaimsModel)
+genie_environment.register_template_directory("claims", "example_claims/templates")
 ```
 Here we are registering the fact that templates for "Claims Genie" can be found at the relative
 path `example_claims/templates`. That path is relative to the working directory. The key `claims`
