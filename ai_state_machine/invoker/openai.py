@@ -5,8 +5,12 @@ from typing import Optional
 
 import openai
 from openai.lib.azure import AzureOpenAI
-from openai.types.chat import ChatCompletionSystemMessageParam, \
-    ChatCompletionUserMessageParam, ChatCompletionAssistantMessageParam, ChatCompletionMessageParam
+from openai.types.chat import (
+    ChatCompletionSystemMessageParam,
+    ChatCompletionUserMessageParam,
+    ChatCompletionAssistantMessageParam,
+    ChatCompletionMessageParam,
+)
 from openai.types.chat.completion_create_params import ResponseFormat
 
 from ai_state_machine.invoker.genie import GenieInvoker
@@ -20,7 +24,9 @@ _CHAT_COMPLETION_MAP = {
 }
 
 
-def chat_completion_message(dialogue_element: DialogueElement) -> ChatCompletionMessageParam:
+def chat_completion_message(
+    dialogue_element: DialogueElement,
+) -> ChatCompletionMessageParam:
     try:
         return _CHAT_COMPLETION_MAP[dialogue_element.actor](
             role=dialogue_element.actor,
@@ -49,7 +55,8 @@ class AbstractAzureOpenAIInvoker(GenieInvoker, ABC):
         return openai.AzureOpenAI(
             api_key=os.getenv("AZURE_OPENAI_API_KEY") or config["api_key"],
             api_version=config["api_version"],
-            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT") or config["azure_endpoint"],
+            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
+            or config["azure_endpoint"],
         )
 
 
@@ -69,7 +76,9 @@ class AzureOpenAIChatInvoker(AbstractAzureOpenAIInvoker):
     def _response_format(self) -> Optional[ResponseFormat]:
         return None
 
-    def invoke(self, content: str, dialogue: Optional[list[DialogueElement]] = None) -> str:
+    def invoke(
+        self, content: str, dialogue: Optional[list[DialogueElement]] = None
+    ) -> str:
         if dialogue is None:
             dialogue = []
         messages = [chat_completion_message(element) for element in dialogue]
@@ -106,8 +115,12 @@ class AzureOpenAIChatJSONInvoker(AzureOpenAIChatInvoker):
     def _response_format(self) -> Optional[ResponseFormat]:
         return ResponseFormat(type="json_object")
 
-    def invoke(self, content: str, dialogue: Optional[list[DialogueElement]] = None) -> str:
+    def invoke(
+        self, content: str, dialogue: Optional[list[DialogueElement]] = None
+    ) -> str:
         if "json" not in content.lower():
-            logging.warning("sending a JSON invocation to Azure OpenAI without mentioning "
-                            "the word 'json'.")
+            logging.warning(
+                "sending a JSON invocation to Azure OpenAI without mentioning "
+                "the word 'json'."
+            )
         return super(AzureOpenAIChatJSONInvoker).invoke(content, dialogue)

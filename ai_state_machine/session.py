@@ -5,16 +5,16 @@ from redis import Redis
 from statemachine.exceptions import TransitionNotAllowed
 
 from ai_state_machine.genie_model import GenieModel
-from ai_state_machine.model import EventInput, AIResponse, AIStatusResponse
-from ai_state_machine.registry import ModelKeyRegistryType
+from ai_state_machine.model.types import ModelKeyRegistryType
+from ai_state_machine.model.api import AIStatusResponse, AIResponse, EventInput
 
 
 class SessionLockManager:
 
     def __init__(
-            self,
-            redis_lock_store: Redis,
-            lock_expiration_seconds: int,
+        self,
+        redis_lock_store: Redis,
+        lock_expiration_seconds: int,
     ):
         self.redis_lock_store = redis_lock_store
         self.lock_expiration_seconds = lock_expiration_seconds
@@ -38,9 +38,9 @@ class SessionLockManager:
 class SessionManager:
 
     def __init__(
-            self,
-            session_lock_manager: SessionLockManager,
-            model_key_registry: ModelKeyRegistryType
+        self,
+        session_lock_manager: SessionLockManager,
+        model_key_registry: ModelKeyRegistryType,
     ):
         self.session_lock_manager = session_lock_manager
         self.model_key_registry = model_key_registry
@@ -91,7 +91,7 @@ class SessionManager:
         :return: an instance of `AIResponse` with the appropriate values
         """
         if model.running_task_id is not None:
-            return AIResponse(session_id=model.session_id, next_actions=['poll'])
+            return AIResponse(session_id=model.session_id, next_actions=["poll"])
 
         state_machine = model.create_state_machine()
         return AIResponse(
@@ -122,7 +122,7 @@ class SessionManager:
         model.__class__.insert(model)
 
         if model.running_task_id is not None:
-            return AIResponse(session_id=event.session_id, next_actions=['poll'])
+            return AIResponse(session_id=event.session_id, next_actions=["poll"])
         return AIResponse(
             session_id=event.session_id,
             response=state_machine.model.current_response.actor_text,

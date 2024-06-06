@@ -1,7 +1,10 @@
 from typing import Type
 
 from ai_state_machine.invoker.genie import GenieInvoker
-from ai_state_machine.invoker.openai import AzureOpenAIChatInvoker, AzureOpenAIChatJSONInvoker
+from ai_state_machine.invoker.openai import (
+    AzureOpenAIChatInvoker,
+    AzureOpenAIChatJSONInvoker,
+)
 from ai_state_machine.invoker.verbatim import VerbatimInvoker
 
 _REGISTRY: dict[str, Type[GenieInvoker]] = dict(

@@ -2,24 +2,22 @@ from statemachine import State
 
 from ai_state_machine.genie_state_machine import GenieStateMachine
 from ai_state_machine.genie_model import GenieModel
-from ai_state_machine.store import STORE
 
 
 class QandATransModel(GenieModel):
 
     @property
-    def state_machine_class(self) -> type["GenieStateMachine"]:
+    def state_machine_class(self) -> type[GenieStateMachine]:
         return QandATransMachine
-
-
-STORE.register_model(QandATransModel)
 
 
 class QandATransMachine(GenieStateMachine):
 
     def __init__(self, model: QandATransModel, new_session: bool = False):
         if not isinstance(model, QandATransModel):
-            raise TypeError("The type of model should be QandAModel, not {}".format(type(model)))
+            raise TypeError(
+                "The type of model should be QandAModel, not {}".format(type(model))
+            )
 
         super(QandATransMachine, self).__init__(model=model, new_session=new_session)
 
@@ -29,7 +27,9 @@ class QandATransMachine(GenieStateMachine):
     ai_creates_response = State(value=200)
 
     # EVENTS AND TRANSITIONS
-    user_input = intro.to(ai_creates_response) | user_enters_query.to(ai_creates_response)
+    user_input = intro.to(ai_creates_response) | user_enters_query.to(
+        ai_creates_response
+    )
     ai_extraction = ai_creates_response.to(user_enters_query)
 
     # TEMPLATES

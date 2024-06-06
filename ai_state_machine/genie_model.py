@@ -3,7 +3,8 @@ from typing import Optional
 from pydantic import Field
 from pydantic_redis import Model
 
-from ai_state_machine.model import DialogueElement, DialogueFormat
+from ai_state_machine.genie_state_machine import GenieStateMachine
+from ai_state_machine.model.dialogue import DialogueElement, DialogueFormat
 
 
 class GenieModel(Model):
@@ -21,11 +22,12 @@ class GenieModel(Model):
     persist the values into Reids and retrieve it again by its primary key. The attribute
     `_primary_key_field` is used to determine the name of the primary key.
     """
+
     _primary_key_field: str = "session_id"
 
     state: str | int | None = Field(
         None,
-        description="The current state that this model is in, represented by the value of the state"
+        description="The current state that this model is in, represented by the state's value",
     )
     session_id: str = Field(
         description="The ID of the session this data model object belongs to."
@@ -48,14 +50,14 @@ class GenieModel(Model):
     )
 
     @property
-    def state_machine_class(self) -> type["GenieStateMachine"]:
+    def state_machine_class(self) -> type[GenieStateMachine]:
         """
         Property that returns the class of the state machine that this model should be
         managed by.
         """
         raise NotImplementedError()
 
-    def create_state_machine(self) -> "GenieStateMachine":
+    def create_state_machine(self) -> GenieStateMachine:
         """
         Create and return a newly instantiated state machine, of the appropriate class,
         that manages this instance of a model.

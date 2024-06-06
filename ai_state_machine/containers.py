@@ -18,8 +18,8 @@ from ai_state_machine.celery_tasks import (
 from ai_state_machine.genie_model import GenieModel
 from ai_state_machine.session import SessionManager, SessionLockManager
 from ai_state_machine.environment import GenieEnvironment
-from ai_state_machine.model import DialogueElement
-from ai_state_machine.registry import ModelKeyRegistryType
+from ai_state_machine.model.dialogue import DialogueElement
+from ai_state_machine.model.types import ModelKeyRegistryType
 from ai_state_machine.store import StoreManager
 
 
@@ -36,7 +36,9 @@ class CeleryApp(Celery):
 
 class PydanticRedisStoreWrapper(pydantic_redis.Store):
 
-    def __init__(self, host: str, port: int, db: int, life_span_in_seconds: int = 86400):
+    def __init__(
+        self, host: str, port: int, db: int, life_span_in_seconds: int = 86400
+    ):
         redis_config = pydantic_redis.RedisConfig(
             host=host,
             port=port,

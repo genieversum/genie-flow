@@ -1,7 +1,6 @@
-import json
 import logging
 from json import JSONDecodeError
-from typing import Optional, Union
+from typing import Optional
 
 from pydantic import Field
 from statemachine import State
@@ -9,7 +8,7 @@ from statemachine.event_data import EventData
 
 from ai_state_machine.genie_state_machine import GenieStateMachine
 from ai_state_machine.genie_model import GenieModel
-from ai_state_machine.templates import CompositeTemplate
+from ai_state_machine.model.types import CompositeTemplateType
 
 
 class ClaimsModel(GenieModel):
@@ -43,7 +42,9 @@ class ClaimsMachine(GenieStateMachine):
 
     def __init__(self, model: ClaimsModel, new_session: bool = False):
         if not isinstance(model, ClaimsModel):
-            raise TypeError("The type of model should be ClaimsModel, not {}".format(type(model)))
+            raise TypeError(
+                "The type of model should be ClaimsModel, not {}".format(type(model))
+            )
 
         super(ClaimsMachine, self).__init__(
             model=model,
@@ -72,39 +73,44 @@ class ClaimsMachine(GenieStateMachine):
 
     # EVENTS AND TRANSITIONS
     user_input = (
-        user_entering_role.to(ai_extracts_user_role) |
-        user_entering_role_retry.to(ai_extracts_user_role) |
-        user_entering_initial_information.to(ai_extracts_information) |
-        user_enters_additional_information.to(ai_extracts_information)
+        user_entering_role.to(ai_extracts_user_role)
+        | user_entering_role_retry.to(ai_extracts_user_role)
+        | user_entering_initial_information.to(ai_extracts_information)
+        | user_enters_additional_information.to(ai_extracts_information)
     )
 
     ai_extraction = (
-        ai_extracts_user_role.to(user_entering_initial_information, cond="user_role_defined") |
-        ai_extracts_user_role.to(user_entering_role_retry, unless="user_role_defined") |
-
-        ai_extracts_information.to(user_views_start_of_generation, cond="have_all_info") |
-        ai_extracts_information.to(user_enters_additional_information, unless="have_all_info") |
-        ai_extracts_categories.to(user_views_categories) |
-        ai_conducts_research.to(user_views_research) |
-        ai_conducts_research_with_packaging.to(user_views_research) |
-        ai_generates_claims.to(user_views_claims)
+        ai_extracts_user_role.to(
+            user_entering_initial_information, cond="user_role_defined"
+        )
+        | ai_extracts_user_role.to(user_entering_role_retry, unless="user_role_defined")
+        | ai_extracts_information.to(
+            user_views_start_of_generation, cond="have_all_info"
+        )
+        | ai_extracts_information.to(
+            user_enters_additional_information, unless="have_all_info"
+        )
+        | ai_extracts_categories.to(user_views_categories)
+        | ai_conducts_research.to(user_views_research)
+        | ai_conducts_research_with_packaging.to(user_views_research)
+        | ai_generates_claims.to(user_views_claims)
     )
 
     advance = (
-        user_views_start_of_generation.to(ai_extracts_categories) |
-        user_views_categories.to(
+        user_views_start_of_generation.to(ai_extracts_categories)
+        | user_views_categories.to(
             ai_conducts_research,
             unless="user_is_packaging_specialist",
-        ) |
-        user_views_categories.to(
+        )
+        | user_views_categories.to(
             ai_conducts_research_with_packaging,
             cond="user_is_packaging_specialist",
-        ) |
-        user_views_research.to(ai_generates_claims)
+        )
+        | user_views_research.to(ai_generates_claims)
     )
 
     # TEMPLATES
-    templates: CompositeTemplate = dict(
+    templates: CompositeTemplateType = dict(
         user_entering_role="claims/instruction_opening.jinja2",
         ai_extracts_user_role="claims/prompt_extract_user_role.jinja2",
         user_entering_role_retry="claims/feedback_cannot_extract_role.jinja2",

@@ -1,15 +1,15 @@
 from fastapi import HTTPException, APIRouter
 
 from ai_state_machine.genie_model import GenieModel
-from ai_state_machine.model import EventInput, AIResponse, AIStatusResponse
+from ai_state_machine.model.api import AIStatusResponse, AIResponse, EventInput
 from ai_state_machine.session import SessionManager
 
 
 def _unknown_state_machine_exception(state_machine_key: str) -> HTTPException:
     return HTTPException(
-            status_code=404,
-            detail=f"State machine {state_machine_key} is unknown",
-        )
+        status_code=404,
+        detail=f"State machine {state_machine_key} is unknown",
+    )
 
 
 class GenieFlowRouterBuilder:
@@ -54,7 +54,9 @@ class GenieFlowRouterBuilder:
         except KeyError:
             raise _unknown_state_machine_exception(state_machine_key)
 
-    def get_task_state(self, state_machine_key: str, session_id: str) -> AIStatusResponse:
+    def get_task_state(
+        self, state_machine_key: str, session_id: str
+    ) -> AIStatusResponse:
         try:
             return self.session_manager.get_task_state(state_machine_key, session_id)
         except KeyError:

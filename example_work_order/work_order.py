@@ -12,7 +12,9 @@ from ai_state_machine.genie_model import GenieModel
 
 
 class WorkOrderRecord(GenieModel):
-    work_order_summary: Optional[str] = Field(None, description="user entered summary of the work order")
+    work_order_summary: Optional[str] = Field(
+        None, description="user entered summary of the work order"
+    )
 
     activity_type: Optional[str] = Field(None, description="type of the activity")
 
@@ -24,7 +26,9 @@ class WorkOrderStateMachine(GenieStateMachine):
     user_entering_work_order = State(initial=True, value=p.OPENING)
     ai_extracting_activity_type = State(value=p.AI_EXTRACT_ACTIVITY_TYPE)
     user_verifying_activity_type = State(value=p.USER_VERIFIES_ACTIVITY_TYPE)
-    ai_extracting_activity_type_verification = State(value=p.AI_EXTRACT_ACTIVITY_TYPE_VERIFICATION)
+    ai_extracting_activity_type_verification = State(
+        value=p.AI_EXTRACT_ACTIVITY_TYPE_VERIFICATION
+    )
     user_entering_activity_type = State(value=p.USER_ENTERS_ACTIVITY_TYPE)
 
     ai_extracts_leak_details = State(value=p.AI_EXTRACTS_DETAILS)
@@ -39,36 +43,44 @@ class WorkOrderStateMachine(GenieStateMachine):
     ai_stores_details = State(final=True)
 
     user_input = (
-            user_entering_work_order.to(ai_extracting_activity_type, cond="is_valid_response") |
-            user_entering_work_order.to(user_entering_work_order, unless="is_valid_response") |
-            user_verifying_activity_type.to(ai_extracting_activity_type_verification) |
-            user_entering_activity_type.to(ai_extracting_activity_type) |
-            user_verifies_extracted_details.to(ai_extracts_details_verification) |
-            user_enters_additional_details.to(ai_extracts_additional_details)
+        user_entering_work_order.to(
+            ai_extracting_activity_type, cond="is_valid_response"
+        )
+        | user_entering_work_order.to(
+            user_entering_work_order, unless="is_valid_response"
+        )
+        | user_verifying_activity_type.to(ai_extracting_activity_type_verification)
+        | user_entering_activity_type.to(ai_extracting_activity_type)
+        | user_verifies_extracted_details.to(ai_extracts_details_verification)
+        | user_enters_additional_details.to(ai_extracts_additional_details)
     )
 
     ai_extraction = (
-        ai_extracting_activity_type.to(user_verifying_activity_type) |
-        ai_extracting_activity_type_verification.to(
+        ai_extracting_activity_type.to(user_verifying_activity_type)
+        | ai_extracting_activity_type_verification.to(
             ai_extracts_leak_details,
             validators="is_valid_response",
             cond="is_activity_type_leak",
-        ) |
-        ai_extracting_activity_type_verification.to(
+        )
+        | ai_extracting_activity_type_verification.to(
             ai_extracts_paint_details,
             validators="is_valid_response",
             cond="is_activity_type_paint",
-        ) |
-        ai_extracting_activity_type_verification.to(
+        )
+        | ai_extracting_activity_type_verification.to(
             user_entering_activity_type,
             validators="is_valid_response",
             unless=["is_activity_type_leak", "is_activity_type_paint"],
-        ) |
-        ai_extracts_leak_details.to(user_verifies_extracted_details) |
-        ai_extracts_paint_details.to(user_verifies_extracted_details) |
-        ai_extracts_details_verification.to(ai_stores_details, cond="details_verified") |
-        ai_extracts_details_verification.to(user_enters_additional_details, unless="details_verified") |
-        ai_extracts_additional_details.to(user_verifies_extracted_details)
+        )
+        | ai_extracts_leak_details.to(user_verifies_extracted_details)
+        | ai_extracts_paint_details.to(user_verifies_extracted_details)
+        | ai_extracts_details_verification.to(
+            ai_stores_details, cond="details_verified"
+        )
+        | ai_extracts_details_verification.to(
+            user_enters_additional_details, unless="details_verified"
+        )
+        | ai_extracts_additional_details.to(user_verifies_extracted_details)
     )
 
     def _is_activity_type(self, ai_response: str, target_activity_type: str) -> bool:
@@ -135,5 +147,7 @@ Record: {json.dumps(sm.model.dict(), indent=4)}
             elif actor == "AI":
                 sm.ai_extraction(line_content)
             else:
-                logger.error("found a line in the script that is not attributed to an actor")
+                logger.error(
+                    "found a line in the script that is not attributed to an actor"
+                )
                 raise RuntimeError()

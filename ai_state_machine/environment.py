@@ -13,8 +13,8 @@ from pydantic_redis import Model, Store
 
 from ai_state_machine.genie_model import GenieModel
 from ai_state_machine.invoker import GenieInvoker, create_genie_invoker
-from ai_state_machine.model import DialogueElement
-from ai_state_machine.registry import ModelKeyRegistryType
+from ai_state_machine.model.dialogue import DialogueElement
+from ai_state_machine.model.types import ModelKeyRegistryType
 
 _META_FILENAME: str = "meta.yaml"
 _T = TypeVar("_T")
@@ -51,13 +51,13 @@ class _TemplateDirectory(TypedDict):
 class GenieEnvironment:
 
     def __init__(
-            self,
-            template_root_path: str | PathLike,
-            pool_size: int,
-            object_store: Store,
-            model_key_registry: ModelKeyRegistryType,
-            fastapi_app: FastAPI,
-            celery_app: Celery,
+        self,
+        template_root_path: str | PathLike,
+        pool_size: int,
+        object_store: Store,
+        model_key_registry: ModelKeyRegistryType,
+        fastapi_app: FastAPI,
+        celery_app: Celery,
     ):
         self.template_root_path = Path(template_root_path).resolve()
         self.pool_size = pool_size
@@ -69,9 +69,7 @@ class GenieEnvironment:
         self._template_directories: dict[str, _TemplateDirectory] = {}
 
     def _walk_directory_tree_upward(
-            self,
-            start_directory: Path,
-            execute: Callable[[Path, Optional[dict]], _T]
+        self, start_directory: Path, execute: Callable[[Path, Optional[dict]], _T]
     ) -> _T:
         start_directory = start_directory.resolve()
         if start_directory == self.template_root_path:
@@ -114,12 +112,16 @@ class GenieEnvironment:
     @property
     def jinja_env(self) -> jinja2.Environment:
         if self._jinja_env is None:
-            self._jinja_env = Environment(loader=PrefixLoader(self.jinja_loader_mapping))
+            self._jinja_env = Environment(
+                loader=PrefixLoader(self.jinja_loader_mapping)
+            )
         return self._jinja_env
 
     def _create_invoker_pool(self, config: dict[str]) -> InvokersPool:
         queue = Queue()
-        nr_invokers = self.pool_size if "pool_size" not in config else config["pool_size"]
+        nr_invokers = (
+            self.pool_size if "pool_size" not in config else config["pool_size"]
+        )
         assert nr_invokers > 0, f"Should not create invoker pool of size {nr_invokers}"
 
         for _ in range(nr_invokers):
@@ -136,7 +138,9 @@ class GenieEnvironment:
         :param model_class: the class of the model that needs to be registered
         """
         if not issubclass(model_class, GenieModel):
-            raise ValueError(f"Can only register subclasses of GenieModel, not {model_class}")
+            raise ValueError(
+                f"Can only register subclasses of GenieModel, not {model_class}"
+            )
         if model_key in self.model_key_registry:
             raise ValueError(f"Model key {model_key} already registered")
 
@@ -153,7 +157,7 @@ class GenieEnvironment:
             directory=directory_path,
             config=config,
             jinja_loader=jinja2.FileSystemLoader(directory),
-            invokers=self._create_invoker_pool(config["invoker"])
+            invokers=self._create_invoker_pool(config["invoker"]),
         )
         self._jinja_env = None  # clear the Environment
 
@@ -165,10 +169,10 @@ class GenieEnvironment:
         return template.render(data_context)
 
     def invoke_template(
-            self,
-            template_path: str,
-            data_context: dict[str, Any],
-            dialogue: Optional[list[DialogueElement]] = None
+        self,
+        template_path: str,
+        data_context: dict[str, Any],
+        dialogue: Optional[list[DialogueElement]] = None,
     ) -> str:
         rendered = self.render_template(template_path, data_context)
         prefix, _ = template_path.rsplit("/", 1)

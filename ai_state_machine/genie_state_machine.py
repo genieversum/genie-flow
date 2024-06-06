@@ -11,8 +11,8 @@ from statemachine.event_data import EventData
 from ai_state_machine.containers import GenieFlowContainer
 from ai_state_machine.environment import GenieEnvironment
 from ai_state_machine.genie_model import GenieModel
-from ai_state_machine.model import DialogueElement, DialogueFormat, CompositeTemplateType, \
-    CompositeContentType
+from ai_state_machine.model.types import CompositeTemplateType, CompositeContentType
+from ai_state_machine.model.dialogue import DialogueElement, DialogueFormat
 from ai_state_machine.store import get_fully_qualified_name_from_class
 
 
@@ -25,11 +25,11 @@ class GenieStateMachine(StateMachine):
 
     @inject
     def __init__(
-            self,
-            model: GenieModel,
-            new_session: bool = False,
-            templates_property_name: str = "templates",
-            celery_app: Celery = Provide[GenieFlowContainer.celery_app]
+        self,
+        model: GenieModel,
+        new_session: bool = False,
+        templates_property_name: str = "templates",
+        celery_app: Celery = Provide[GenieFlowContainer.celery_app],
     ):
         self.templates_property_name = templates_property_name
         self.celery_app = celery_app
@@ -40,7 +40,9 @@ class GenieStateMachine(StateMachine):
         if new_session:
             self._validate_state_templates()
 
-            initial_prompt = self.render_template(self.get_template_for_state(self.initial_state))
+            initial_prompt = self.render_template(
+                self.get_template_for_state(self.initial_state)
+            )
             self.model.dialogue.append(
                 DialogueElement(
                     actor="assistant",
@@ -50,9 +52,11 @@ class GenieStateMachine(StateMachine):
 
     @inject
     def _non_existing_templates(
-            self,
-            template: CompositeTemplateType,
-            genie_environment: GenieEnvironment = Provide[GenieFlowContainer.genie_environment],
+        self,
+        template: CompositeTemplateType,
+        genie_environment: GenieEnvironment = Provide[
+            GenieFlowContainer.genie_environment
+        ],
     ) -> list:
         if isinstance(template, str):
             try:
@@ -75,21 +79,22 @@ class GenieStateMachine(StateMachine):
         if isinstance(template, dict):
             result = []
             for key in template.keys():
-                result.extend([f"{key}/{t}" for t in self._non_existing_templates(template[key])])
+                result.extend(
+                    [f"{key}/{t}" for t in self._non_existing_templates(template[key])]
+                )
             return result
 
     def _validate_state_templates(self):
         templates = getattr(self, self.templates_property_name)
         states_without_template = {
-            state.id
-            for state in self.states
-            if state.id not in templates
+            state.id for state in self.states if state.id not in templates
         }
 
         unknown_template_names = self._non_existing_templates(
             [
                 templates[t]
-                for t in set(state.id for state in self.states) - states_without_template
+                for t in set(state.id for state in self.states)
+                - states_without_template
             ]
         )
 
@@ -122,9 +127,11 @@ class GenieStateMachine(StateMachine):
 
     @inject
     def render_template(
-            self,
-            template: CompositeTemplateType,
-            genie_environment: GenieEnvironment = Provide[GenieFlowContainer.genie_environment],
+        self,
+        template: CompositeTemplateType,
+        genie_environment: GenieEnvironment = Provide[
+            GenieFlowContainer.genie_environment
+        ],
     ) -> CompositeContentType:
         """
         Render a given template with the `render_data`. This rendering is done synchronously.
@@ -162,7 +169,9 @@ class GenieStateMachine(StateMachine):
         try:
             return getattr(self, self.templates_property_name).get(state.id)
         except AttributeError:
-            logger.error(f"No attribute named '{self.templates_property_name}' with the templates")
+            logger.error(
+                f"No attribute named '{self.templates_property_name}' with the templates"
+            )
             raise
         except KeyError:
             logger.error(f"No template for state {state.id}")
@@ -282,25 +291,28 @@ class GenieStateMachine(StateMachine):
             return chained
 
         if isinstance(template, dict):
-            combine_group_to_dict_task = self.celery_app.tasks["genie_flow.combine_group_to_dict"]
+            combine_group_to_dict_task = self.celery_app.tasks[
+                "genie_flow.combine_group_to_dict"
+            ]
 
-            dict_keys = list(template.keys())  # make sure to go through keys in fixed order
+            dict_keys = list(
+                template.keys()
+            )  # make sure to go through keys in fixed order
             return chord(
                 group(*[self._compile_task(template[k]) for k in dict_keys]),
-                combine_group_to_dict_task.s(dict_keys)
+                combine_group_to_dict_task.s(dict_keys),
             )
-        raise ValueError(f"cannot compile a task for a render of type '{type(template)}'")
+        raise ValueError(
+            f"cannot compile a task for a render of type '{type(template)}'"
+        )
 
     def create_ai_task(self, template: CompositeTemplateType, event_to_send_after: str):
         trigger_ai_event_task = self.celery_app.tasks["genie_flow.trigger_ai_event"]
 
-        return (
-            self._compile_task(template) |
-            trigger_ai_event_task.s(
-                get_fully_qualified_name_from_class(self.model),
-                self.model.session_id,
-                event_to_send_after,
-            )
+        return self._compile_task(template) | trigger_ai_event_task.s(
+            get_fully_qualified_name_from_class(self.model),
+            self.model.session_id,
+            event_to_send_after,
         )
 
     def enqueue_task(self, event_data: EventData) -> str:
@@ -309,13 +321,10 @@ class GenieStateMachine(StateMachine):
         # TODO what if there are more than one event leading out the the future state
         event_to_send_after = event_data.target.transitions.unique_events[0]
 
-        task = (
-                self._compile_task(self.current_template) |
-                trigger_ai_event_task.s(
-                    get_fully_qualified_name_from_class(self.model),
-                    self.model.session_id,
-                    event_to_send_after
-                )
+        task = self._compile_task(self.current_template) | trigger_ai_event_task.s(
+            get_fully_qualified_name_from_class(self.model),
+            self.model.session_id,
+            event_to_send_after,
         )
         self.model.running_task_id = task.apply_async().id
         return self.model.running_task_id

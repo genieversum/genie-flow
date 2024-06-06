@@ -5,15 +5,16 @@ from celery import Celery
 
 from ai_state_machine.environment import GenieEnvironment
 from ai_state_machine.genie_model import GenieModel
-from ai_state_machine.model import CompositeContentType, DialogueElement
+from ai_state_machine.model.dialogue import DialogueElement
+from ai_state_machine.model.types import CompositeContentType
 from ai_state_machine.session import SessionLockManager
 from ai_state_machine.store import StoreManager
 
 
 def add_trigger_ai_event_task(
-        app: Celery,
-        session_lock_manager: SessionLockManager,
-        store_manager: StoreManager,
+    app: Celery,
+    session_lock_manager: SessionLockManager,
+    store_manager: StoreManager,
 ):
     @app.task(name="genie_flow.trigger_ai_event")
     def trigger_ai_event(response: str, cls_fqn: str, session_id: str, event_name: str):
@@ -31,10 +32,7 @@ def add_trigger_ai_event_task(
     return trigger_ai_event
 
 
-def add_invoke_task(
-    app: Celery,
-    genie_environment: GenieEnvironment
-):
+def add_invoke_task(app: Celery, genie_environment: GenieEnvironment):
 
     @app.task(name="genie_flow.invoke_task")
     def invoke_ai_event(template_name: str, render_data: dict[str, Any]) -> str:
@@ -53,8 +51,7 @@ def add_combine_group_to_dict(app):
 
     @app.task(name="genie_flow.combine_group_to_dict")
     def combine_group_to_dict(
-            results: list[CompositeContentType],
-            keys: list[str]
+        results: list[CompositeContentType], keys: list[str]
     ) -> CompositeContentType:
         return dict(zip(keys, results))
 
@@ -65,9 +62,9 @@ def add_chained_template(app):
 
     @app.task(name="genie_flow.chained_template")
     def chained_template(
-            result_of_previous_call: CompositeContentType,
-            template_name: str,
-            render_data: dict[str, str],
+        result_of_previous_call: CompositeContentType,
+        template_name: str,
+        render_data: dict[str, str],
     ) -> tuple[str, dict[str, Any]]:
         render_data["previous_result"] = result_of_previous_call
         return template_name, render_data

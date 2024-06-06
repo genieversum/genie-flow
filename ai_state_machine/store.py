@@ -4,10 +4,7 @@ import logging
 from types import ModuleType
 from typing import Any, Type
 
-import redis_lock
-from dependency_injector.wiring import inject
 from pydantic_redis import Model, Store
-from redis import Redis
 
 
 def get_fully_qualified_name_from_class(o: Any) -> str:
@@ -18,9 +15,9 @@ def get_fully_qualified_name_from_class(o: Any) -> str:
     """
     cls = o.__class__
     module = cls.__module__
-    if module == 'builtins':
+    if module == "builtins":
         return cls.__qualname__  # we do builtins without the module path
-    return module + '.' + cls.__qualname__
+    return module + "." + cls.__qualname__
 
 
 def get_class_from_fully_qualified_name(class_path):
@@ -30,7 +27,7 @@ def get_class_from_fully_qualified_name(class_path):
     :return: The actual class that is referred to by the given FQN
     """
     try:
-        module_name, class_name = class_path.rsplit('.', 1)
+        module_name, class_name = class_path.rsplit(".", 1)
         module = importlib.import_module(module_name)
     except ValueError:
         class_name = class_path
@@ -46,7 +43,7 @@ def get_module_from_fully_qualified_name(class_fqn: str) -> ModuleType:
     :return: The module that the class of the given FQN is in
     """
     try:
-        module_name, class_name = class_fqn.rsplit('.', 1)
+        module_name, class_name = class_fqn.rsplit(".", 1)
         return importlib.import_module(module_name)
     except ValueError:
         logging.error(f"Failed to get module from fqn {class_fqn}")
@@ -55,7 +52,10 @@ def get_module_from_fully_qualified_name(class_fqn: str) -> ModuleType:
 
 class StoreManager:
 
-    def __init__(self, store: Store,):
+    def __init__(
+        self,
+        store: Store,
+    ):
         self.store = store
 
     def register_model(self, model_class: Type[Model]):
