@@ -94,8 +94,20 @@ class AzureOpenAIChatInvoker(AbstractAzureOpenAIInvoker):
 class AzureOpenAIChatJSONInvoker(AzureOpenAIChatInvoker):
     """
     A chat completion invoker for Azure OpenAI clients witch will return a JSON string.
+
+    **Important:** when using JSON mode, you **must** also instruct the model to
+              produce JSON yourself via a system or user message. Without this, the model may
+              generate an unending stream of whitespace until the generation reaches the token
+              limit
+
     """
 
     @property
     def _response_format(self) -> Optional[ResponseFormat]:
         return ResponseFormat(type="json_object")
+
+    def invoke(self, content: str, dialogue: Optional[list[DialogueElement]] = None) -> str:
+        if "json" not in content.lower():
+            logging.warning("sending a JSON invocation to Azure OpenAI without mentioning "
+                            "the word 'json'.")
+        return super(AzureOpenAIChatJSONInvoker).invoke(content, dialogue)

@@ -18,7 +18,11 @@ def create_genie_invoker(invoker_config: dict[str]) -> GenieInvoker:
 
 def register_invoker(invoker_name: str, invoker_class: Type[GenieInvoker]):
     """
-    Register your own invoker. It then becomes
+    Register your own invoker. It then becomes usable in any `meta.yaml` directive in a
+    template directory.
+
+    :param invoker_name: The name of the invoker, as it will appear in the `meta.yaml`
+    :param invoker_class: The invoker class to register.
     """
     if invoker_name in _REGISTRY:
         raise ValueError(f"'{invoker_name}' is already registered")
