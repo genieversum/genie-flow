@@ -8,6 +8,5 @@ genie_environment = init_genie_flow("config.yaml")
 genie_environment.register_model("claims_genie", ClaimsModel)
 genie_environment.register_template_directory("claims", "example_claims/templates")
 
-time.sleep(10)
 worker = genie_environment.celery_app.Worker(app=genie_environment.celery_app)
 worker.start()
