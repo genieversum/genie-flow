@@ -15,6 +15,7 @@ from ai_state_machine.genie_model import GenieModel
 from ai_state_machine.invoker import GenieInvoker, create_genie_invoker
 from ai_state_machine.model.dialogue import DialogueElement
 from ai_state_machine.model.types import ModelKeyRegistryType
+from ai_state_machine.store import StoreManager
 
 _META_FILENAME: str = "meta.yaml"
 _T = TypeVar("_T")
@@ -54,17 +55,13 @@ class GenieEnvironment:
         self,
         template_root_path: str | PathLike,
         pool_size: int,
-        object_store: Store,
+        store_manager: StoreManager,
         model_key_registry: ModelKeyRegistryType,
-        fastapi_app: FastAPI,
-        celery_app: Celery,
     ):
         self.template_root_path = Path(template_root_path).resolve()
         self.pool_size = pool_size
-        self.object_store = object_store
+        self.store_manager = store_manager
         self.model_key_registry = model_key_registry
-        self.fastapi_app = fastapi_app
-        self.celery_app = celery_app
         self._jinja_env: Optional[Environment] = None
         self._template_directories: dict[str, _TemplateDirectory] = {}
 
@@ -144,7 +141,7 @@ class GenieEnvironment:
         if model_key in self.model_key_registry:
             raise ValueError(f"Model key {model_key} already registered")
 
-        self.object_store.register_model(model_class)
+        self.store_manager.register_model(model_class)
         self.model_key_registry[model_key] = model_class
 
     def register_template_directory(self, prefix: str, directory: str | PathLike):
