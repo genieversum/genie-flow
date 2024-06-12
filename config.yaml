@@ -9,5 +9,5 @@ lock_store:
   redis_host: localhost
   redis_port: 6379
   redis_db: 2
-template_root_path: example_claims/templates
+template_root_path: .
 pool_size: 1
