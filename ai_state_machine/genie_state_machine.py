@@ -317,7 +317,7 @@ class GenieStateMachine(StateMachine):
                     event_to_send_after
                 )
         )
-        self.model.running_task_id = task.apply_async().id
+        self.model.running_task_id = task.apply_async((self.render_data,)).id
         return self.model.running_task_id
 
     # VALIDATIONS AND CONDITIONS
