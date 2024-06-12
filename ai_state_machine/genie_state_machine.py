@@ -245,7 +245,7 @@ class GenieStateMachine(StateMachine):
         We are setting the model's current actor to the AI actor name.
         """
         logger.debug(f"Advance event received")
-        self.model.actor = self._ai_actor_name
+        self.model.actor = "assistant"
 
         return self.enqueue_task(event_data)
 
@@ -273,20 +273,20 @@ class GenieStateMachine(StateMachine):
         """
         if isinstance(template, str):
             invoke_task = self.celery_app.tasks["genie_flow.invoke_task"]
-            return invoke_task.s(template, self.render_data)
+            return invoke_task.s(template)
 
         if isinstance(template, Task):
             return template.s(self.render_data)
 
         if isinstance(template, list):
-            chained_template_task = self.celery_app.tasks["genie_flow.chained_task"]
+            chained_template_task = self.celery_app.tasks["genie_flow.chained_template"]
 
             chained = None
             for t in template:
                 if chained is None:
                     chained = self._compile_task(t)
                 else:
-                    chained |= chained_template_task.s(t, self.render_data)
+                    chained |= chained_template_task.s(self.render_data)
                     chained |= self._compile_task(t)
             return chained
 
@@ -326,7 +326,7 @@ class GenieStateMachine(StateMachine):
             self.model.session_id,
             event_to_send_after,
         )
-        self.model.running_task_id = task.apply_async().id
+        self.model.running_task_id = task.apply_async((self.render_data,)).id
         return self.model.running_task_id
 
     # VALIDATIONS AND CONDITIONS

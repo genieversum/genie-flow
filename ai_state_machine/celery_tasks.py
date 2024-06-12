@@ -11,6 +11,15 @@ from ai_state_machine.session import SessionLockManager
 from ai_state_machine.store import StoreManager
 
 
+"""
+Chaining Templates
+- invoke AI call (template_name, render_data) -> response
+- chain (previous_result, template_name, render_data) -> template_name, render_data
+- invoke AI call (template_name, render_data) -> response
+- trigger_ai_event (response, class_fqn, session_id, event_name) -> None
+"""
+
+
 def add_trigger_ai_event_task(
     app: Celery,
     session_lock_manager: SessionLockManager,
@@ -35,7 +44,7 @@ def add_trigger_ai_event_task(
 def add_invoke_task(app: Celery, genie_environment: GenieEnvironment):
 
     @app.task(name="genie_flow.invoke_task")
-    def invoke_ai_event(template_name: str, render_data: dict[str, Any]) -> str:
+    def invoke_ai_event(render_data: dict[str, Any], template_name: str) -> str:
         dialogue_raw: list[dict] = getattr(render_data, "dialogue", list())
         dialogue = [DialogueElement(**x) for x in dialogue_raw]
         return genie_environment.invoke_template(
@@ -62,11 +71,10 @@ def add_chained_template(app):
 
     @app.task(name="genie_flow.chained_template")
     def chained_template(
-        result_of_previous_call: CompositeContentType,
-        template_name: str,
-        render_data: dict[str, str],
-    ) -> tuple[str, dict[str, Any]]:
+            result_of_previous_call: CompositeContentType,
+            render_data: dict[str, str],
+    ) -> str | dict[str, Any]:
         render_data["previous_result"] = result_of_previous_call
-        return template_name, render_data
+        return render_data
 
     return chained_template

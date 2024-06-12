@@ -38,6 +38,7 @@ class QandATransMachine(GenieStateMachine):
         user_enters_query="q_and_a/user_input.jinja2",
         ai_creates_response=[
             "q_and_a/ai_response.jinja2",
-            "q_and_a/ai_response_summary",
+            "q_and_a/ai_response_summary.jinja2",
         ],
+        # ai_creates_response="q_and_a/ai_response.jinja2",
     )

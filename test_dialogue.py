@@ -2,8 +2,8 @@ import time
 
 import requests
 
-HOST = "http://127.0.0.1:8000"
-BASE_URL = HOST + "/v1/ai/claims_genie"
+HOST = 'http://127.0.0.1:8000'
+BASE_URL = HOST + "/v1/ai/qa_trans"
 
 response = requests.get(f"{BASE_URL}/start_session")
 ai_response = response.json()
