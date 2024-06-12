@@ -236,7 +236,7 @@ class GenieStateMachine(StateMachine):
         We are setting the model's current actor to the AI actor name.
         """
         logger.debug(f"Advance event received")
-        self.model.actor = self._ai_actor_name
+        self.model.actor = "assistant"
 
         return self.enqueue_task(event_data)
 
