@@ -2,7 +2,6 @@ from statemachine import State
 
 from ai_state_machine.genie_state_machine import GenieStateMachine
 from ai_state_machine.genie_model import GenieModel
-from ai_state_machine.store import STORE
 
 
 class QandATransModel(GenieModel):
@@ -10,9 +9,6 @@ class QandATransModel(GenieModel):
     @property
     def state_machine_class(self) -> type["GenieStateMachine"]:
         return QandATransMachine
-
-
-STORE.register_model(QandATransModel)
 
 
 class QandATransMachine(GenieStateMachine):
@@ -38,6 +34,7 @@ class QandATransMachine(GenieStateMachine):
         user_enters_query="q_and_a/user_input.jinja2",
         ai_creates_response=[
             "q_and_a/ai_response.jinja2",
-            "q_and_a/ai_response_summary",
+            "q_and_a/ai_response_summary.jinja2",
         ],
+        # ai_creates_response="q_and_a/ai_response.jinja2",
     )

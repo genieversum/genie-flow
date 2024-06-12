@@ -264,20 +264,20 @@ class GenieStateMachine(StateMachine):
         """
         if isinstance(template, str):
             invoke_task = self.celery_app.tasks["genie_flow.invoke_task"]
-            return invoke_task.s(template, self.render_data)
+            return invoke_task.s(template)
 
         if isinstance(template, Task):
             return template.s(self.render_data)
 
         if isinstance(template, list):
-            chained_template_task = self.celery_app.tasks["genie_flow.chained_task"]
+            chained_template_task = self.celery_app.tasks["genie_flow.chained_template"]
 
             chained = None
             for t in template:
                 if chained is None:
                     chained = self._compile_task(t)
                 else:
-                    chained |= chained_template_task.s(t, self.render_data)
+                    chained |= chained_template_task.s(self.render_data)
                     chained |= self._compile_task(t)
             return chained
 
