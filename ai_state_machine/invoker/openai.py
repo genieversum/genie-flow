@@ -14,7 +14,7 @@ from openai.types.chat import (
 from openai.types.chat.completion_create_params import ResponseFormat
 
 from ai_state_machine.invoker.genie import GenieInvoker
-from ai_state_machine.model import DialogueElement
+from ai_state_machine.model.dialogue import DialogueElement
 
 
 _CHAT_COMPLETION_MAP = {
