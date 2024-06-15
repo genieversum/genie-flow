@@ -6,14 +6,12 @@ from typing import TypedDict, Callable, Optional, TypeVar, Any, Type
 
 import jinja2
 import yaml
-from celery import Celery, Task
+from celery import Task
 from jinja2 import Environment, PrefixLoader, TemplateNotFound
 from pydantic_redis import Model
 from statemachine import State
 
-from ai_state_machine.celery import CeleryManager
-from ai_state_machine.genie_model import GenieModel
-from ai_state_machine.genie_state_machine import GenieStateMachine
+from ai_state_machine.genie import GenieModel, GenieStateMachine
 from ai_state_machine.invoker import GenieInvoker, create_genie_invoker
 from ai_state_machine.model.dialogue import DialogueElement
 from ai_state_machine.model.types import ModelKeyRegistryType, CompositeTemplateType
@@ -59,13 +57,11 @@ class GenieEnvironment:
         pool_size: int,
         store_manager: StoreManager,
         model_key_registry: ModelKeyRegistryType,
-        celery_manager: CeleryManager,
     ):
         self.template_root_path = Path(template_root_path).resolve()
         self.pool_size = pool_size
         self.store_manager = store_manager
         self.model_key_registry = model_key_registry
-        self.celery_manager = celery_manager
         self._jinja_env: Optional[Environment] = None
         self._template_directories: dict[str, _TemplateDirectory] = {}
 

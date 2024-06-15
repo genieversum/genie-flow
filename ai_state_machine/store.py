@@ -6,6 +6,9 @@ from typing import Any, Type
 
 from pydantic_redis import Model, Store
 
+from ai_state_machine.genie import GenieModel
+from ai_state_machine.model.dialogue import DialogueElement
+
 
 def get_fully_qualified_name_from_class(o: Any) -> str:
     """
@@ -57,6 +60,8 @@ class StoreManager:
         store: Store,
     ):
         self.store = store
+        self.register_model(DialogueElement)
+        self.register_model(GenieModel)
 
     def register_model(self, model_class: Type[Model]):
         """

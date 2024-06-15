@@ -1,6 +1,6 @@
 from fastapi import HTTPException, APIRouter
 
-from ai_state_machine.genie_model import GenieModel
+from ai_state_machine.genie import GenieModel
 from ai_state_machine.model.api import AIStatusResponse, AIResponse, EventInput
 from ai_state_machine.session import SessionManager
 

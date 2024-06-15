@@ -1,8 +1,8 @@
 ```mermaid
 classDiagram
     GenieFlowContainer *-- GenieFlowPersistenceContainer
+    GenieFlowContainer *-- GenieFlowCoreContainer
     GenieFlowAPIContainer *-- GenieFlowContainer
-    GenieFlowCeleryContainer *-- GenieFlowContainer
     
     GenieFlowPersistenceContainer *-- StoreManager
     GenieFlowPersistenceContainer *-- SessionLockManager
@@ -10,8 +10,14 @@ classDiagram
     SessionLockManager *-- Redis
     Store *-- Redis
     
+    class GenieFlowCoreContainer{
+        config
+        logger
+    }
+    
     class GenieFlowPersistenceContainer{
         config
+        core
         pydantic_redis_store
         redis_lock_store
         store_manager
@@ -24,6 +30,8 @@ classDiagram
         storage
         session_manager
         genie_environment
+        celery_app
+        celery_manager
     }
     
     class GenieFlowAPIContainer{
@@ -31,11 +39,5 @@ classDiagram
         genie_environment
         fastapi_app
     }
-    
-    class GenieFlowCeleryContainer{
-        config
-        genie_environment
-        celery_app
-    }
-    
+
 ```

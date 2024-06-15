@@ -29,17 +29,12 @@ class GenieFlowPersistenceContainer(containers.DeclarativeContainer):
 
     pydantic_redis_store = providers.Singleton(
         PydanticRedisStoreWrapper,
-        host=config.model_store.redis_host,
-        port=config.model_store.redis_port,
-        db=config.model_store.redis_db,
-        life_span_in_seconds=config.model_store.redis.life_span_in_seconds,
+        **config().model_store,
     )
 
     redis_lock_store = providers.Singleton(
         Redis,
-        host=config.lock_store.redis_host,
-        port=config.lock_store.redis_port,
-        db=config.lock_store.redis_db,
+        **config().lock_store,
     )
 
     store_manager = providers.Singleton(

@@ -116,7 +116,8 @@ make that model recognized to the Pydantic-Redis ORM framework. This registratio
 
 ```python
 from ai_state_machine.containers import init_genie_flow
-from ai_state_machine.genie_model import GenieModel
+from ai_state_machine.genie import GenieModel
+
 
 class MyNewModel(GenieModel):
     ...
@@ -267,8 +268,7 @@ The first, simple Question and Answer dialogue can be defined as follows:
 ```python
 from statemachine import State
 
-from ai_state_machine.genie_state_machine import GenieStateMachine
-from ai_state_machine.genie_model import GenieModel
+from ai_state_machine.genie import GenieModel, GenieStateMachine
 
 
 class QandAModel(GenieModel):
@@ -434,17 +434,17 @@ These conditions are plain Python methods that we defined on our state machine c
 ```python
 from statemachine.event_data import EventData
 
-from ai_state_machine.genie_state_machine import GenieStateMachine
+from ai_state_machine.genie import GenieStateMachine
+
 
 class QandACondMachine(GenieStateMachine):
-
     ...
 
     def user_says_stop(self, event: EventData):
         return (
-            event.args is not None and
-            len(event.args) != 0 and
-            event.args[0] == "*STOP*"
+                event.args is not None and
+                len(event.args) != 0 and
+                event.args[0] == "*STOP*"
         )
 ```
 
@@ -477,7 +477,8 @@ from typing import Optional
 
 from pydantic import Field
 
-from ai_state_machine.genie_model import GenieModel
+from ai_state_machine.genie import GenieModel
+
 
 class QandACaptureModel(GenieModel):
     user_name: Optional[str] = Field(None, description="The name of the user")
@@ -517,10 +518,10 @@ But the main meal here is the definition of a method that gets called when the L
 the username. This is done by the following method on our `QandACaptureMachine` class:
 
 ```python
-from ai_state_machine.genie_state_machine import GenieStateMachine
+from ai_state_machine.genie import GenieStateMachine
+
 
 class QandACaptureMachine(GenieStateMachine):
-
     ...
 
     def on_exit_ai_extracts_name(self):
@@ -536,10 +537,10 @@ not if the username has been extracted. That is determined by the condition. So 
 the value `UNDEFINED` to `model.user_name`. An alternative would be to create the following method:
 
 ```python
-from ai_state_machine.genie_state_machine import GenieStateMachine
+from ai_state_machine.genie import GenieStateMachine
+
 
 class QandACaptureMachine(GenieStateMachine):
-
     ...
 
     def on_enter_welcome_message(self):
@@ -592,7 +593,8 @@ Some interesting parts from that code are:
 ```python
 from statemachine import State
 
-from ai_state_machine.genie_state_machine import GenieStateMachine
+from ai_state_machine.genie import GenieStateMachine
+
 
 class ClaimsMachine(GenieStateMachine):
     ...
@@ -604,7 +606,7 @@ class ClaimsMachine(GenieStateMachine):
     # EVENTS AND TRANSITIONS
     ai_extraction = ai_extracts_information.to(user_views_start_of_generation, cond="have_all_info")
 
-    advance = user_views_start_of_generation.to(ai_extracts_categories) 
+    advance = user_views_start_of_generation.to(ai_extracts_categories)
 
     ...
 ```
@@ -642,7 +644,7 @@ input for the next, is done by putting the two consecutive templates in a list. 
 [q_and_a_trans.py](../example_qa/q_and_a_trans.py) has the following templates defintions:
 
 ```python
-from ai_state_machine.genie_state_machine import GenieStateMachine
+from ai_state_machine.genie import GenieStateMachine
 
 
 class QandATransMachine(GenieStateMachine):
@@ -684,11 +686,12 @@ branching is done by assigning a dictionary of prompts. This is done in the
 [Claims Genie example](../example_claims/claims.py) as in the following extract:
 
 ```python
-from ai_state_machine.genie_state_machine import GenieStateMachine
+from ai_state_machine.genie import GenieStateMachine
+
+GenieStateMachine
 
 
 class ClaimsMachine(GenieStateMachine):
-
     ...
 
     templates = dict(

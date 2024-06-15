@@ -1,64 +1,60 @@
 from os import PathLike
 from typing import Optional
 
-from celery import Celery
-import pydantic_redis
+from fastapi import FastAPI
 
 from ai_state_machine.app import GenieFlowRouterBuilder
-from ai_state_machine.celery.tasks import add_trigger_ai_event_task, add_invoke_task, \
-    add_combine_group_to_dict, add_chained_template
+from ai_state_machine.containers.api import GenieFlowAPIContainer
+from ai_state_machine.containers.core import GenieFlowCoreContainer
 from ai_state_machine.containers.genieflow import GenieFlowContainer
-from ai_state_machine.genie_model import GenieModel
+from ai_state_machine.containers.persistence import GenieFlowPersistenceContainer
 from ai_state_machine.environment import GenieEnvironment
-from ai_state_machine.model.dialogue import DialogueElement
 
 
-_CONTAINER: Optional[GenieFlowContainer] = None
+_CONTAINER_APP: Optional[GenieFlowContainer] = None
+_CONTAINER_API: Optional[GenieFlowAPIContainer] = None
 
 
-def init_genie_flow(config_file_path: str | PathLike) -> GenieEnvironment:
-    global _CONTAINER
+def init_genie_flow_app(config_file_path: str | PathLike) -> GenieEnvironment:
+    global _CONTAINER_APP
 
-    if _CONTAINER is not None:
+    if _CONTAINER_APP is not None:
         raise RuntimeError("Already initialized")
 
     # create and wire the container
-    _CONTAINER = GenieFlowContainer()
-    _CONTAINER.config.from_yaml(config_file_path, required=True)
-    _CONTAINER.wire(packages=["ai_state_machine"])
-    _CONTAINER.init_resources()
+    _CONTAINER_APP = GenieFlowContainer()
+    _CONTAINER_APP.config.from_yaml(config_file_path, required=True)
+    _CONTAINER_APP.wire(packages=["ai_state_machine"])
+    _CONTAINER_APP.init_resources()
 
-    # register Celery tasks
-    add_trigger_ai_event_task(
-        _CONTAINER.celery_app(),
-        _CONTAINER.session_lock_manager(),
-        _CONTAINER.store_manager(),
-        _CONTAINER.genie_environment(),
+    return _CONTAINER_APP.genie_environment()
+
+
+def init_genie_flow_api(config_file_path: str | PathLike) -> FastAPI:
+    global _CONTAINER_API
+
+    if _CONTAINER_API is not None:
+        raise RuntimeError("Already initialized")
+
+    if _CONTAINER_APP is None:
+        init_genie_flow_app(config_file_path)
+
+    _CONTAINER_API = GenieFlowAPIContainer(
+        config=_CONTAINER_APP.config.api,
+        genie_environment=_CONTAINER_APP.genie_environment(),
     )
-    add_invoke_task(
-        _CONTAINER.celery_app(),
-        _CONTAINER.genie_environment(),
-    )
-    add_combine_group_to_dict(_CONTAINER.celery_app())
-    add_chained_template(_CONTAINER.celery_app())
-
-    # wire the FastAPI routes
-    _CONTAINER.fastapi_app().include_router(
-        GenieFlowRouterBuilder(_CONTAINER.session_manager()).router,
-        prefix=_CONTAINER.config.api.prefix() or "/v1/ai",
+    _CONTAINER_API.fastapi_app().include_router(
+        GenieFlowRouterBuilder(_CONTAINER_APP.session_manager()).router,
+        prefix=_CONTAINER_APP.config.api.prefix() or "/v1/ai",
     )
 
-    # register base classes for storage
-    _CONTAINER.pydantic_redis_store().register_model(DialogueElement)
-    _CONTAINER.pydantic_redis_store().register_model(GenieModel)
-
-    return _CONTAINER.genie_environment()
+    return _CONTAINER_API.fastapi_app
 
 
 def get_environment() -> GenieEnvironment:
-    global _CONTAINER
+    global _CONTAINER_APP
 
-    if _CONTAINER is None:
+    if _CONTAINER_APP is None:
         raise RuntimeError("Not initialized")
 
-    return _CONTAINER.genie_environment()
+    return _CONTAINER_APP.genie_environment()

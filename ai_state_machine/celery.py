@@ -5,7 +5,7 @@ from celery import Celery, Task
 from celery.canvas import Signature, chord, group
 
 from ai_state_machine.environment import GenieEnvironment
-from ai_state_machine.genie_model import GenieModel
+from ai_state_machine.genie import GenieModel
 from ai_state_machine.model.dialogue import DialogueElement
 from ai_state_machine.model.types import CompositeTemplateType, CompositeContentType
 from ai_state_machine.session import SessionLockManager
@@ -25,6 +25,11 @@ class CeleryManager:
         self.session_lock_manager = session_lock_manager
         self.store_manager = store_manager
         self.genie_environment = genie_environment
+
+        self._add_trigger_ai_event_task()
+        self._add_invoke_task()
+        self._add_combine_group_to_dict()
+        self._add_chained_template()
 
     def _add_trigger_ai_event_task(self):
         @self.celery_app.task(name='ai.tasks.trigger_ai_event')

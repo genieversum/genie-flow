@@ -6,7 +6,7 @@ from statemachine.exceptions import TransitionNotAllowed
 
 from ai_state_machine.celery import CeleryManager
 from ai_state_machine.environment import GenieEnvironment
-from ai_state_machine.genie_model import GenieModel
+from ai_state_machine.genie import GenieModel
 from ai_state_machine.model.types import ModelKeyRegistryType
 from ai_state_machine.model.api import AIStatusResponse, AIResponse, EventInput
 
