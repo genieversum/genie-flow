@@ -1,0 +1,144 @@
+import logging
+from typing import Any
+
+from celery import Celery, Task
+from celery.canvas import Signature, chord, group
+
+from ai_state_machine.environment import GenieEnvironment
+from ai_state_machine.genie_model import GenieModel
+from ai_state_machine.model.dialogue import DialogueElement
+from ai_state_machine.model.types import CompositeTemplateType, CompositeContentType
+from ai_state_machine.session import SessionLockManager
+from ai_state_machine.store import StoreManager
+
+
+class CeleryManager:
+
+    def __init__(
+        self,
+        celery: Celery,
+        session_lock_manager: SessionLockManager,
+        store_manager: StoreManager,
+        genie_environment: GenieEnvironment,
+    ):
+        self.celery_app = celery
+        self.session_lock_manager = session_lock_manager
+        self.store_manager = store_manager
+        self.genie_environment = genie_environment
+
+    def _add_trigger_ai_event_task(self):
+        @self.celery_app.task(name='ai.tasks.trigger_ai_event')
+        def trigger_ai_event(response: str, cls_fqn: str, session_id: str, event_name: str):
+            with self.session_lock_manager.get_lock_for_session(session_id):
+                model = self.store_manager.retrieve_model(cls_fqn, session_id=session_id)
+                assert isinstance(model, GenieModel)
+                model.running_task_id = None
+
+                state_machine = model.get_state_machine_class()(model=model)
+                logging.debug(f"sending {event_name} to model for session {session_id}")
+                state_machine.send(event_name, response)
+
+                self.store_manager.store_model(model)
+
+        return trigger_ai_event
+
+    def _add_invoke_task(self):
+        @self.celery_app.task(name="genie_flow.invoke_task")
+        def invoke_ai_event(render_data: dict[str, Any], template_name: str) -> str:
+            dialogue_raw: list[dict] = getattr(render_data, "dialogue", list())
+            dialogue = [DialogueElement(**x) for x in dialogue_raw]
+            return self.genie_environment.invoke_template(
+                template_name,
+                render_data,
+                dialogue,
+            )
+
+        return invoke_ai_event
+
+    def _add_combine_group_to_dict(self):
+        @self.celery_app.task(name="genie_flow.combine_group_to_dict")
+        def combine_group_to_dict(
+                results: list[CompositeContentType], keys: list[str]
+        ) -> CompositeContentType:
+            return dict(zip(keys, results))
+
+        return combine_group_to_dict
+
+    def _add_chained_template(self):
+        @self.celery_app.task(name="genie_flow.chained_template")
+        def chained_template(
+                result_of_previous_call: CompositeContentType,
+                render_data: dict[str, str],
+        ) -> str | dict[str, Any]:
+            render_data["previous_result"] = result_of_previous_call
+            return render_data
+
+        return chained_template
+
+    @property
+    def _invoke_task(self) -> Task:
+        return self.celery_app.tasks["genie_flow.invoke_task"]
+
+    @property
+    def _chained_template_task(self) -> Task:
+        return self.celery_app.tasks["genie_flow.chained_template"]
+
+    @property
+    def _combine_group_to_dict_task(self) -> Task:
+        return self.celery_app.tasks["genie_flow.combine_group_to_dict"]
+
+    @property
+    def _trigger_ai_event_task(self) -> Task:
+        return self.celery_app.tasks["genie_flow.trigger_ai_event"]
+
+    def _compile_task(
+            self,
+            template: CompositeTemplateType,
+            render_data: dict[str, Any],
+    ) -> Signature:
+        """
+        Compiles a Celery task that follows the structure of the composite template.
+        """
+        if isinstance(template, str):
+            return self._invoke_task.s(template)
+
+        if isinstance(template, Task):
+            return template.s(render_data)
+
+        if isinstance(template, list):
+            chained = None
+            for t in template:
+                if chained is None:
+                    chained = self._compile_task(t, render_data)
+                else:
+                    chained |= self._chained_template_task.s(render_data)
+                    chained |= self._compile_task(t, render_data)
+            return chained
+
+        if isinstance(template, dict):
+            dict_keys = list(template.keys())  # make sure to go through keys in fixed order
+            return chord(
+                group(*[self._compile_task(template[k], render_data) for k in dict_keys]),
+                self._combine_group_to_dict_task.s(dict_keys),
+            )
+        raise ValueError(
+            f"cannot compile a task for a render of type '{type(template)}'"
+        )
+
+    def enqueue_task(
+            self,
+            template: CompositeTemplateType,
+            model_fqn: str,
+            session_id: str,
+            render_data: dict[str, Any],
+            event_to_send_after: str,
+    ):
+        task = (
+            self._compile_task(template, render_data) |
+            self._trigger_ai_event_task.s(
+                model_fqn,
+                session_id,
+                event_to_send_after,
+            )
+        )
+        return task.apply_async((render_data,)).id

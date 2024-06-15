@@ -49,20 +49,13 @@ class GenieModel(Model):
         description="the most recent received input from the actor",
     )
 
-    @property
-    def state_machine_class(self) -> type[GenieStateMachine]:
+    @classmethod
+    def get_state_machine_class(cls) -> type[GenieStateMachine]:
         """
         Property that returns the class of the state machine that this model should be
         managed by.
         """
         raise NotImplementedError()
-
-    def create_state_machine(self) -> GenieStateMachine:
-        """
-        Create and return a newly instantiated state machine, of the appropriate class,
-        that manages this instance of a model.
-        """
-        return self.state_machine_class(model=self)
 
     @property
     def current_response(self) -> Optional[DialogueElement]:
@@ -76,3 +69,7 @@ class GenieModel(Model):
         Apply the given target format to the dialogue of this instance.
         """
         return DialogueFormat.format(self.dialogue, target_format)
+
+    def add_dialogue_element(self, actor: str, actor_text: str):
+        element = DialogueElement(actor=actor, actor_text=actor_text)
+        self.dialogue.append(element)

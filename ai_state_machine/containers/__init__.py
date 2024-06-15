@@ -5,12 +5,8 @@ from celery import Celery
 import pydantic_redis
 
 from ai_state_machine.app import GenieFlowRouterBuilder
-from ai_state_machine.celery_tasks import (
-    add_trigger_ai_event_task,
-    add_invoke_task,
-    add_combine_group_to_dict,
-    add_chained_template,
-)
+from ai_state_machine.celery.tasks import add_trigger_ai_event_task, add_invoke_task, \
+    add_combine_group_to_dict, add_chained_template
 from ai_state_machine.containers.genieflow import GenieFlowContainer
 from ai_state_machine.genie_model import GenieModel
 from ai_state_machine.environment import GenieEnvironment
@@ -37,6 +33,7 @@ def init_genie_flow(config_file_path: str | PathLike) -> GenieEnvironment:
         _CONTAINER.celery_app(),
         _CONTAINER.session_lock_manager(),
         _CONTAINER.store_manager(),
+        _CONTAINER.genie_environment(),
     )
     add_invoke_task(
         _CONTAINER.celery_app(),

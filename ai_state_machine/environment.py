@@ -6,15 +6,17 @@ from typing import TypedDict, Callable, Optional, TypeVar, Any, Type
 
 import jinja2
 import yaml
-from celery import Celery
-from fastapi import FastAPI
-from jinja2 import Environment, PrefixLoader
-from pydantic_redis import Model, Store
+from celery import Celery, Task
+from jinja2 import Environment, PrefixLoader, TemplateNotFound
+from pydantic_redis import Model
+from statemachine import State
 
+from ai_state_machine.celery import CeleryManager
 from ai_state_machine.genie_model import GenieModel
+from ai_state_machine.genie_state_machine import GenieStateMachine
 from ai_state_machine.invoker import GenieInvoker, create_genie_invoker
 from ai_state_machine.model.dialogue import DialogueElement
-from ai_state_machine.model.types import ModelKeyRegistryType
+from ai_state_machine.model.types import ModelKeyRegistryType, CompositeTemplateType
 from ai_state_machine.store import StoreManager
 
 _META_FILENAME: str = "meta.yaml"
@@ -57,11 +59,13 @@ class GenieEnvironment:
         pool_size: int,
         store_manager: StoreManager,
         model_key_registry: ModelKeyRegistryType,
+        celery_manager: CeleryManager,
     ):
         self.template_root_path = Path(template_root_path).resolve()
         self.pool_size = pool_size
         self.store_manager = store_manager
         self.model_key_registry = model_key_registry
+        self.celery_manager = celery_manager
         self._jinja_env: Optional[Environment] = None
         self._template_directories: dict[str, _TemplateDirectory] = {}
 
@@ -126,6 +130,58 @@ class GenieEnvironment:
 
         return InvokersPool(queue)
 
+    def _non_existing_templates(self, template: CompositeTemplateType) -> list[CompositeTemplateType]:
+        if isinstance(template, str):
+            try:
+                _ = self.get_template(template)
+                return []
+            except TemplateNotFound:
+                return [template]
+
+        if isinstance(template, Task):
+            # TODO might want to check if the task exists
+            return []
+
+        if isinstance(template, list):
+            result = []
+            for t in template:
+                result.extend(self._non_existing_templates(t))
+            return result
+
+        if isinstance(template, dict):
+            result = []
+            for key in template.keys():
+                result.extend(
+                    [f"{key}/{t}" for t in self._non_existing_templates(template[key])]
+                )
+            return result
+
+    def _validate_state_templates(self, state_machine_class: type[GenieStateMachine]):
+        templates = state_machine_class.templates
+        states = [
+            state
+            for state in dir(state_machine_class)
+            if isinstance(state, State)
+        ]
+        states_without_template = {
+            state.id
+            for state in states
+            if isinstance(state, State) and state.id not in templates
+        }
+
+        unknown_template_names = self._non_existing_templates(
+            [
+                templates[t]
+                for t in set(state.id for state in states) - states_without_template
+            ]
+        )
+
+        if states_without_template or unknown_template_names:
+            raise ValueError(
+                f"Missing templates for states: [{', '.join(states_without_template)}] and "
+                f"cannot find templates with names: [{', '.join(unknown_template_names)}]"
+            )
+
     def register_model(self, model_key: str, model_class: Type[Model]):
         """
         Register a model class, so it can be stored in the object store. Also registers
@@ -138,6 +194,9 @@ class GenieEnvironment:
             raise ValueError(
                 f"Can only register subclasses of GenieModel, not {model_class}"
             )
+
+        self._validate_state_templates(model_class.get_state_machine_class())
+
         if model_key in self.model_key_registry:
             raise ValueError(f"Model key {model_key} already registered")
 

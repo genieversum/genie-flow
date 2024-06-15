@@ -12,8 +12,8 @@ from ai_state_machine.model.types import CompositeTemplateType
 
 
 class ClaimsModel(GenieModel):
-    @property
-    def state_machine_class(self) -> type[GenieStateMachine]:
+    @classmethod
+    def get_state_machine_class(cls) -> type[GenieStateMachine]:
         return ClaimsMachine
 
     user_role: Optional[str] = Field(
@@ -39,17 +39,6 @@ class ClaimsModel(GenieModel):
 
 
 class ClaimsMachine(GenieStateMachine):
-
-    def __init__(self, model: ClaimsModel, new_session: bool = False):
-        if not isinstance(model, ClaimsModel):
-            raise TypeError(
-                "The type of model should be ClaimsModel, not {}".format(type(model))
-            )
-
-        super(ClaimsMachine, self).__init__(
-            model=model,
-            new_session=new_session,
-        )
 
     # STATES
     # gathering information from the user

@@ -7,7 +7,7 @@ from ai_state_machine.genie_model import GenieModel
 class QandAModel(GenieModel):
 
     @property
-    def state_machine_class(self) -> type[GenieStateMachine]:
+    def get_state_machine_class(self) -> type[GenieStateMachine]:
         return QandAMachine
 
 

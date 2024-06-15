@@ -4,6 +4,8 @@ import redis_lock
 from redis import Redis
 from statemachine.exceptions import TransitionNotAllowed
 
+from ai_state_machine.celery import CeleryManager
+from ai_state_machine.environment import GenieEnvironment
 from ai_state_machine.genie_model import GenieModel
 from ai_state_machine.model.types import ModelKeyRegistryType
 from ai_state_machine.model.api import AIStatusResponse, AIResponse, EventInput
@@ -40,10 +42,14 @@ class SessionManager:
     def __init__(
         self,
         session_lock_manager: SessionLockManager,
+        celery_manager: CeleryManager,
         model_key_registry: ModelKeyRegistryType,
+        genie_environment: GenieEnvironment,
     ):
         self.session_lock_manager = session_lock_manager
+        self.celery_manager = celery_manager
         self.model_key_registry = model_key_registry
+        self.genie_environment = genie_environment
 
     def create_new_session(self, model_key: str) -> AIResponse:
         """
@@ -65,7 +71,14 @@ class SessionManager:
 
         model_class = self.model_key_registry[model_key]
         model = model_class(session_id=session_id)
-        state_machine = model.state_machine_class(model=model, new_session=True)
+
+        state_machine = model.get_state_machine_class()(model=model)
+
+        initial_prompt = self.genie_environment.render_template(
+            state_machine.get_template_for_state(state_machine.current_state),
+            state_machine.render_data,
+        )
+        model.add_dialogue_element("assistant", initial_prompt)
         model.__class__.insert(model)
 
         response = model.current_response.actor_text
@@ -182,7 +195,7 @@ class SessionManager:
                     ready=False,
                 )
 
-            state_machine = model.create_state_machine()
+            state_machine = model.get_state_machine_class()(model=model)
             return AIStatusResponse(
                 session_id=session_id,
                 ready=True,

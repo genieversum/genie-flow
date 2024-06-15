@@ -1,15 +1,11 @@
 from typing import Optional
 
-from celery import group, Task, Celery
-from celery.canvas import Signature, chord
-from dependency_injector.wiring import Provide, inject
-from jinja2 import TemplateNotFound
+from celery import Task
 from loguru import logger
 from statemachine import StateMachine, State
 from statemachine.event_data import EventData
 
-from ai_state_machine.containers import GenieFlowContainer
-from ai_state_machine.environment import GenieEnvironment
+from ai_state_machine.celery import CeleryManager
 from ai_state_machine.genie_model import GenieModel
 from ai_state_machine.model.types import CompositeTemplateType, CompositeContentType
 from ai_state_machine.model.dialogue import DialogueElement, DialogueFormat
@@ -23,86 +19,12 @@ class GenieStateMachine(StateMachine):
     `GenieModel` class.
     """
 
-    @inject
     def __init__(
         self,
         model: GenieModel,
-        new_session: bool = False,
-        templates_property_name: str = "templates",
-        celery_app: Celery = Provide[GenieFlowContainer.celery_app],
     ):
-        self.templates_property_name = templates_property_name
-        self.celery_app = celery_app
-
         self.current_template: Optional[CompositeTemplateType] = None
         super(GenieStateMachine, self).__init__(model=model)
-
-        if new_session:
-            self._validate_state_templates()
-
-            initial_prompt = self.render_template(
-                self.get_template_for_state(self.initial_state)
-            )
-            self.model.dialogue.append(
-                DialogueElement(
-                    actor="assistant",
-                    actor_text=initial_prompt,
-                )
-            )
-
-    @inject
-    def _non_existing_templates(
-        self,
-        template: CompositeTemplateType,
-        genie_environment: GenieEnvironment = Provide[
-            GenieFlowContainer.genie_environment
-        ],
-    ) -> list:
-        if isinstance(template, str):
-            try:
-                print(type(genie_environment))
-                _ = genie_environment.get_template(template)
-                return []
-            except TemplateNotFound:
-                return [template]
-
-        if isinstance(template, Task):
-            # TODO might want to check if the task exists
-            return []
-
-        if isinstance(template, list):
-            result = []
-            for t in template:
-                result.extend(self._non_existing_templates(t))
-            return result
-
-        if isinstance(template, dict):
-            result = []
-            for key in template.keys():
-                result.extend(
-                    [f"{key}/{t}" for t in self._non_existing_templates(template[key])]
-                )
-            return result
-
-    def _validate_state_templates(self):
-        templates = getattr(self, self.templates_property_name)
-        states_without_template = {
-            state.id for state in self.states if state.id not in templates
-        }
-
-        unknown_template_names = self._non_existing_templates(
-            [
-                templates[t]
-                for t in set(state.id for state in self.states)
-                - states_without_template
-            ]
-        )
-
-        if states_without_template or unknown_template_names:
-            raise ValueError(
-                f"Missing templates for states: [{', '.join(states_without_template)}] and "
-                f"cannot find templates with names: [{', '.join(unknown_template_names)}]"
-            )
 
     @property
     def render_data(self) -> dict[str, str]:
@@ -124,37 +46,6 @@ class GenieStateMachine(StateMachine):
             }
         )
         return render_data
-
-    @inject
-    def render_template(
-        self,
-        template: CompositeTemplateType,
-        genie_environment: GenieEnvironment = Provide[
-            GenieFlowContainer.genie_environment
-        ],
-    ) -> CompositeContentType:
-        """
-        Render a given template with the `render_data`. This rendering is done synchronously.
-        If the template is a string, it is assumed to be the name of the template that needs
-        to be retrieved from the template environment. If the template is a list, the templates
-        within that list are rendered. If the template is a dictionary, the result is a dictionary
-        with each of the renderings per key of that dictionary. Finally, if the template is a Task,
-        that task is called with the current render data.
-
-        :param template: The template to render
-        :param genie_environment: The GenieEnvironment to use
-        :return: The rendered template
-        :raises TypeError: If the template is of a type that we cannot render
-        """
-        if isinstance(template, str):
-            return genie_environment.render_template(template, self.render_data)
-        if isinstance(template, list):
-            return [self.render_template(t) for t in template]
-        if isinstance(template, dict):
-            return {k: self.render_template(t) for k, t in template.items()}
-        if isinstance(template, Task):
-            return template(self.render_data)
-        raise TypeError(f"Unsupported type of template {type(template)}")
 
     def get_template_for_state(self, state: State) -> CompositeTemplateType:
         """
@@ -232,7 +123,6 @@ class GenieStateMachine(StateMachine):
         """
         logger.debug(f"AI extraction event received")
         self.model.actor = "assistant"
-        self.model.actor_input = self.render_template(self.current_template)
         logger.debug(f"AI output rendered into: \n{self.model.actor_input}")
 
         return None
@@ -267,66 +157,17 @@ class GenieStateMachine(StateMachine):
             self.model.actor = None
             self.model.actor_input = None
 
-    def _compile_task(self, template: CompositeTemplateType) -> Signature:
-        """
-        Compiles a Celery task that follows the structure of the composite template.
-        """
-        if isinstance(template, str):
-            invoke_task = self.celery_app.tasks["genie_flow.invoke_task"]
-            return invoke_task.s(template)
-
-        if isinstance(template, Task):
-            return template.s(self.render_data)
-
-        if isinstance(template, list):
-            chained_template_task = self.celery_app.tasks["genie_flow.chained_template"]
-
-            chained = None
-            for t in template:
-                if chained is None:
-                    chained = self._compile_task(t)
-                else:
-                    chained |= chained_template_task.s(self.render_data)
-                    chained |= self._compile_task(t)
-            return chained
-
-        if isinstance(template, dict):
-            combine_group_to_dict_task = self.celery_app.tasks[
-                "genie_flow.combine_group_to_dict"
-            ]
-
-            dict_keys = list(
-                template.keys()
-            )  # make sure to go through keys in fixed order
-            return chord(
-                group(*[self._compile_task(template[k]) for k in dict_keys]),
-                combine_group_to_dict_task.s(dict_keys),
-            )
-        raise ValueError(
-            f"cannot compile a task for a render of type '{type(template)}'"
-        )
-
-    def create_ai_task(self, template: CompositeTemplateType, event_to_send_after: str):
-        trigger_ai_event_task = self.celery_app.tasks["genie_flow.trigger_ai_event"]
-
-        return self._compile_task(template) | trigger_ai_event_task.s(
-            get_fully_qualified_name_from_class(self.model),
-            self.model.session_id,
-            event_to_send_after,
-        )
-
     def enqueue_task(self, event_data: EventData) -> str:
-        trigger_ai_event_task = self.celery_app.tasks["genie_flow.trigger_ai_event"]
-
         # TODO what if there are more than one event leading out the the future state
         event_to_send_after = event_data.target.transitions.unique_events[0]
 
-        task = self._compile_task(self.current_template) | trigger_ai_event_task.s(
+        self.model.running_task_id = self.celery_manager.enqueue_task(
+            self.current_template,
             get_fully_qualified_name_from_class(self.model),
             self.model.session_id,
+            self.render_data,
             event_to_send_after,
         )
-        self.model.running_task_id = task.apply_async((self.render_data,)).id
         return self.model.running_task_id
 
     # VALIDATIONS AND CONDITIONS
