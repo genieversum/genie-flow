@@ -5,9 +5,8 @@ from celery import Celery, Task
 from celery.canvas import Signature, chord, group
 
 from ai_state_machine.environment import GenieEnvironment
-from ai_state_machine.genie import GenieModel
+from ai_state_machine.genie import GenieModel, CompositeTemplateType, CompositeContentType
 from ai_state_machine.model.dialogue import DialogueElement
-from ai_state_machine.model.types import CompositeTemplateType, CompositeContentType
 from ai_state_machine.session import SessionLockManager
 from ai_state_machine.store import StoreManager
 

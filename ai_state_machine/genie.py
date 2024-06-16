@@ -1,5 +1,6 @@
 from typing import Optional
 
+from celery import Task
 from loguru import logger
 from pydantic import Field
 from pydantic_redis import Model
@@ -7,7 +8,14 @@ from statemachine import StateMachine, State
 from statemachine.event_data import EventData
 
 from ai_state_machine.model.dialogue import DialogueElement, DialogueFormat
-from ai_state_machine.model.types import CompositeTemplateType
+
+
+CompositeTemplateType = (
+    str | Task | list["CompositeTemplateType"] | dict[str, "CompositeTemplateType"]
+)
+CompositeContentType = (
+    str | list["CompositeContentType"] | dict[str, "CompositeContentType"]
+)
 
 
 class GenieModel(Model):

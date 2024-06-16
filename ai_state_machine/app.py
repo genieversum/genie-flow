@@ -1,4 +1,5 @@
-from fastapi import HTTPException, APIRouter
+from dependency_injector.providers import Configuration
+from fastapi import HTTPException, APIRouter, FastAPI
 
 from ai_state_machine.genie import GenieModel
 from ai_state_machine.model.api import AIStatusResponse, AIResponse, EventInput
@@ -67,3 +68,22 @@ class GenieFlowRouterBuilder:
             return self.session_manager.get_model(state_machine_key, session_id)
         except KeyError:
             raise _unknown_state_machine_exception(state_machine_key)
+
+
+def create_fastapi_app(
+        session_manager: SessionManager,
+        config: dict,
+) -> FastAPI:
+    fastapi_app = FastAPI(
+        title="GenieFlow",
+        summary="Genie Flow API",
+        description=__doc__,
+        version="0.1.0",
+        **config
+    )
+
+    fastapi_app.include_router(
+        GenieFlowRouterBuilder(session_manager).router,
+        prefix=getattr(config, "prefix", "/v1/ai"),
+    )
+    return fastapi_app

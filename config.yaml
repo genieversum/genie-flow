@@ -17,5 +17,5 @@ api:
   debug: true
   root_path: /api/v1
 genie_environment:
-  template_root_path: example_claims/templates
+  template_root_path: .
   pool_size: 1

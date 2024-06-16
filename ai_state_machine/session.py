@@ -4,7 +4,6 @@ import redis_lock
 from redis import Redis
 from statemachine.exceptions import TransitionNotAllowed
 
-from ai_state_machine.celery import CeleryManager
 from ai_state_machine.environment import GenieEnvironment
 from ai_state_machine.genie import GenieModel
 from ai_state_machine.model.types import ModelKeyRegistryType
@@ -42,12 +41,10 @@ class SessionManager:
     def __init__(
         self,
         session_lock_manager: SessionLockManager,
-        celery_manager: CeleryManager,
         model_key_registry: ModelKeyRegistryType,
         genie_environment: GenieEnvironment,
     ):
         self.session_lock_manager = session_lock_manager
-        self.celery_manager = celery_manager
         self.model_key_registry = model_key_registry
         self.genie_environment = genie_environment
 

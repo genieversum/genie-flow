@@ -10,8 +10,8 @@ from ai_state_machine.genie import GenieModel, GenieStateMachine
 class QandACaptureModel(GenieModel):
     user_name: Optional[str] = Field(None, description="The name of the user")
 
-    @property
-    def get_state_machine_class(self) -> type[GenieStateMachine]:
+    @classmethod
+    def get_state_machine_class(cls) -> type[GenieStateMachine]:
         return QandACaptureMachine
 
 

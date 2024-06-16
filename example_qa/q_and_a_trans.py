@@ -5,8 +5,8 @@ from ai_state_machine.genie import GenieModel, GenieStateMachine
 
 class QandATransModel(GenieModel):
 
-    @property
-    def get_state_machine_class(self) -> type[GenieStateMachine]:
+    @classmethod
+    def get_state_machine_class(cls) -> type[GenieStateMachine]:
         return QandATransMachine
 
 
