@@ -19,3 +19,4 @@ api:
 genie_environment:
   template_root_path: .
   pool_size: 1
+invokers:

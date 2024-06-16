@@ -53,10 +53,9 @@ class AbstractAzureOpenAIInvoker(GenieInvoker, ABC):
     @classmethod
     def _create_client(cls, config: dict[str, str]) -> AzureOpenAI:
         return openai.AzureOpenAI(
-            api_key=os.getenv("AZURE_OPENAI_API_KEY") or config["api_key"],
+            api_key=os.getenv("AZURE_OPENAI_API_KEY", config["api_key"]),
             api_version=config["api_version"],
-            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
-            or config["azure_endpoint"],
+            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT", config["azure_endpoint"]),
         )
 
 
