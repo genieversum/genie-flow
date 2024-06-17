@@ -12,34 +12,13 @@ from pydantic_redis import Model
 from statemachine import State
 
 from ai_state_machine.genie import GenieModel, GenieStateMachine, CompositeTemplateType
-from ai_state_machine.invoker import GenieInvoker, create_genie_invoker
+from ai_state_machine.invoker import InvokerFactory, InvokersPool
 from ai_state_machine.model.dialogue import DialogueElement
 from ai_state_machine.model.types import ModelKeyRegistryType
 from ai_state_machine.store import StoreManager
 
 _META_FILENAME: str = "meta.yaml"
 _T = TypeVar("_T")
-
-
-class InvokersPool:
-    """
-    A simple context manager that gets invokers from a queue and returns them when the
-    context is closed. Makes the queue serve as a pool of invokers.
-    """
-
-    def __init__(self, queue: Queue[GenieInvoker]):
-        self._queue = queue
-        self._current_invoker: Optional[GenieInvoker] = None
-
-    def __enter__(self):
-        if self._current_invoker is None:
-            self._current_invoker = self._queue.get()
-        return self._current_invoker
-
-    def __exit__(self, exc_type, exc_value, exc_tb):
-        if self._current_invoker is not None:
-            self._queue.put(self._current_invoker)
-            self._current_invoker = None
 
 
 class _TemplateDirectory(TypedDict):
@@ -57,11 +36,14 @@ class GenieEnvironment:
         pool_size: int,
         store_manager: StoreManager,
         model_key_registry: ModelKeyRegistryType,
+        invoker_factory: InvokerFactory,
     ):
         self.template_root_path = Path(template_root_path).resolve()
         self.pool_size = pool_size
         self.store_manager = store_manager
         self.model_key_registry = model_key_registry
+        self.invoker_factory = invoker_factory
+
         self._jinja_env: Optional[Environment] = None
         self._template_directories: dict[str, _TemplateDirectory] = {}
 
@@ -113,18 +95,6 @@ class GenieEnvironment:
                 loader=PrefixLoader(self.jinja_loader_mapping)
             )
         return self._jinja_env
-
-    def _create_invoker_pool(self, config: dict[str]) -> InvokersPool:
-        queue = Queue()
-        nr_invokers = (
-            self.pool_size if "pool_size" not in config else config["pool_size"]
-        )
-        assert nr_invokers > 0, f"Should not create invoker pool of size {nr_invokers}"
-
-        for _ in range(nr_invokers):
-            queue.put(create_genie_invoker(config))
-
-        return InvokersPool(queue)
 
     def _non_existing_templates(self, template: CompositeTemplateType) -> list[CompositeTemplateType]:
         if isinstance(template, str):
@@ -205,11 +175,14 @@ class GenieEnvironment:
 
         directory_path = Path(directory).resolve()
         config = self._walk_directory_tree_upward(directory_path, self.read_meta)
+        nr_invokers = (
+            self.pool_size if "pool_size" not in config else config["pool_size"]
+        )
         self._template_directories[prefix] = _TemplateDirectory(
             directory=directory_path,
             config=config,
             jinja_loader=jinja2.FileSystemLoader(directory),
-            invokers=self._create_invoker_pool(config["invoker"]),
+            invokers=self.invoker_factory.create_invoker_pool(nr_invokers, config["invoker"]),
         )
         self._jinja_env = None  # clear the Environment
 

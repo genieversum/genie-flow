@@ -3,6 +3,7 @@ from dependency_injector import containers, providers
 
 from ai_state_machine.app import create_fastapi_app
 from ai_state_machine.containers.core import GenieFlowCoreContainer
+from ai_state_machine.containers.invoker import GenieFlowInvokerContainer
 from ai_state_machine.containers.persistence import GenieFlowPersistenceContainer
 from ai_state_machine.celery import CeleryManager
 from ai_state_machine.environment import GenieEnvironment
@@ -21,6 +22,11 @@ class GenieFlowContainer(containers.DeclarativeContainer):
 
     model_key_registry = providers.Singleton(ModelKeyRegistryType)
 
+    invokers = providers.Container(
+        GenieFlowInvokerContainer,
+        config=config.invokers,
+    )
+
     storage = providers.Container(
         GenieFlowPersistenceContainer,
         config=config.persistence,
@@ -32,6 +38,7 @@ class GenieFlowContainer(containers.DeclarativeContainer):
         config.genie_environment.pool_size,
         storage.store_manager,
         model_key_registry,
+        invokers.invoker_factory,
     )
 
     session_manager = providers.Singleton(

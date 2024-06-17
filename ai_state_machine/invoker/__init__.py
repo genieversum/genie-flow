@@ -1,4 +1,5 @@
-from typing import Type
+from queue import Queue
+from typing import Type, Optional
 
 from ai_state_machine.invoker.genie import GenieInvoker
 from ai_state_machine.invoker.openai import (
@@ -7,23 +8,37 @@ from ai_state_machine.invoker.openai import (
 )
 from ai_state_machine.invoker.verbatim import VerbatimInvoker
 
-_REGISTRY: dict[str, Type[GenieInvoker]] = dict(
-    verbatim=VerbatimInvoker,
-    azure_openai_chat=AzureOpenAIChatInvoker,
-    azure_openai_chat_json=AzureOpenAIChatJSONInvoker,
-)
 
+class InvokersPool:
+    """
+    A simple context manager that gets invokers from a queue and returns them when the
+    context is closed. Makes the queue serve as a pool of invokers.
+    """
 
-def create_genie_invoker(invoker_config: dict[str]) -> GenieInvoker:
-    cls = _REGISTRY[invoker_config["type"]]
-    return cls.from_config(invoker_config)
+    def __init__(self, queue: Queue[GenieInvoker]):
+        self._queue = queue
+        self._current_invoker: Optional[GenieInvoker] = None
+
+    def __enter__(self):
+        if self._current_invoker is None:
+            self._current_invoker = self._queue.get()
+        return self._current_invoker
+
+    def __exit__(self, exc_type, exc_value, exc_tb):
+        if self._current_invoker is not None:
+            self._queue.put(self._current_invoker)
+            self._current_invoker = None
 
 
 class InvokerFactory:
 
-    def __init__(self, config: dict):
-        self.config = config
-        self._registry: dict[str, Type[GenieInvoker]] = dict()
+    def __init__(
+        self,
+        config: Optional[dict],
+        builtin_registry: dict[str, Type[GenieInvoker]] = None,
+    ):
+        self.config = config or dict()
+        self._registry: dict[str, Type[GenieInvoker]] = builtin_registry or dict()
 
     def register_invoker(self, invoker_name: str, invoker_class: Type[GenieInvoker]):
         """
@@ -60,3 +75,12 @@ class InvokerFactory:
         config = self.config[invoker_type] if invoker_type in self.config.keys() else dict()
         config.update(invoker_config)
         return cls.from_config(config)
+
+    def create_invoker_pool(self, pool_size: int, config: dict) -> InvokersPool:
+        assert pool_size > 0, f"Should not create invoker pool of size {pool_size}"
+
+        queue = Queue()
+        for _ in range(pool_size):
+            queue.put(self.create_invoker(config))
+
+        return InvokersPool(queue)

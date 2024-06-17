@@ -52,10 +52,42 @@ class AbstractAzureOpenAIInvoker(GenieInvoker, ABC):
 
     @classmethod
     def _create_client(cls, config: dict[str, str]) -> AzureOpenAI:
+
+        def get_config_value(
+                env_variable_name: str,
+                config_variable_name: str,
+                variable_name: str,
+        ) -> str:
+            result = os.getenv(env_variable_name)
+            result = result or config.get(config_variable_name, None)
+            if result is None:
+                raise ValueError(f"No value for {variable_name}")
+            return result
+
+        api_key = get_config_value(
+            "AZURE_OPENAI_API_KEY",
+            "api_key",
+            "API Key",
+        )
+
+        api_version = get_config_value(
+            "AZURE_OPENAI_API_VERSION",
+            "api_version",
+            "API Version",
+        )
+
+        endpoint = get_config_value(
+            "AZURE_OPENAI_ENDPOINT",
+            "endpoint",
+            "Endpoint",
+        )
+        if endpoint is None:
+            raise ValueError("No endpoint provided")
+
         return openai.AzureOpenAI(
-            api_key=os.getenv("AZURE_OPENAI_API_KEY", config["api_key"]),
-            api_version=config["api_version"],
-            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT", config["azure_endpoint"]),
+            api_key=api_key,
+            api_version=api_version,
+            azure_endpoint=endpoint,
         )
 
 
