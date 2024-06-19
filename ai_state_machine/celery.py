@@ -5,13 +5,18 @@ from celery import Celery, Task
 from celery.canvas import Signature, chord, group
 
 from ai_state_machine.environment import GenieEnvironment
-from ai_state_machine.genie import GenieModel, CompositeTemplateType, CompositeContentType
+from ai_state_machine.genie import GenieModel
+from ai_state_machine.model.template import CompositeTemplateType, CompositeContentType
 from ai_state_machine.model.dialogue import DialogueElement
+from ai_state_machine.model.enqueable import Enqueable
 from ai_state_machine.session import SessionLockManager
 from ai_state_machine.store import StoreManager
 
 
 class CeleryManager:
+    """
+    The `CeleryManager` instance deals with compiling and enqueuing Celery tasks.
+    """
 
     def __init__(
         self,
@@ -31,16 +36,18 @@ class CeleryManager:
         self._add_chained_template()
 
     def _add_trigger_ai_event_task(self):
-        @self.celery_app.task(name='ai.tasks.trigger_ai_event')
-        def trigger_ai_event(response: str, cls_fqn: str, session_id: str, event_name: str):
+        @self.celery_app.task(bind=True, name='ai.tasks.trigger_ai_event')
+        def trigger_ai_event(task_instance, response: str, cls_fqn: str, session_id: str, event_name: str):
             with self.session_lock_manager.get_lock_for_session(session_id):
                 model = self.store_manager.retrieve_model(cls_fqn, session_id=session_id)
                 assert isinstance(model, GenieModel)
-                model.running_task_id = None
+                model.remove_running_task(task_instance.request.id)
 
-                state_machine = model.get_state_machine_class()(model=model)
+                state_machine = model.get_state_machine_class()(model)
                 logging.debug(f"sending {event_name} to model for session {session_id}")
-                state_machine.send(event_name, response)
+                enqueables = state_machine.send(event_name, response)
+                task_ids = self.enqueue_tasks(enqueables)
+                model.add_running_tasks(task_ids)
 
                 self.store_manager.store_model(model)
 
@@ -129,20 +136,20 @@ class CeleryManager:
             f"cannot compile a task for a render of type '{type(template)}'"
         )
 
-    def enqueue_task(
-            self,
-            template: CompositeTemplateType,
-            model_fqn: str,
-            session_id: str,
-            render_data: dict[str, Any],
-            event_to_send_after: str,
-    ):
+    def enqueue_task(self, enqueable: Enqueable) -> str:
         task = (
-            self._compile_task(template, render_data) |
+            self._compile_task(enqueable.template, enqueable.render_data) |
             self._trigger_ai_event_task.s(
-                model_fqn,
-                session_id,
-                event_to_send_after,
+                enqueable.model_fqn,
+                enqueable.session_id,
+                enqueable.event_to_send_after,
             )
         )
-        return task.apply_async((render_data,)).id
+        return task.apply_async((enqueable.render_data,)).id
+
+    def enqueue_tasks(self, enqueables: list[Enqueable]) -> set[str]:
+        return {
+            self.enqueue_task(enqueable)
+            for enqueable in enqueables
+            if isinstance(enqueable, Enqueable)
+        }

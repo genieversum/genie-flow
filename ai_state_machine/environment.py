@@ -11,10 +11,11 @@ from jinja2 import Environment, PrefixLoader, TemplateNotFound
 from pydantic_redis import Model
 from statemachine import State
 
-from ai_state_machine.genie import GenieModel, GenieStateMachine, CompositeTemplateType
+from ai_state_machine.genie import GenieModel, GenieStateMachine
 from ai_state_machine.invoker import InvokerFactory, InvokersPool
 from ai_state_machine.model.dialogue import DialogueElement
 from ai_state_machine.model.types import ModelKeyRegistryType
+from ai_state_machine.model.template import CompositeTemplateType
 from ai_state_machine.store import StoreManager
 
 _META_FILENAME: str = "meta.yaml"
@@ -29,6 +30,10 @@ class _TemplateDirectory(TypedDict):
 
 
 class GenieEnvironment:
+    """
+    The `GenieEnvironment` deals with maintaining the templates registry, rendering templates
+    and invoking `Invoker`s with a data context and a dialogue.
+    """
 
     def __init__(
         self,

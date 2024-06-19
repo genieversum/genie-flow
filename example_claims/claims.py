@@ -6,7 +6,8 @@ from pydantic import Field
 from statemachine import State
 from statemachine.event_data import EventData
 
-from ai_state_machine.genie import GenieModel, GenieStateMachine, CompositeTemplateType
+from ai_state_machine.genie import GenieModel, GenieStateMachine
+from ai_state_machine.model.template import CompositeTemplateType
 
 
 class ClaimsModel(GenieModel):

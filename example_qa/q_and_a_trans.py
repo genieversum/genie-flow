@@ -12,14 +12,6 @@ class QandATransModel(GenieModel):
 
 class QandATransMachine(GenieStateMachine):
 
-    def __init__(self, model: QandATransModel, new_session: bool = False):
-        if not isinstance(model, QandATransModel):
-            raise TypeError(
-                "The type of model should be QandAModel, not {}".format(type(model))
-            )
-
-        super(QandATransMachine, self).__init__(model=model, new_session=new_session)
-
     # STATES
     intro = State(initial=True, value=000)
     user_enters_query = State(value=100)

@@ -4,7 +4,7 @@ from pydantic._internal._model_construction import ModelMetaclass
 from statemachine.contrib.diagram import DotGraphMachine
 
 from ai_state_machine.genie import GenieModel
-from ai_state_machine.store import get_class_from_fully_qualified_name
+from ai_state_machine.utils import get_class_from_fully_qualified_name
 
 parser = argparse.ArgumentParser(
     prog="generate_diagram.py",

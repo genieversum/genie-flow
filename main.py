@@ -16,4 +16,4 @@ genie_flow.genie_environment.register_template_directory(
     "example_qa/templates",
 )
 
-# celery_app = genie_flow.celery_app
+celery_app = genie_flow.celery_app

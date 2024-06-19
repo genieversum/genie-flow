@@ -1,7 +1,6 @@
-from dependency_injector.providers import Configuration
 from fastapi import HTTPException, APIRouter, FastAPI
+from pydantic import BaseModel
 
-from ai_state_machine.genie import GenieModel
 from ai_state_machine.model.api import AIStatusResponse, AIResponse, EventInput
 from ai_state_machine.session import SessionManager
 
@@ -63,7 +62,7 @@ class GenieFlowRouterBuilder:
         except KeyError:
             raise _unknown_state_machine_exception(state_machine_key)
 
-    def get_model(self, state_machine_key: str, session_id: str) -> GenieModel:
+    def get_model(self, state_machine_key: str, session_id: str) -> BaseModel:
         try:
             return self.session_manager.get_model(state_machine_key, session_id)
         except KeyError:

@@ -1,6 +1,5 @@
-from typing import Optional
+from typing import Optional, Any, Iterable
 
-from celery import Task
 from loguru import logger
 from pydantic import Field
 from pydantic_redis import Model
@@ -8,14 +7,9 @@ from statemachine import StateMachine, State
 from statemachine.event_data import EventData
 
 from ai_state_machine.model.dialogue import DialogueElement, DialogueFormat
-
-
-CompositeTemplateType = (
-    str | Task | list["CompositeTemplateType"] | dict[str, "CompositeTemplateType"]
-)
-CompositeContentType = (
-    str | list["CompositeContentType"] | dict[str, "CompositeContentType"]
-)
+from ai_state_machine.model.enqueable import Enqueable
+from ai_state_machine.model.template import CompositeTemplateType
+from ai_state_machine.utils import get_fully_qualified_name_from_class
 
 
 class GenieModel(Model):
@@ -47,9 +41,9 @@ class GenieModel(Model):
         default_factory=list,
         description="The list of dialogue elements that have been used in the dialogue so far",
     )
-    running_task_id: Optional[str] = Field(
-        None,
-        description="the (Celery) task id of the currently running task",
+    running_task_ids: Optional[set[str]] = Field(
+        set,
+        description="the (Celery) task ids of currently running tasks",
     )
     actor: Optional[str] = Field(
         None,
@@ -59,6 +53,23 @@ class GenieModel(Model):
         "",
         description="the most recent received input from the actor",
     )
+
+    @property
+    def has_running_tasks(self) -> bool:
+        return len(self.running_task_ids) > 0
+
+    def add_running_tasks(self, tasks_ids: Iterable[str]):
+        for task_id in tasks_ids:
+            if task_id is not None:
+                self.running_task_ids.add(task_id)
+
+    def remove_running_task(self, task_id: str):
+        try:
+            self.running_task_ids.remove(task_id)
+        except KeyError:
+            logger.warning(
+                f"removing non-existing task_id {task_id} from session {self.session_id}"
+            )
 
     @classmethod
     def get_state_machine_class(cls) -> type["GenieStateMachine"]:
@@ -90,8 +101,16 @@ class GenieStateMachine(StateMachine):
     """
     A State Machine class that is able to manage an AI driven dialogue and extract information
     from it. The extracted information is stored in an accompanying data model (based on the
-    `GenieModel` class.
+    `GenieModel` class).
     """
+
+    # EVENTS that need to be specified
+    user_input: Any = None
+    ai_extraction: Any = None
+    advance: Any = None
+
+    # TEMPLATE mapping that needs to be specified
+    templates: CompositeTemplateType = ()
 
     def __init__(
         self,
@@ -132,12 +151,7 @@ class GenieStateMachine(StateMachine):
         :raises KeyError: If there is no template defined for the given state
         """
         try:
-            return getattr(self, self.templates_property_name).get(state.id)
-        except AttributeError:
-            logger.error(
-                f"No attribute named '{self.templates_property_name}' with the templates"
-            )
-            raise
+            return self.templates.get(state.id)
         except KeyError:
             logger.error(f"No template for state {state.id}")
             raise
@@ -165,7 +179,7 @@ class GenieStateMachine(StateMachine):
         try:
             self.model.actor_input = event_data.args[0]
             logger.debug("Setting the actor input to %s", self.model.actor_input)
-        except (TypeError, IndexError) as e:
+        except (TypeError, IndexError):
             logger.debug("Starting a transition without an actor input")
             self.model.actor_input = ""
 
@@ -176,7 +190,7 @@ class GenieStateMachine(StateMachine):
         This method gets triggered when a "user_input" event is received.
         We are setting the model's current actor to the User actor name.
 
-        This method then creates the Celery task that needs to be ran, according to the
+        This method then creates the Celery task that needs to be run, according to the
         template of the target state. It also determines what event needs to be sent
         when that task has finished.
 
@@ -231,18 +245,17 @@ class GenieStateMachine(StateMachine):
             self.model.actor = None
             self.model.actor_input = None
 
-    def enqueue_task(self, event_data: EventData) -> str:
+    def enqueue_task(self, event_data: EventData) -> Enqueable:
         # TODO what if there are more than one event leading out the the future state
         event_to_send_after = event_data.target.transitions.unique_events[0]
 
-        self.model.running_task_id = self.celery_manager.enqueue_task(
-            self.current_template,
-            get_fully_qualified_name_from_class(self.model),
-            self.model.session_id,
-            self.render_data,
-            event_to_send_after,
+        return Enqueable(
+            template=self.current_template,
+            model_fqn=get_fully_qualified_name_from_class(self.model),
+            session_id=self.model.session_id,
+            render_data=self.render_data,
+            event_to_send_after=event_to_send_after
         )
-        return self.model.running_task_id
 
     # VALIDATIONS AND CONDITIONS
     def is_valid_response(self, event_data: EventData):
