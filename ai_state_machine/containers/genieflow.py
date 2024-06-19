@@ -41,13 +41,6 @@ class GenieFlowContainer(containers.DeclarativeContainer):
         invokers.invoker_factory,
     )
 
-    session_manager = providers.Singleton(
-        SessionManager,
-        session_lock_manager=storage.session_lock_manager,
-        model_key_registry=model_key_registry,
-        genie_environment=genie_environment,
-    )
-
     celery_app = providers.Singleton(
         Celery,
         main="genie_flow",
@@ -63,6 +56,14 @@ class GenieFlowContainer(containers.DeclarativeContainer):
         storage.session_lock_manager,
         storage.store_manager,
         genie_environment,
+    )
+
+    session_manager = providers.Singleton(
+        SessionManager,
+        session_lock_manager=storage.session_lock_manager,
+        model_key_registry=model_key_registry,
+        genie_environment=genie_environment,
+        celery_manager=celery_manager,
     )
 
     fastapi_app = providers.Resource(

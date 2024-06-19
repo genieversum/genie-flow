@@ -9,7 +9,7 @@ from ai_state_machine.genie import GenieModel
 from ai_state_machine.model.template import CompositeTemplateType, CompositeContentType
 from ai_state_machine.model.dialogue import DialogueElement
 from ai_state_machine.model.enqueable import Enqueable
-from ai_state_machine.session import SessionLockManager
+from ai_state_machine.session_lock import SessionLockManager
 from ai_state_machine.store import StoreManager
 
 

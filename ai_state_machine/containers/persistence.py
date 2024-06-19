@@ -2,7 +2,7 @@ import pydantic_redis
 from dependency_injector import containers, providers
 from redis import Redis
 
-from ai_state_machine.session import SessionLockManager
+from ai_state_machine.session_lock import SessionLockManager
 from ai_state_machine.store import StoreManager
 
 
