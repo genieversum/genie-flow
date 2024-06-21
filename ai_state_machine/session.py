@@ -102,6 +102,9 @@ class SessionManager:
         returns an AIResponse object with the most recently recorded actor text and the events that
         can be sent from the current state.
 
+        Session locking, saving and storing of the model object needs to happen outside of
+        this method.
+
         :param event: the event to process
         :param model: the model to process the event against
         :return: an instance of `AIResponse` with the appropriate values
@@ -112,9 +115,7 @@ class SessionManager:
         task_ids = self.celery_manager.enqueue_tasks(enqueables)
         model.add_running_tasks(task_ids)
 
-        model.__class__.insert(model)
-
-        if model.has_running_tasks > 0:
+        if model.has_running_tasks:
             return AIResponse(session_id=event.session_id, next_actions=["poll"])
         return AIResponse(
             session_id=event.session_id,
@@ -133,11 +134,7 @@ class SessionManager:
         :return: an instance of `AIResponse` with the appropriate values
         """
         model_class = self.model_key_registry[model_key]
-        with self.session_lock_manager.get_lock_for_session(event.session_id):
-            models = model_class.select(ids=[event.session_id])
-            assert len(models) == 1
-            model: GenieModel = models[0]
-
+        with self.session_lock_manager.get_locked_model(event.session_id, model_class) as model:
             if event.event == "poll":
                 return self._handle_poll(model)
 
@@ -164,23 +161,20 @@ class SessionManager:
         possible next actions can be sent in the current state of the model.
         """
         model_class = self.model_key_registry[model_key]
-        with self.session_lock_manager.get_lock_for_session(session_id):
-            models = model_class.select(ids=[session_id])
-            assert len(models) == 1
-            model: GenieModel = models[0]
+        model = self.session_lock_manager.get_model(session_id, model_class)
 
-            if model.has_running_tasks:
-                return AIStatusResponse(
-                    session_id=session_id,
-                    ready=False,
-                )
-
-            state_machine = model.get_state_machine_class()(model=model)
+        if model.has_running_tasks:
             return AIStatusResponse(
                 session_id=session_id,
-                ready=True,
-                next_actions=state_machine.current_state.transitions.unique_events,
+                ready=False,
             )
+
+        state_machine = model.get_state_machine_class()(model=model)
+        return AIStatusResponse(
+            session_id=session_id,
+            ready=True,
+            next_actions=state_machine.current_state.transitions.unique_events,
+        )
 
     def get_model(self, model_key: str, session_id: str) -> GenieModel:
         """
@@ -192,10 +186,4 @@ class SessionManager:
         :return: the model instance that belongs to the given session id
         """
         model_class = self.model_key_registry[model_key]
-        with self.session_lock_manager.get_lock_for_session(session_id):
-            models = model_class.select(ids=[session_id])
-            if len(models) == 0:
-                raise KeyError(f"No model with id {session_id}")
-            if len(models) > 1:
-                raise RuntimeError(f"Multiple models with id {session_id}")
-            return models[0]
+        return self.session_lock_manager.get_model(session_id, model_class)

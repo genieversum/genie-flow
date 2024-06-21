@@ -11,6 +11,7 @@ from ai_state_machine.model.dialogue import DialogueElement
 from ai_state_machine.model.enqueable import Enqueable
 from ai_state_machine.session_lock import SessionLockManager
 from ai_state_machine.store import StoreManager
+from ai_state_machine.utils import get_class_from_fully_qualified_name
 
 
 class CeleryManager:
@@ -22,12 +23,10 @@ class CeleryManager:
         self,
         celery: Celery,
         session_lock_manager: SessionLockManager,
-        store_manager: StoreManager,
         genie_environment: GenieEnvironment,
     ):
         self.celery_app = celery
         self.session_lock_manager = session_lock_manager
-        self.store_manager = store_manager
         self.genie_environment = genie_environment
 
         self._add_trigger_ai_event_task()
@@ -36,11 +35,17 @@ class CeleryManager:
         self._add_chained_template()
 
     def _add_trigger_ai_event_task(self):
+
         @self.celery_app.task(bind=True, name='genie_flow.trigger_ai_event')
-        def trigger_ai_event(task_instance, response: str, cls_fqn: str, session_id: str, event_name: str):
-            with self.session_lock_manager.get_lock_for_session(session_id):
-                model = self.store_manager.retrieve_model(cls_fqn, session_id=session_id)
-                assert isinstance(model, GenieModel)
+        def trigger_ai_event(
+                task_instance,
+                response: str,
+                cls_fqn: str,
+                session_id: str,
+                event_name: str,
+        ):
+            model_class = get_class_from_fully_qualified_name(cls_fqn)
+            with self.session_lock_manager.get_locked_model(session_id, model_class) as model:
                 model.remove_running_task(task_instance.request.id)
 
                 state_machine = model.get_state_machine_class()(model)
@@ -49,11 +54,10 @@ class CeleryManager:
                 task_ids = self.enqueue_tasks(enqueables)
                 model.add_running_tasks(task_ids)
 
-                self.store_manager.store_model(model)
-
         return trigger_ai_event
 
     def _add_invoke_task(self):
+
         @self.celery_app.task(name="genie_flow.invoke_task")
         def invoke_ai_event(render_data: dict[str, Any], template_name: str) -> str:
             dialogue_raw: list[dict] = getattr(render_data, "dialogue", list())
@@ -67,6 +71,7 @@ class CeleryManager:
         return invoke_ai_event
 
     def _add_combine_group_to_dict(self):
+
         @self.celery_app.task(name="genie_flow.combine_group_to_dict")
         def combine_group_to_dict(
                 results: list[CompositeContentType], keys: list[str]
@@ -76,6 +81,7 @@ class CeleryManager:
         return combine_group_to_dict
 
     def _add_chained_template(self):
+
         @self.celery_app.task(name="genie_flow.chained_template")
         def chained_template(
                 result_of_previous_call: CompositeContentType,

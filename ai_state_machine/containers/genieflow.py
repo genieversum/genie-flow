@@ -54,7 +54,6 @@ class GenieFlowContainer(containers.DeclarativeContainer):
         CeleryManager,
         celery_app,
         storage.session_lock_manager,
-        storage.store_manager,
         genie_environment,
     )
 
