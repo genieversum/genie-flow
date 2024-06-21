@@ -41,9 +41,9 @@ class GenieModel(Model):
         default_factory=list,
         description="The list of dialogue elements that have been used in the dialogue so far",
     )
-    running_task_ids: Optional[set[str]] = Field(
-        set,
-        description="the (Celery) task ids of currently running tasks",
+    running_task_ids: int = Field(
+        default=0,
+        description="the number of Celery tasks that are currently running for this model",
     )
     actor: Optional[str] = Field(
         None,
@@ -56,20 +56,17 @@ class GenieModel(Model):
 
     @property
     def has_running_tasks(self) -> bool:
-        return len(self.running_task_ids) > 0
+        return self.running_task_ids > 0
 
     def add_running_tasks(self, tasks_ids: Iterable[str]):
         for task_id in tasks_ids:
             if task_id is not None:
-                self.running_task_ids.add(task_id)
+                self.running_task_ids += 1
 
     def remove_running_task(self, task_id: str):
-        try:
-            self.running_task_ids.remove(task_id)
-        except KeyError:
-            logger.warning(
-                f"removing non-existing task_id {task_id} from session {self.session_id}"
-            )
+        self.running_task_ids -= 1
+        if self.running_task_ids < 0:
+            raise ValueError(f"removed too many running tasks")
 
     @classmethod
     def get_state_machine_class(cls) -> type["GenieStateMachine"]:

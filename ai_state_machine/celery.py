@@ -36,7 +36,7 @@ class CeleryManager:
         self._add_chained_template()
 
     def _add_trigger_ai_event_task(self):
-        @self.celery_app.task(bind=True, name='ai.tasks.trigger_ai_event')
+        @self.celery_app.task(bind=True, name='genie_flow.trigger_ai_event')
         def trigger_ai_event(task_instance, response: str, cls_fqn: str, session_id: str, event_name: str):
             with self.session_lock_manager.get_lock_for_session(session_id):
                 model = self.store_manager.retrieve_model(cls_fqn, session_id=session_id)

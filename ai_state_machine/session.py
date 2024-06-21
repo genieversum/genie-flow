@@ -108,9 +108,11 @@ class SessionManager:
         """
         state_machine = model.get_state_machine_class()(model)
         enqueables = state_machine.send(event.event, event.event_input)
-        model.__class__.insert(model)
 
-        model.add_running_tasks(self.celery_manager.enqueue_tasks(enqueables))
+        task_ids = self.celery_manager.enqueue_tasks(enqueables)
+        model.add_running_tasks(task_ids)
+
+        model.__class__.insert(model)
 
         if model.has_running_tasks > 0:
             return AIResponse(session_id=event.session_id, next_actions=["poll"])
