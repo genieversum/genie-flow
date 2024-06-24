@@ -3,7 +3,7 @@ import time
 import requests
 
 HOST = 'http://127.0.0.1:8000'
-BASE_URL = HOST + "/v1/ai/qa_trans"
+BASE_URL = HOST + "/v1/ai/qa"
 
 response = requests.get(f"{BASE_URL}/start_session")
 ai_response = response.json()
