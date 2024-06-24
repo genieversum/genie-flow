@@ -107,7 +107,7 @@ class GenieStateMachine(StateMachine):
     advance: Any = None
 
     # TEMPLATE mapping that needs to be specified
-    templates: CompositeTemplateType = ()
+    templates: dict[State, CompositeTemplateType] = dict()
 
     def __init__(
         self,
@@ -148,7 +148,7 @@ class GenieStateMachine(StateMachine):
         :raises KeyError: If there is no template defined for the given state
         """
         try:
-            return self.templates.get(state.id)
+            return self.templates.get(state)
         except KeyError:
             logger.error(f"No template for state {state.id}")
             raise
@@ -187,12 +187,9 @@ class GenieStateMachine(StateMachine):
         This method gets triggered when a "user_input" event is received.
         We are setting the model's current actor to the User actor name.
 
-        This method then creates the Celery task that needs to be run, according to the
-        template of the target state. It also determines what event needs to be sent
-        when that task has finished.
-
-        Finally, the Celery task is enqueued, the corresponding task id recorded on the model
-        and returned.
+        We then return an `Enqueables` - a data class carrying the information that is required
+        to enqueue a Celery task to be run. When a full transition has been made, all Enqueables
+        that are created as enqueued for processing by Celery workers.
         """
         logger.debug(f"User input event received")
         self.model.actor = "user"
