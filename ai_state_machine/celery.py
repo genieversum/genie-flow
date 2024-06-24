@@ -8,7 +8,7 @@ from ai_state_machine.environment import GenieEnvironment
 from ai_state_machine.genie import GenieModel
 from ai_state_machine.model.template import CompositeTemplateType, CompositeContentType
 from ai_state_machine.model.dialogue import DialogueElement
-from ai_state_machine.model.enqueable import Enqueable
+from ai_state_machine.model.render_job import EnqueuedRenderJob
 from ai_state_machine.session_lock import SessionLockManager
 from ai_state_machine.store import StoreManager
 from ai_state_machine.utils import get_class_from_fully_qualified_name
@@ -50,8 +50,13 @@ class CeleryManager:
 
                 state_machine = model.get_state_machine_class()(model)
                 logging.debug(f"sending {event_name} to model for session {session_id}")
-                enqueables = state_machine.send(event_name, response)
-                task_ids = self.enqueue_tasks(enqueables)
+                jobs = state_machine.send(event_name, response)
+
+                task_ids = {
+                    self.enqueue_task(enqueable)
+                    for enqueable in jobs
+                    if isinstance(enqueable, EnqueuedRenderJob)
+                }
                 model.add_running_tasks(task_ids)
 
         return trigger_ai_event
@@ -142,7 +147,7 @@ class CeleryManager:
             f"cannot compile a task for a render of type '{type(template)}'"
         )
 
-    def enqueue_task(self, enqueable: Enqueable) -> str:
+    def enqueue_task(self, enqueable: EnqueuedRenderJob) -> str:
         task = (
             self._compile_task(enqueable.template, enqueable.render_data) |
             self._trigger_ai_event_task.s(
@@ -152,10 +157,3 @@ class CeleryManager:
             )
         )
         return task.apply_async((enqueable.render_data,)).id
-
-    def enqueue_tasks(self, enqueables: list[Enqueable]) -> set[str]:
-        return {
-            self.enqueue_task(enqueable)
-            for enqueable in enqueables
-            if isinstance(enqueable, Enqueable)
-        }

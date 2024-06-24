@@ -5,9 +5,13 @@ from ai_state_machine.model.template import CompositeTemplateType
 
 
 @dataclass
-class Enqueable:
+class TemplateRenderJob:
     template: CompositeTemplateType
-    model_fqn: str
     session_id: str
     render_data: dict[str, Any]
+
+
+@dataclass
+class EnqueuedRenderJob(TemplateRenderJob):
+    model_fqn: str
     event_to_send_after: str

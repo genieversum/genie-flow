@@ -5,6 +5,7 @@ from statemachine.exceptions import TransitionNotAllowed
 from ai_state_machine.celery import CeleryManager
 from ai_state_machine.environment import GenieEnvironment
 from ai_state_machine.genie import GenieModel
+from ai_state_machine.model.render_job import EnqueuedRenderJob, TemplateRenderJob
 from ai_state_machine.model.types import ModelKeyRegistryType
 from ai_state_machine.model.api import AIResponse, EventInput, AIStatusResponse
 from ai_state_machine.session_lock import SessionLockManager
@@ -112,8 +113,22 @@ class SessionManager:
         state_machine = model.get_state_machine_class()(model)
         enqueables = state_machine.send(event.event, event.event_input)
 
-        task_ids = self.celery_manager.enqueue_tasks(enqueables)
+        task_ids = {
+            self.celery_manager.enqueue_task(e)
+            for e in enqueables
+            if isinstance(e, EnqueuedRenderJob)
+        }
         model.add_running_tasks(task_ids)
+
+        local_renders = [
+            self.genie_environment.render_template(
+                local_job.template,
+                local_job.render_data,
+            )
+            for local_job in enqueables
+            if isinstance(local_job, TemplateRenderJob)
+        ]
+        model.actor_input = "\n".join(local_renders)
 
         if model.has_running_tasks:
             return AIResponse(session_id=event.session_id, next_actions=["poll"])

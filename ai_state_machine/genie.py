@@ -7,7 +7,7 @@ from statemachine import StateMachine, State
 from statemachine.event_data import EventData
 
 from ai_state_machine.model.dialogue import DialogueElement, DialogueFormat
-from ai_state_machine.model.enqueable import Enqueable
+from ai_state_machine.model.render_job import EnqueuedRenderJob, TemplateRenderJob
 from ai_state_machine.model.template import CompositeTemplateType
 from ai_state_machine.utils import get_fully_qualified_name_from_class
 
@@ -107,7 +107,7 @@ class GenieStateMachine(StateMachine):
     advance: Any = None
 
     # TEMPLATE mapping that needs to be specified
-    templates: dict[State, CompositeTemplateType] = dict()
+    templates: dict[str, CompositeTemplateType] = dict()
 
     def __init__(
         self,
@@ -148,7 +148,7 @@ class GenieStateMachine(StateMachine):
         :raises KeyError: If there is no template defined for the given state
         """
         try:
-            return self.templates.get(state)
+            return self.templates.get(state.id)
         except KeyError:
             logger.error(f"No template for state {state.id}")
             raise
@@ -194,7 +194,7 @@ class GenieStateMachine(StateMachine):
         logger.debug(f"User input event received")
         self.model.actor = "user"
 
-        return self.enqueue_task(event_data)
+        return self._create_enqueue_job(event_data)
 
     def on_ai_extraction(self, target: State):
         """
@@ -207,7 +207,11 @@ class GenieStateMachine(StateMachine):
         self.model.actor = "assistant"
         logger.debug(f"AI output rendered into: \n{self.model.actor_input}")
 
-        return None
+        return TemplateRenderJob(
+            template=self.current_template,
+            session_id=self.model.session_id,
+            render_data=self.render_data,
+        )
 
     def on_advance(self, event_data: EventData):
         """
@@ -219,7 +223,7 @@ class GenieStateMachine(StateMachine):
         logger.debug(f"Advance event received")
         self.model.actor = "assistant"
 
-        return self.enqueue_task(event_data)
+        return self._create_enqueue_job(event_data)
 
     def after_transition(self, state: State, **kwargs):
         """
@@ -239,11 +243,11 @@ class GenieStateMachine(StateMachine):
             self.model.actor = None
             self.model.actor_input = None
 
-    def enqueue_task(self, event_data: EventData) -> Enqueable:
+    def _create_enqueue_job(self, event_data: EventData) -> EnqueuedRenderJob:
         # TODO what if there are more than one event leading out the the future state
         event_to_send_after = event_data.target.transitions.unique_events[0]
 
-        return Enqueable(
+        return EnqueuedRenderJob(
             template=self.current_template,
             model_fqn=get_fully_qualified_name_from_class(self.model),
             session_id=self.model.session_id,
