@@ -13,16 +13,6 @@ class QandACondModel(GenieModel):
 
 class QandACondMachine(GenieStateMachine):
 
-    def __init__(self, model: QandACondModel, new_session: bool = False):
-        if not isinstance(model, QandACondModel):
-            raise TypeError(
-                "The type of model should be QandACondAModel, not {}".format(
-                    type(model)
-                )
-            )
-
-        super(QandACondMachine, self).__init__(model=model, new_session=new_session)
-
     # STATES
     intro = State(initial=True, value=000)
     user_enters_query = State(value=100)
@@ -47,16 +37,16 @@ class QandACondMachine(GenieStateMachine):
     )
 
     # CONDITIONS
-    def user_says_stop(self, event: EventData):
+    def user_says_stop(self, event_data: EventData):
         return (
-            event.args is not None
-            and len(event.args) != 0
-            and event.args[0] == "*STOP*"
+                event_data.args is not None
+                and len(event_data.args) != 0
+                and event_data.args[0] == "STOP"
         )
 
-    def user_wants_to_quit(self, event: EventData):
+    def user_wants_to_quit(self, event_data: EventData):
         return (
-            event.args is not None
-            and len(event.args) != 0
-            and "*STOP*" in event.args[0]
+                event_data.args is not None
+                and len(event_data.args) != 0
+                and "STOP" in event_data.args[0]
         )

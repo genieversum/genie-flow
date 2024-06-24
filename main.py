@@ -1,6 +1,8 @@
 from ai_state_machine import GenieFlow
 from example_claims.claims import ClaimsModel
 from example_qa.q_and_a import QandAModel
+from example_qa.q_and_a_capture import QandACaptureModel
+from example_qa.q_and_a_cond import QandACondModel
 from example_qa.q_and_a_trans import QandATransModel
 
 genie_flow = GenieFlow.from_yaml("config.yaml")
@@ -12,6 +14,8 @@ genie_flow.genie_environment.register_template_directory(
 )
 
 genie_flow.genie_environment.register_model("qa", QandAModel)
+genie_flow.genie_environment.register_model("qa_capture", QandACaptureModel)
+genie_flow.genie_environment.register_model("qa_cond", QandACondModel)
 genie_flow.genie_environment.register_model("qa_trans", QandATransModel)
 
 genie_flow.genie_environment.register_template_directory(

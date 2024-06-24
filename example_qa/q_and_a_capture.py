@@ -17,16 +17,6 @@ class QandACaptureModel(GenieModel):
 
 class QandACaptureMachine(GenieStateMachine):
 
-    def __init__(self, model: QandACaptureModel, new_session: bool = False):
-        if not isinstance(model, QandACaptureModel):
-            raise TypeError(
-                "The type of model should be QandACondAModel, not {}".format(
-                    type(model)
-                )
-            )
-
-        super(QandACaptureMachine, self).__init__(model=model, new_session=new_session)
-
     # STATES
     intro = State(initial=True, value=000)
     ai_extracts_name = State(value=30)
@@ -73,14 +63,14 @@ class QandACaptureMachine(GenieStateMachine):
         return (
             event.args is not None
             and len(event.args) != 0
-            and event.args[0] == "*STOP*"
+            and event.args[0] == "STOP"
         )
 
     def user_wants_to_quit(self, event: EventData):
         return (
             event.args is not None
             and len(event.args) != 0
-            and "*STOP*" in event.args[0]
+            and "STOP" in event.args[0]
         )
 
     # ACTIONS

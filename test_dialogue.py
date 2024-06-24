@@ -1,9 +1,19 @@
+import argparse
 import time
 
 import requests
 
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    '--model',
+    type=str,
+    choices=["qa", "qa_cond", "qa_capture", "qa_trans", "claims_genie"],
+    required=True,
+)
+config = parser.parse_args()
+
 HOST = 'http://127.0.0.1:8000'
-BASE_URL = HOST + "/v1/ai/qa"
+BASE_URL = HOST + "/v1/ai/" + config.model
 
 response = requests.get(f"{BASE_URL}/start_session")
 ai_response = response.json()

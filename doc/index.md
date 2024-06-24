@@ -5,7 +5,7 @@ start with a preamble, then some information retrieval, some conclusion building
 
 Keeping that state in check: what prompt should be used, given what has been discussed so far, is
 not trivial. And when implemented using simple if / then / else logic, the code becomes hard to 
-maintain.https://about.gitlab.com/releases/2024/05/08/patch-release-gitlab-16-11-2-released/
+maintain.
 
 This package aims to simplify and streamline the creation of dialogue flows that have a user
 interact with an LLM.
@@ -53,10 +53,9 @@ a Human actor and `LLM` for an LLM.
 
 ### data object methods and properties
 
-The developer needs to override the property `state_machine_class` which should return the class
-that implements the State Machine that accompanies this Data Object. The method 
-`create_state_machine` will use the `state_machine_class` property to instantiate a new State
-Machine and connect it to an instance of this Data Object.
+The developer needs to implement the class method  `get_state_machine_class` which should return
+the class that implements the State Machine that accompanies this Data Object. A new State Machine
+is then created by `model.get_state_machine_class()(model=model)`.
 
 Some convenience methods exist:
 
@@ -74,7 +73,7 @@ not from `BaseModel` as is done for Pydantic, but by inheriting from `Model` whi
 Pydantic-Redis package.
 
 This also means that this other object needs to have a class property called `_primary_key_field`
-which is the name of the field that uniquely identified an instance of that object.
+which is the name of the field that uniquely identifies an instance of that object.
 
 For example, the `DialogeElement` class (of which the `GenieModel` maintains a list) is implemented
 as follows:
@@ -115,7 +114,7 @@ When the developed has created a new `GenieModel`, that new model needs to be re
 make that model recognized to the Pydantic-Redis ORM framework. This registration is done as follows:
 
 ```python
-from ai_state_machine.containers import init_genie_flow
+from ai_state_machine import GenieFlow
 from ai_state_machine.genie import GenieModel
 
 
@@ -123,8 +122,8 @@ class MyNewModel(GenieModel):
     ...
 
 
-genie_environment = init_genie_flow("config.yaml")
-genie_environment.register_model("my_genie", MyNewModel)
+genie_flow = GenieFlow.from_yaml("config.yaml")
+genie_flow.genie_environment.register_model("my_genie", MyNewModel)
 
 ```
 
@@ -273,18 +272,12 @@ from ai_state_machine.genie import GenieModel, GenieStateMachine
 
 class QandAModel(GenieModel):
 
-    @property
-    def state_machine_class(self) -> type["GenieStateMachine"]:
+    @classmethod
+    def get_state_machine_class(cls) -> type["GenieStateMachine"]:
         return QandAMachine
 
 
 class QandAMachine(GenieStateMachine):
-
-    def __init__(self, model: QandAModel, new_session: bool = False):
-        if not isinstance(model, QandAModel):
-            raise TypeError("The type of model should be QandAModel, not {}".format(type(model)))
-
-        super(QandAMachine, self).__init__(model=model, new_session=new_session)
 
     # STATES
     intro = State(initial=True, value=000)
@@ -440,11 +433,11 @@ from ai_state_machine.genie import GenieStateMachine
 class QandACondMachine(GenieStateMachine):
     ...
 
-    def user_says_stop(self, event: EventData):
+    def user_says_stop(self, event_data: EventData):
         return (
-                event.args is not None and
-                len(event.args) != 0 and
-                event.args[0] == "*STOP*"
+                event_data.args is not None and
+                len(event_data.args) != 0 and
+                event_data.args[0] == "*STOP*"
         )
 ```
 
@@ -462,6 +455,32 @@ The condition is linked to the transition by stating the name of the method, as 
 the above snippet. They can be stated "positively" (as in: this must be `True` to make the
 transition), by making it a `cond` on the transition. They can also be stated negatively
 (as in: this must be `False` to make the transition), by making it an `unless` condition.
+
+#### Value Injection
+The Python State Machine engine takes care of injecting relevant values into condition
+methods. As described in [Dependency Injection](https://python-statemachine.readthedocs.io/en/latest/actions.html#dependency-injection),
+the following values are available:
+
+event
+: The name of the event that triggered the transition
+
+event_data
+: An `EventData` object containing all event related values
+
+source
+: The `State` that the engine transitions out of
+
+target
+: The `State` that the engine transitions into
+
+state
+: The current `State` the machine is in
+
+model
+: A reference to the model attached to the state machine
+
+transition
+: A `Transition` object carrying the transition information
 
 ### Question and Answer with data capture
 The final Question and Answer example captures the username. This means we now want to capture
@@ -506,11 +525,11 @@ If you can determine that name, just response with the name, nothing else.
 This means we can define a condition as follows:
 
 ```python
-    def name_is_defined(self, event: EventData) -> bool:
+    def name_is_defined(self, event_data: EventData) -> bool:
         return (
-            event.args is not None and
-            len(event.args) != 0 and
-            event.args[0] != "UNDEFINED"
+            event_data.args is not None and
+            len(event_data.args) != 0 and
+            event_data.args[0] != "UNDEFINED"
         )
 ```
 
