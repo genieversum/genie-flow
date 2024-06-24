@@ -1,13 +1,22 @@
+persistence:
+  model_store:
+    host: localhost
+    port: 6379
+    db: 1
+    life_span_in_seconds: 86400
+  lock_store:
+    host: localhost
+    port: 6379
+    db: 2
 celery:
   broker: amqp://guest:guest@localhost:5672
   backend: redis://localhost:6379/0
-model_store:
-  redis_host: localhost
-  redis_port: 6379
-  redis_db: 1
-lock_store:
-  redis_host: localhost
-  redis_port: 6379
-  redis_db: 2
-template_root_path: .
-pool_size: 1
+  redis_socket_timeout: 4.0
+  redis_socket_connect_timeout: 4.0
+api:
+  debug: true
+  root_path: /api/v1
+genie_environment:
+  template_root_path: .
+  pool_size: 1
+invokers:

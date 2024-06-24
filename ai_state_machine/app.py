@@ -1,15 +1,15 @@
-from fastapi import HTTPException, APIRouter
+from fastapi import HTTPException, APIRouter, FastAPI
+from pydantic import BaseModel
 
-from ai_state_machine.genie_model import GenieModel
-from ai_state_machine.model import EventInput, AIResponse, AIStatusResponse
+from ai_state_machine.model.api import AIStatusResponse, AIResponse, EventInput
 from ai_state_machine.session import SessionManager
 
 
 def _unknown_state_machine_exception(state_machine_key: str) -> HTTPException:
     return HTTPException(
-            status_code=404,
-            detail=f"State machine {state_machine_key} is unknown",
-        )
+        status_code=404,
+        detail=f"State machine {state_machine_key} is unknown",
+    )
 
 
 class GenieFlowRouterBuilder:
@@ -54,14 +54,35 @@ class GenieFlowRouterBuilder:
         except KeyError:
             raise _unknown_state_machine_exception(state_machine_key)
 
-    def get_task_state(self, state_machine_key: str, session_id: str) -> AIStatusResponse:
+    def get_task_state(
+        self, state_machine_key: str, session_id: str
+    ) -> AIStatusResponse:
         try:
             return self.session_manager.get_task_state(state_machine_key, session_id)
         except KeyError:
             raise _unknown_state_machine_exception(state_machine_key)
 
-    def get_model(self, state_machine_key: str, session_id: str) -> GenieModel:
+    def get_model(self, state_machine_key: str, session_id: str) -> BaseModel:
         try:
             return self.session_manager.get_model(state_machine_key, session_id)
         except KeyError:
             raise _unknown_state_machine_exception(state_machine_key)
+
+
+def create_fastapi_app(
+        session_manager: SessionManager,
+        config: dict,
+) -> FastAPI:
+    fastapi_app = FastAPI(
+        title="GenieFlow",
+        summary="Genie Flow API",
+        description=__doc__,
+        version="0.1.0",
+        **config
+    )
+
+    fastapi_app.include_router(
+        GenieFlowRouterBuilder(session_manager).router,
+        prefix=getattr(config, "prefix", "/v1/ai"),
+    )
+    return fastapi_app

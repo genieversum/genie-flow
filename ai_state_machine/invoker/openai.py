@@ -5,12 +5,16 @@ from typing import Optional
 
 import openai
 from openai.lib.azure import AzureOpenAI
-from openai.types.chat import ChatCompletionSystemMessageParam, \
-    ChatCompletionUserMessageParam, ChatCompletionAssistantMessageParam, ChatCompletionMessageParam
+from openai.types.chat import (
+    ChatCompletionSystemMessageParam,
+    ChatCompletionUserMessageParam,
+    ChatCompletionAssistantMessageParam,
+    ChatCompletionMessageParam,
+)
 from openai.types.chat.completion_create_params import ResponseFormat
 
 from ai_state_machine.invoker.genie import GenieInvoker
-from ai_state_machine.model import DialogueElement
+from ai_state_machine.model.dialogue import DialogueElement
 
 
 _CHAT_COMPLETION_MAP = {
@@ -20,7 +24,9 @@ _CHAT_COMPLETION_MAP = {
 }
 
 
-def chat_completion_message(dialogue_element: DialogueElement) -> ChatCompletionMessageParam:
+def chat_completion_message(
+    dialogue_element: DialogueElement,
+) -> ChatCompletionMessageParam:
     try:
         return _CHAT_COMPLETION_MAP[dialogue_element.actor](
             role=dialogue_element.actor,
@@ -46,10 +52,42 @@ class AbstractAzureOpenAIInvoker(GenieInvoker, ABC):
 
     @classmethod
     def _create_client(cls, config: dict[str, str]) -> AzureOpenAI:
+
+        def get_config_value(
+                env_variable_name: str,
+                config_variable_name: str,
+                variable_name: str,
+        ) -> str:
+            result = os.getenv(env_variable_name)
+            result = result or config.get(config_variable_name, None)
+            if result is None:
+                raise ValueError(f"No value for {variable_name}")
+            return result
+
+        api_key = get_config_value(
+            "AZURE_OPENAI_API_KEY",
+            "api_key",
+            "API Key",
+        )
+
+        api_version = get_config_value(
+            "AZURE_OPENAI_API_VERSION",
+            "api_version",
+            "API Version",
+        )
+
+        endpoint = get_config_value(
+            "AZURE_OPENAI_ENDPOINT",
+            "endpoint",
+            "Endpoint",
+        )
+        if endpoint is None:
+            raise ValueError("No endpoint provided")
+
         return openai.AzureOpenAI(
-            api_key=os.getenv("AZURE_OPENAI_API_KEY") or config["api_key"],
-            api_version=config["api_version"],
-            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT") or config["azure_endpoint"],
+            api_key=api_key,
+            api_version=api_version,
+            azure_endpoint=endpoint,
         )
 
 
@@ -69,7 +107,9 @@ class AzureOpenAIChatInvoker(AbstractAzureOpenAIInvoker):
     def _response_format(self) -> Optional[ResponseFormat]:
         return None
 
-    def invoke(self, content: str, dialogue: Optional[list[DialogueElement]] = None) -> str:
+    def invoke(
+        self, content: str, dialogue: Optional[list[DialogueElement]] = None
+    ) -> str:
         if dialogue is None:
             dialogue = []
         messages = [chat_completion_message(element) for element in dialogue]
@@ -106,8 +146,12 @@ class AzureOpenAIChatJSONInvoker(AzureOpenAIChatInvoker):
     def _response_format(self) -> Optional[ResponseFormat]:
         return ResponseFormat(type="json_object")
 
-    def invoke(self, content: str, dialogue: Optional[list[DialogueElement]] = None) -> str:
+    def invoke(
+        self, content: str, dialogue: Optional[list[DialogueElement]] = None
+    ) -> str:
         if "json" not in content.lower():
-            logging.warning("sending a JSON invocation to Azure OpenAI without mentioning "
-                            "the word 'json'.")
+            logging.warning(
+                "sending a JSON invocation to Azure OpenAI without mentioning "
+                "the word 'json'."
+            )
         return super(AzureOpenAIChatJSONInvoker).invoke(content, dialogue)

@@ -6,39 +6,20 @@ from typing import TypedDict, Callable, Optional, TypeVar, Any, Type
 
 import jinja2
 import yaml
-from celery import Celery
-from fastapi import FastAPI
-from jinja2 import Environment, PrefixLoader
-from pydantic_redis import Model, Store
+from celery import Task
+from jinja2 import Environment, PrefixLoader, TemplateNotFound
+from pydantic_redis import Model
+from statemachine import State
 
-from ai_state_machine.genie_model import GenieModel
-from ai_state_machine.invoker import GenieInvoker, create_genie_invoker
-from ai_state_machine.model import DialogueElement
-from ai_state_machine.registry import ModelKeyRegistryType
+from ai_state_machine.genie import GenieModel, GenieStateMachine
+from ai_state_machine.invoker import InvokerFactory, InvokersPool
+from ai_state_machine.model.dialogue import DialogueElement
+from ai_state_machine.model.types import ModelKeyRegistryType
+from ai_state_machine.model.template import CompositeTemplateType
+from ai_state_machine.store import StoreManager
 
 _META_FILENAME: str = "meta.yaml"
 _T = TypeVar("_T")
-
-
-class InvokersPool:
-    """
-    A simple context manager that gets invokers from a queue and returns them when the
-    context is closed. Makes the queue serve as a pool of invokers.
-    """
-
-    def __init__(self, queue: Queue[GenieInvoker]):
-        self._queue = queue
-        self._current_invoker: Optional[GenieInvoker] = None
-
-    def __enter__(self):
-        if self._current_invoker is None:
-            self._current_invoker = self._queue.get()
-        return self._current_invoker
-
-    def __exit__(self, exc_type, exc_value, exc_tb):
-        if self._current_invoker is not None:
-            self._queue.put(self._current_invoker)
-            self._current_invoker = None
 
 
 class _TemplateDirectory(TypedDict):
@@ -49,29 +30,30 @@ class _TemplateDirectory(TypedDict):
 
 
 class GenieEnvironment:
+    """
+    The `GenieEnvironment` deals with maintaining the templates registry, rendering templates
+    and invoking `Invoker`s with a data context and a dialogue.
+    """
 
     def __init__(
-            self,
-            template_root_path: str | PathLike,
-            pool_size: int,
-            object_store: Store,
-            model_key_registry: ModelKeyRegistryType,
-            fastapi_app: FastAPI,
-            celery_app: Celery,
+        self,
+        template_root_path: str | PathLike,
+        pool_size: int,
+        store_manager: StoreManager,
+        model_key_registry: ModelKeyRegistryType,
+        invoker_factory: InvokerFactory,
     ):
         self.template_root_path = Path(template_root_path).resolve()
         self.pool_size = pool_size
-        self.object_store = object_store
+        self.store_manager = store_manager
         self.model_key_registry = model_key_registry
-        self.fastapi_app = fastapi_app
-        self.celery_app = celery_app
+        self.invoker_factory = invoker_factory
+
         self._jinja_env: Optional[Environment] = None
         self._template_directories: dict[str, _TemplateDirectory] = {}
 
     def _walk_directory_tree_upward(
-            self,
-            start_directory: Path,
-            execute: Callable[[Path, Optional[dict]], _T]
+        self, start_directory: Path, execute: Callable[[Path, Optional[dict]], _T]
     ) -> _T:
         start_directory = start_directory.resolve()
         if start_directory == self.template_root_path:
@@ -114,18 +96,62 @@ class GenieEnvironment:
     @property
     def jinja_env(self) -> jinja2.Environment:
         if self._jinja_env is None:
-            self._jinja_env = Environment(loader=PrefixLoader(self.jinja_loader_mapping))
+            self._jinja_env = Environment(
+                loader=PrefixLoader(self.jinja_loader_mapping)
+            )
         return self._jinja_env
 
-    def _create_invoker_pool(self, config: dict[str]) -> InvokersPool:
-        queue = Queue()
-        nr_invokers = self.pool_size if "pool_size" not in config else config["pool_size"]
-        assert nr_invokers > 0, f"Should not create invoker pool of size {nr_invokers}"
+    def _non_existing_templates(self, template: CompositeTemplateType) -> list[CompositeTemplateType]:
+        if isinstance(template, str):
+            try:
+                _ = self.get_template(template)
+                return []
+            except TemplateNotFound:
+                return [template]
 
-        for _ in range(nr_invokers):
-            queue.put(create_genie_invoker(config))
+        if isinstance(template, Task):
+            # TODO might want to check if the task exists
+            return []
 
-        return InvokersPool(queue)
+        if isinstance(template, list):
+            result = []
+            for t in template:
+                result.extend(self._non_existing_templates(t))
+            return result
+
+        if isinstance(template, dict):
+            result = []
+            for key in template.keys():
+                result.extend(
+                    [f"{key}/{t}" for t in self._non_existing_templates(template[key])]
+                )
+            return result
+
+    def _validate_state_templates(self, state_machine_class: type[GenieStateMachine]):
+        templates = state_machine_class.templates
+        states = [
+            state
+            for state in dir(state_machine_class)
+            if isinstance(state, State)
+        ]
+        states_without_template = {
+            state.id
+            for state in states
+            if isinstance(state, State) and state.id not in templates
+        }
+
+        unknown_template_names = self._non_existing_templates(
+            [
+                templates[t]
+                for t in set(state.id for state in states) - states_without_template
+            ]
+        )
+
+        if states_without_template or unknown_template_names:
+            raise ValueError(
+                f"Missing templates for states: [{', '.join(states_without_template)}] and "
+                f"cannot find templates with names: [{', '.join(unknown_template_names)}]"
+            )
 
     def register_model(self, model_key: str, model_class: Type[Model]):
         """
@@ -136,11 +162,16 @@ class GenieEnvironment:
         :param model_class: the class of the model that needs to be registered
         """
         if not issubclass(model_class, GenieModel):
-            raise ValueError(f"Can only register subclasses of GenieModel, not {model_class}")
+            raise ValueError(
+                f"Can only register subclasses of GenieModel, not {model_class}"
+            )
+
+        self._validate_state_templates(model_class.get_state_machine_class())
+
         if model_key in self.model_key_registry:
             raise ValueError(f"Model key {model_key} already registered")
 
-        self.object_store.register_model(model_class)
+        self.store_manager.register_model(model_class)
         self.model_key_registry[model_key] = model_class
 
     def register_template_directory(self, prefix: str, directory: str | PathLike):
@@ -149,11 +180,14 @@ class GenieEnvironment:
 
         directory_path = Path(directory).resolve()
         config = self._walk_directory_tree_upward(directory_path, self.read_meta)
+        nr_invokers = (
+            self.pool_size if "pool_size" not in config else config["pool_size"]
+        )
         self._template_directories[prefix] = _TemplateDirectory(
             directory=directory_path,
             config=config,
             jinja_loader=jinja2.FileSystemLoader(directory),
-            invokers=self._create_invoker_pool(config["invoker"])
+            invokers=self.invoker_factory.create_invoker_pool(nr_invokers, config["invoker"]),
         )
         self._jinja_env = None  # clear the Environment
 
@@ -165,10 +199,10 @@ class GenieEnvironment:
         return template.render(data_context)
 
     def invoke_template(
-            self,
-            template_path: str,
-            data_context: dict[str, Any],
-            dialogue: Optional[list[DialogueElement]] = None
+        self,
+        template_path: str,
+        data_context: dict[str, Any],
+        dialogue: Optional[list[DialogueElement]] = None,
     ) -> str:
         rendered = self.render_template(template_path, data_context)
         prefix, _ = template_path.rsplit("/", 1)

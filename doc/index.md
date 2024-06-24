@@ -5,7 +5,7 @@ start with a preamble, then some information retrieval, some conclusion building
 
 Keeping that state in check: what prompt should be used, given what has been discussed so far, is
 not trivial. And when implemented using simple if / then / else logic, the code becomes hard to 
-maintain.https://about.gitlab.com/releases/2024/05/08/patch-release-gitlab-16-11-2-released/
+maintain.
 
 This package aims to simplify and streamline the creation of dialogue flows that have a user
 interact with an LLM.
@@ -53,10 +53,9 @@ a Human actor and `LLM` for an LLM.
 
 ### data object methods and properties
 
-The developer needs to override the property `state_machine_class` which should return the class
-that implements the State Machine that accompanies this Data Object. The method 
-`create_state_machine` will use the `state_machine_class` property to instantiate a new State
-Machine and connect it to an instance of this Data Object.
+The developer needs to implement the class method  `get_state_machine_class` which should return
+the class that implements the State Machine that accompanies this Data Object. A new State Machine
+is then created by `model.get_state_machine_class()(model=model)`.
 
 Some convenience methods exist:
 
@@ -74,7 +73,7 @@ not from `BaseModel` as is done for Pydantic, but by inheriting from `Model` whi
 Pydantic-Redis package.
 
 This also means that this other object needs to have a class property called `_primary_key_field`
-which is the name of the field that uniquely identified an instance of that object.
+which is the name of the field that uniquely identifies an instance of that object.
 
 For example, the `DialogeElement` class (of which the `GenieModel` maintains a list) is implemented
 as follows:
@@ -115,17 +114,22 @@ When the developed has created a new `GenieModel`, that new model needs to be re
 make that model recognized to the Pydantic-Redis ORM framework. This registration is done as follows:
 
 ```python
-from ai_state_machine.genie_model import GenieModel
-from ai_state_machine.store import STORE
+from ai_state_machine import GenieFlow
+from ai_state_machine.genie import GenieModel
+
 
 class MyNewModel(GenieModel):
     ...
 
-STORE.register_model(MyNewModel)
+
+genie_flow = GenieFlow.from_yaml("config.yaml")
+genie_flow.genie_environment.register_model("my_genie", MyNewModel)
+
 ```
 
 From that point onwards, the class `MyNewModel` can be persisted and therefore used by the Genie
-Flow framework.
+Flow framework. This registration also makes the model and accompanying state machine available
+at the API, under the model key `my_genie`.
 
 Remember that this also needs to be done for any additional models that may be referred to by this
 `MyNewModel` class.
@@ -263,28 +267,17 @@ The first, simple Question and Answer dialogue can be defined as follows:
 ```python
 from statemachine import State
 
-from ai_state_machine.genie_state_machine import GenieStateMachine
-from ai_state_machine.genie_model import GenieModel
-from ai_state_machine.store import STORE
+from ai_state_machine.genie import GenieModel, GenieStateMachine
 
 
 class QandAModel(GenieModel):
 
-    @property
-    def state_machine_class(self) -> type["GenieStateMachine"]:
+    @classmethod
+    def get_state_machine_class(cls) -> type["GenieStateMachine"]:
         return QandAMachine
 
 
-STORE.register_model(QandAModel)
-
-
 class QandAMachine(GenieStateMachine):
-
-    def __init__(self, model: QandAModel, new_session: bool = False):
-        if not isinstance(model, QandAModel):
-            raise TypeError("The type of model should be QandAModel, not {}".format(type(model)))
-
-        super(QandAMachine, self).__init__(model=model, new_session=new_session)
 
     # STATES
     intro = State(initial=True, value=000)
@@ -434,17 +427,17 @@ These conditions are plain Python methods that we defined on our state machine c
 ```python
 from statemachine.event_data import EventData
 
-from ai_state_machine.genie_state_machine import GenieStateMachine
+from ai_state_machine.genie import GenieStateMachine
+
 
 class QandACondMachine(GenieStateMachine):
-
     ...
 
-    def user_says_stop(self, event: EventData):
+    def user_says_stop(self, event_data: EventData):
         return (
-            event.args is not None and
-            len(event.args) != 0 and
-            event.args[0] == "*STOP*"
+                event_data.args is not None and
+                len(event_data.args) != 0 and
+                event_data.args[0] == "*STOP*"
         )
 ```
 
@@ -463,6 +456,32 @@ the above snippet. They can be stated "positively" (as in: this must be `True` t
 transition), by making it a `cond` on the transition. They can also be stated negatively
 (as in: this must be `False` to make the transition), by making it an `unless` condition.
 
+#### Value Injection
+The Python State Machine engine takes care of injecting relevant values into condition
+methods. As described in [Dependency Injection](https://python-statemachine.readthedocs.io/en/latest/actions.html#dependency-injection),
+the following values are available:
+
+event
+: The name of the event that triggered the transition
+
+event_data
+: An `EventData` object containing all event related values
+
+source
+: The `State` that the engine transitions out of
+
+target
+: The `State` that the engine transitions into
+
+state
+: The current `State` the machine is in
+
+model
+: A reference to the model attached to the state machine
+
+transition
+: A `Transition` object carrying the transition information
+
 ### Question and Answer with data capture
 The final Question and Answer example captures the username. This means we now want to capture
 that name and be able to use it in our templates. Example code for this can be found in
@@ -477,7 +496,8 @@ from typing import Optional
 
 from pydantic import Field
 
-from ai_state_machine.genie_model import GenieModel
+from ai_state_machine.genie import GenieModel
+
 
 class QandACaptureModel(GenieModel):
     user_name: Optional[str] = Field(None, description="The name of the user")
@@ -505,11 +525,11 @@ If you can determine that name, just response with the name, nothing else.
 This means we can define a condition as follows:
 
 ```python
-    def name_is_defined(self, event: EventData) -> bool:
+    def name_is_defined(self, event_data: EventData) -> bool:
         return (
-            event.args is not None and
-            len(event.args) != 0 and
-            event.args[0] != "UNDEFINED"
+            event_data.args is not None and
+            len(event_data.args) != 0 and
+            event_data.args[0] != "UNDEFINED"
         )
 ```
 
@@ -517,10 +537,10 @@ But the main meal here is the definition of a method that gets called when the L
 the username. This is done by the following method on our `QandACaptureMachine` class:
 
 ```python
-from ai_state_machine.genie_state_machine import GenieStateMachine
+from ai_state_machine.genie import GenieStateMachine
+
 
 class QandACaptureMachine(GenieStateMachine):
-
     ...
 
     def on_exit_ai_extracts_name(self):
@@ -536,10 +556,10 @@ not if the username has been extracted. That is determined by the condition. So 
 the value `UNDEFINED` to `model.user_name`. An alternative would be to create the following method:
 
 ```python
-from ai_state_machine.genie_state_machine import GenieStateMachine
+from ai_state_machine.genie import GenieStateMachine
+
 
 class QandACaptureMachine(GenieStateMachine):
-
     ...
 
     def on_enter_welcome_message(self):
@@ -592,7 +612,8 @@ Some interesting parts from that code are:
 ```python
 from statemachine import State
 
-from ai_state_machine.genie_state_machine import GenieStateMachine
+from ai_state_machine.genie import GenieStateMachine
+
 
 class ClaimsMachine(GenieStateMachine):
     ...
@@ -604,7 +625,7 @@ class ClaimsMachine(GenieStateMachine):
     # EVENTS AND TRANSITIONS
     ai_extraction = ai_extracts_information.to(user_views_start_of_generation, cond="have_all_info")
 
-    advance = user_views_start_of_generation.to(ai_extracts_categories) 
+    advance = user_views_start_of_generation.to(ai_extracts_categories)
 
     ...
 ```
@@ -642,7 +663,7 @@ input for the next, is done by putting the two consecutive templates in a list. 
 [q_and_a_trans.py](../example_qa/q_and_a_trans.py) has the following templates defintions:
 
 ```python
-from ai_state_machine.genie_state_machine import GenieStateMachine
+from ai_state_machine.genie import GenieStateMachine
 
 
 class QandATransMachine(GenieStateMachine):
@@ -684,11 +705,12 @@ branching is done by assigning a dictionary of prompts. This is done in the
 [Claims Genie example](../example_claims/claims.py) as in the following extract:
 
 ```python
-from ai_state_machine.genie_state_machine import GenieStateMachine
+from ai_state_machine.genie import GenieStateMachine
+
+GenieStateMachine
 
 
 class ClaimsMachine(GenieStateMachine):
-
     ...
 
     templates = dict(
@@ -792,15 +814,15 @@ registered:
 
 ### registering your model
 The data model (which is closely coupled with your state machine) needs to be registered with
-the API broker. This is done as follows:
+the API broker. This is done at the same time that you register your model for persistance.
 
 ```python
-from ai_state_machine import registry
+from ai_state_machine.containers import init_genie_flow
 
 from example_claims.claims import ClaimsModel
 
-
-registry.register("claims_genie", ClaimsModel)
+genie_environment = init_genie_flow("config.yaml")
+genie_environment.register_model("claims_genie", ClaimsModel)
 ```
 
 This line will register a Genie Flow Model (`ClaimsModel`) as a potential model and state machine
@@ -812,7 +834,8 @@ logic and models simultaneously. One can register the different Q and A examples
 this documentation, at the same time:
 
 ```python
-from ai_state_machine import registry
+from ai_state_machine.containers import init_genie_flow
+
 
 from example_qa import (
     q_and_a,
@@ -822,11 +845,12 @@ from example_qa import (
 )
 
 
+genie_environment = init_genie_flow("config.yaml")
 
-registry.register("q_and_a", q_and_a.QandAModel)
-registry.register("q_and_a_cond", q_and_a_cond.QandACondModel)
-registry.register("q_and_a_capture", q_and_a_capture.QandACaptureModel)
-registry.register("q_and_a_trans", q_and_a_trans.QandATransModel)
+genie_environment.register_model("q_and_a", q_and_a.QandAModel)
+genie_environment.register_model("q_and_a_cond", q_and_a_cond.QandACondModel)
+genie_environment.register_model("q_and_a_capture", q_and_a_capture.QandACaptureModel)
+genie_environment.register_model("q_and_a_trans", q_and_a_trans.QandATransModel)
 ```
 
 This way, any client can start a new session for any of these different models and state machines.
@@ -837,9 +861,13 @@ is also required to give a key and the actual path to the directory where to fin
 instance:
 
 ```python
-from ai_state_machine.templates import register_template_directory
+from ai_state_machine.containers import init_genie_flow
+from example_claims.claims import ClaimsModel
 
-register_template_directory("claims", "example_claims/templates")
+
+genie_environment = init_genie_flow("config.yaml")
+genie_environment.register_model("claims_genie", ClaimsModel)
+genie_environment.register_template_directory("claims", "example_claims/templates")
 ```
 Here we are registering the fact that templates for "Claims Genie" can be found at the relative
 path `example_claims/templates`. That path is relative to the working directory. The key `claims`

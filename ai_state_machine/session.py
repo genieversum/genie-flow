@@ -1,49 +1,33 @@
 import uuid
 
-import redis_lock
-from redis import Redis
 from statemachine.exceptions import TransitionNotAllowed
 
-from ai_state_machine.genie_model import GenieModel
-from ai_state_machine.model import EventInput, AIResponse, AIStatusResponse
-from ai_state_machine.registry import ModelKeyRegistryType
-
-
-class SessionLockManager:
-
-    def __init__(
-            self,
-            redis_lock_store: Redis,
-            lock_expiration_seconds: int,
-    ):
-        self.redis_lock_store = redis_lock_store
-        self.lock_expiration_seconds = lock_expiration_seconds
-
-    def get_lock_for_session(self, session_id: str) -> redis_lock.Lock:
-        """
-        Retrieve the lock for the object for the given `session_id`. This ensures that only
-        one process will have access to the model and potentially make changes to it.
-        This lock can function as a context manager. See the documentation of `redis_lock.Lock`
-        :param session_id: The session id that the object in question belongs to
-        """
-        lock = redis_lock.Lock(
-            self.redis_lock_store,
-            name=f"lock-{session_id}",
-            expire=self.lock_expiration_seconds,
-            auto_renewal=True,
-        )
-        return lock
+from ai_state_machine.celery import CeleryManager
+from ai_state_machine.environment import GenieEnvironment
+from ai_state_machine.genie import GenieModel
+from ai_state_machine.model.types import ModelKeyRegistryType
+from ai_state_machine.model.api import AIResponse, EventInput, AIStatusResponse
+from ai_state_machine.session_lock import SessionLockManager
 
 
 class SessionManager:
+    """
+    A `SessionManager` instance deals with the lifetime events against the state machine of a
+    session. From conception (through a `start_session` call), to handling events being sent
+    to the state machine.
+    """
 
     def __init__(
-            self,
-            session_lock_manager: SessionLockManager,
-            model_key_registry: ModelKeyRegistryType
+        self,
+        session_lock_manager: SessionLockManager,
+        model_key_registry: ModelKeyRegistryType,
+        genie_environment: GenieEnvironment,
+        celery_manager: CeleryManager,
     ):
         self.session_lock_manager = session_lock_manager
         self.model_key_registry = model_key_registry
+        self.genie_environment = genie_environment
+        self.celery_manager = celery_manager
 
     def create_new_session(self, model_key: str) -> AIResponse:
         """
@@ -65,7 +49,14 @@ class SessionManager:
 
         model_class = self.model_key_registry[model_key]
         model = model_class(session_id=session_id)
-        state_machine = model.state_machine_class(model=model, new_session=True)
+
+        state_machine = model.get_state_machine_class()(model)
+
+        initial_prompt = self.genie_environment.render_template(
+            state_machine.get_template_for_state(state_machine.current_state),
+            state_machine.render_data,
+        )
+        model.add_dialogue_element("assistant", initial_prompt)
         model.__class__.insert(model)
 
         response = model.current_response.actor_text
@@ -76,8 +67,7 @@ class SessionManager:
             next_actions=state_machine.current_state.transitions.unique_events,
         )
 
-    @staticmethod
-    def _handle_poll(model: GenieModel) -> AIResponse:
+    def _handle_poll(self, model: GenieModel) -> AIResponse:
         """
         This method handles polling from the client. As long as the model instance has a value
         for `running_task_id`, this method returns an AIResponse object with the only possible
@@ -90,18 +80,17 @@ class SessionManager:
         :param model: the model that needs to be polled
         :return: an instance of `AIResponse` with the appropriate values
         """
-        if model.running_task_id is not None:
-            return AIResponse(session_id=model.session_id, next_actions=['poll'])
+        if model.has_running_tasks:
+            return AIResponse(session_id=model.session_id, next_actions=["poll"])
 
-        state_machine = model.create_state_machine()
+        state_machine = model.get_state_machine_class()(model)
         return AIResponse(
             session_id=model.session_id,
             response=state_machine.model.current_response.actor_text,
             next_actions=state_machine.current_state.transitions.unique_events,
         )
 
-    @staticmethod
-    def _handle_event(event: EventInput, model: GenieModel) -> AIResponse:
+    def _handle_event(self, event: EventInput, model: GenieModel) -> AIResponse:
         """
         This method handels events from the client. It creates the state machine instance for the
         given object and sends the event to it. It then stores the model instance back into Redis.
@@ -113,16 +102,21 @@ class SessionManager:
         returns an AIResponse object with the most recently recorded actor text and the events that
         can be sent from the current state.
 
+        Session locking, saving and storing of the model object needs to happen outside of
+        this method.
+
         :param event: the event to process
         :param model: the model to process the event against
         :return: an instance of `AIResponse` with the appropriate values
         """
-        state_machine = model.create_state_machine()
-        state_machine.send(event.event, event.event_input)
-        model.__class__.insert(model)
+        state_machine = model.get_state_machine_class()(model)
+        enqueables = state_machine.send(event.event, event.event_input)
 
-        if model.running_task_id is not None:
-            return AIResponse(session_id=event.session_id, next_actions=['poll'])
+        task_ids = self.celery_manager.enqueue_tasks(enqueables)
+        model.add_running_tasks(task_ids)
+
+        if model.has_running_tasks:
+            return AIResponse(session_id=event.session_id, next_actions=["poll"])
         return AIResponse(
             session_id=event.session_id,
             response=state_machine.model.current_response.actor_text,
@@ -140,11 +134,7 @@ class SessionManager:
         :return: an instance of `AIResponse` with the appropriate values
         """
         model_class = self.model_key_registry[model_key]
-        with self.session_lock_manager.get_lock_for_session(event.session_id):
-            models = model_class.select(ids=[event.session_id])
-            assert len(models) == 1
-            model = models[0]
-
+        with self.session_lock_manager.get_locked_model(event.session_id, model_class) as model:
             if event.event == "poll":
                 return self._handle_poll(model)
 
@@ -171,23 +161,20 @@ class SessionManager:
         possible next actions can be sent in the current state of the model.
         """
         model_class = self.model_key_registry[model_key]
-        with self.session_lock_manager.get_lock_for_session(session_id):
-            models = model_class.select(ids=[session_id])
-            assert len(models) == 1
-            model = models[0]
+        model = self.session_lock_manager.get_model(session_id, model_class)
 
-            if model.running_task_id is not None:
-                return AIStatusResponse(
-                    session_id=session_id,
-                    ready=False,
-                )
-
-            state_machine = model.create_state_machine()
+        if model.has_running_tasks:
             return AIStatusResponse(
                 session_id=session_id,
-                ready=True,
-                next_actions=state_machine.current_state.transitions.unique_events,
+                ready=False,
             )
+
+        state_machine = model.get_state_machine_class()(model=model)
+        return AIStatusResponse(
+            session_id=session_id,
+            ready=True,
+            next_actions=state_machine.current_state.transitions.unique_events,
+        )
 
     def get_model(self, model_key: str, session_id: str) -> GenieModel:
         """
@@ -199,10 +186,4 @@ class SessionManager:
         :return: the model instance that belongs to the given session id
         """
         model_class = self.model_key_registry[model_key]
-        with self.session_lock_manager.get_lock_for_session(session_id):
-            models = model_class.select(ids=[session_id])
-            if len(models) == 0:
-                raise KeyError(f"No model with id {session_id}")
-            if len(models) > 1:
-                raise RuntimeError(f"Multiple models with id {session_id}")
-            return models[0]
+        return self.session_lock_manager.get_model(session_id, model_class)
