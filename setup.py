@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='genie_flow',
-    version='0.1.0',
+    version='$CI_COMMIT_TAG',
     description='TODO',
     long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
