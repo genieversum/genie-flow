@@ -1,8 +1,11 @@
+import os
 from setuptools import setup, find_packages
+
+version = os.getenv('CI_COMMIT_TAG', '0.0.0')
 
 setup(
     name='genie_flow',
-    version='$CI_COMMIT_TAG',
+    version=version,
     description='TODO',
     long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
