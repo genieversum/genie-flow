@@ -149,7 +149,7 @@ class GenieEnvironment:
 
         if states_without_template or unknown_template_names:
             raise ValueError(
-                f"GenieMachine {state_machine_class} is missing templates for states: ["
+                f"GenieStateMachine {state_machine_class} is missing templates for states: ["
                 f"{', '.join(states_without_template)}] and "
                 f"cannot find templates with names: [{', '.join(unknown_template_names)}]"
             )
