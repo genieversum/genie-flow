@@ -148,7 +148,7 @@ class GenieStateMachine(StateMachine):
         :raises KeyError: If there is no template defined for the given state
         """
         try:
-            return self.templates.get(state.id)
+            return self.templates[state.id]
         except KeyError:
             logger.error(f"No template for state {state.id}")
             raise
