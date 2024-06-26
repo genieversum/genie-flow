@@ -107,7 +107,7 @@ class GenieStateMachine(StateMachine):
     advance: Any = None
 
     # TEMPLATE mapping that needs to be specified
-    templates: dict[State, CompositeTemplateType] = dict()
+    templates: dict[str, CompositeTemplateType] = dict()
 
     def __init__(
         self,
@@ -148,7 +148,7 @@ class GenieStateMachine(StateMachine):
         :raises KeyError: If there is no template defined for the given state
         """
         try:
-            return self.templates.get(state)
+            return self.templates[state.id]
         except KeyError:
             logger.error(f"No template for state {state.id}")
             raise
