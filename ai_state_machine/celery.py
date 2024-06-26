@@ -8,7 +8,7 @@ from ai_state_machine.environment import GenieEnvironment
 from ai_state_machine.genie import GenieModel
 from ai_state_machine.model.template import CompositeTemplateType, CompositeContentType
 from ai_state_machine.model.dialogue import DialogueElement
-from ai_state_machine.model.render_job import EnqueuedRenderJob
+from ai_state_machine.model.render_job import EnqueuedRenderJob, TemplateRenderJob
 from ai_state_machine.session_lock import SessionLockManager
 from ai_state_machine.store import StoreManager
 from ai_state_machine.utils import get_class_from_fully_qualified_name
@@ -53,11 +53,26 @@ class CeleryManager:
                 jobs = state_machine.send(event_name, response)
 
                 task_ids = {
-                    self.enqueue_task(enqueable)
-                    for enqueable in jobs
-                    if isinstance(enqueable, EnqueuedRenderJob)
+                    self.enqueue_task(job)
+                    for job in jobs
+                    if isinstance(job, EnqueuedRenderJob)
                 }
                 model.add_running_tasks(task_ids)
+
+                local_renders = [
+                    self.genie_environment.render_template(
+                        job.template,
+                        state_machine.render_data,
+                    )
+                    for job in jobs
+                    if isinstance(job, TemplateRenderJob)
+                ]
+                model.dialogue.append(
+                    DialogueElement(
+                        actor="assistant",
+                        actor_text="\n".join(local_renders),
+                    )
+                )
 
         return trigger_ai_event
 
