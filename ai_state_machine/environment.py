@@ -1,7 +1,6 @@
 import logging
 from os import PathLike
 from pathlib import Path
-from queue import Queue
 from typing import TypedDict, Callable, Optional, TypeVar, Any, Type
 
 import jinja2

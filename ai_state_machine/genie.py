@@ -7,9 +7,7 @@ from statemachine import StateMachine, State
 from statemachine.event_data import EventData
 
 from ai_state_machine.model.dialogue import DialogueElement, DialogueFormat
-from ai_state_machine.model.render_job import EnqueuedRenderJob, TemplateRenderJob
 from ai_state_machine.model.template import CompositeTemplateType
-from ai_state_machine.utils import get_fully_qualified_name_from_class
 
 
 class GenieModel(Model):
@@ -58,10 +56,8 @@ class GenieModel(Model):
     def has_running_tasks(self) -> bool:
         return self.running_task_ids > 0
 
-    def add_running_tasks(self, tasks_ids: Iterable[str]):
-        for task_id in tasks_ids:
-            if task_id is not None:
-                self.running_task_ids += 1
+    def add_running_task(self, task_id: str):
+        self.running_task_ids += 1
 
     def remove_running_task(self, task_id: str):
         self.running_task_ids -= 1
@@ -182,48 +178,48 @@ class GenieStateMachine(StateMachine):
 
         self.current_template = self.get_template_for_state(event_data.target)
 
-    def on_user_input(self, event_data: EventData):
-        """
-        This method gets triggered when a "user_input" event is received.
-        We are setting the model's current actor to the User actor name.
-
-        We then return an `Enqueables` - a data class carrying the information that is required
-        to enqueue a Celery task to be run. When a full transition has been made, all Enqueables
-        that are created as enqueued for processing by Celery workers.
-        """
-        logger.debug(f"User input event received")
-        self.model.actor = "user"
-
-        return self._create_enqueue_job(event_data)
-
-    def on_ai_extraction(self, target: State):
-        """
-        This event is received when an `ai_extraction` event is received.
-        We are setting the model's current actor to the AI actor and rendering the
-        template of the target event. Any extraction from the results of the AI call
-        need to be done before; typically in a `on_exit_<state>` method.
-        """
-        logger.debug(f"AI extraction event received")
-        self.model.actor = "assistant"
-        logger.debug(f"AI output rendered into: \n{self.model.actor_input}")
-
-        return TemplateRenderJob(
-            template=self.current_template,
-            session_id=self.model.session_id,
-            render_data=self.render_data,
-        )
-
-    def on_advance(self, event_data: EventData):
-        """
-        This hook is called when an 'advance' event is received. These mean that output was shown
-        to the user (for instance, an intermediate result) and that the client wants the
-        state machine to move on without actual user input.
-        We are setting the model's current actor to the AI actor name.
-        """
-        logger.debug(f"Advance event received")
-        self.model.actor = "assistant"
-
-        return self._create_enqueue_job(event_data)
+    # def on_user_input(self, event_data: EventData):
+    #     """
+    #     This method gets triggered when a "user_input" event is received.
+    #     We are setting the model's current actor to the User actor name.
+    #
+    #     We then return an `Enqueables` - a data class carrying the information that is required
+    #     to enqueue a Celery task to be run. When a full transition has been made, all Enqueables
+    #     that are created as enqueued for processing by Celery workers.
+    #     """
+    #     logger.debug(f"User input event received")
+    #     self.model.actor = "user"
+    #
+    #     return self._create_enqueue_job(event_data)
+    #
+    # def on_ai_extraction(self, target: State):
+    #     """
+    #     This event is received when an `ai_extraction` event is received.
+    #     We are setting the model's current actor to the AI actor and rendering the
+    #     template of the target event. Any extraction from the results of the AI call
+    #     need to be done before; typically in a `on_exit_<state>` method.
+    #     """
+    #     logger.debug(f"AI extraction event received")
+    #     self.model.actor = "assistant"
+    #     logger.debug(f"AI output rendered into: \n{self.model.actor_input}")
+    #
+    #     return TemplateRenderJob(
+    #         template=self.current_template,
+    #         session_id=self.model.session_id,
+    #         render_data=self.render_data,
+    #     )
+    #
+    # def on_advance(self, event_data: EventData):
+    #     """
+    #     This hook is called when an 'advance' event is received. These mean that output was shown
+    #     to the user (for instance, an intermediate result) and that the client wants the
+    #     state machine to move on without actual user input.
+    #     We are setting the model's current actor to the AI actor name.
+    #     """
+    #     logger.debug(f"Advance event received")
+    #     self.model.actor = "assistant"
+    #
+    #     return self._create_enqueue_job(event_data)
 
     def after_transition(self, state: State, **kwargs):
         """
@@ -242,18 +238,6 @@ class GenieStateMachine(StateMachine):
             )
             self.model.actor = None
             self.model.actor_input = None
-
-    def _create_enqueue_job(self, event_data: EventData) -> EnqueuedRenderJob:
-        # TODO what if there are more than one event leading out the the future state
-        event_to_send_after = event_data.target.transitions.unique_events[0]
-
-        return EnqueuedRenderJob(
-            template=self.current_template,
-            model_fqn=get_fully_qualified_name_from_class(self.model),
-            session_id=self.model.session_id,
-            render_data=self.render_data,
-            event_to_send_after=event_to_send_after
-        )
 
     # VALIDATIONS AND CONDITIONS
     def is_valid_response(self, event_data: EventData):

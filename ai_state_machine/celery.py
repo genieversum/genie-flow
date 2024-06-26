@@ -5,12 +5,10 @@ from celery import Celery, Task
 from celery.canvas import Signature, chord, group
 
 from ai_state_machine.environment import GenieEnvironment
-from ai_state_machine.genie import GenieModel
+from ai_state_machine.event_observer import GenieStateMachineObserver
 from ai_state_machine.model.template import CompositeTemplateType, CompositeContentType
 from ai_state_machine.model.dialogue import DialogueElement
-from ai_state_machine.model.render_job import EnqueuedRenderJob, TemplateRenderJob
 from ai_state_machine.session_lock import SessionLockManager
-from ai_state_machine.store import StoreManager
 from ai_state_machine.utils import get_class_from_fully_qualified_name
 
 
@@ -49,30 +47,14 @@ class CeleryManager:
                 model.remove_running_task(task_instance.request.id)
 
                 state_machine = model.get_state_machine_class()(model)
-                logging.debug(f"sending {event_name} to model for session {session_id}")
-                jobs = state_machine.send(event_name, response)
-
-                task_ids = {
-                    self.enqueue_task(job)
-                    for job in jobs
-                    if isinstance(job, EnqueuedRenderJob)
-                }
-                model.add_running_tasks(task_ids)
-
-                local_renders = [
-                    self.genie_environment.render_template(
-                        job.template,
-                        state_machine.render_data,
-                    )
-                    for job in jobs
-                    if isinstance(job, TemplateRenderJob)
-                ]
-                model.dialogue.append(
-                    DialogueElement(
-                        actor="assistant",
-                        actor_text="\n".join(local_renders),
-                    )
+                event_observer = GenieStateMachineObserver(
+                    self.genie_environment,
+                    self,
                 )
+                state_machine.add_observer(event_observer)
+
+                logging.debug(f"sending {event_name} to model for session {session_id}")
+                state_machine.send(event_name, response)
 
         return trigger_ai_event
 
@@ -162,13 +144,20 @@ class CeleryManager:
             f"cannot compile a task for a render of type '{type(template)}'"
         )
 
-    def enqueue_task(self, enqueable: EnqueuedRenderJob) -> str:
+    def enqueue_task(
+            self,
+            template: CompositeTemplateType,
+            session_id: str,
+            render_data: dict[str, Any],
+            model_fqn: str,
+            event_to_send_after: str,
+    ) -> str:
         task = (
-            self._compile_task(enqueable.template, enqueable.render_data) |
+            self._compile_task(template, render_data) |
             self._trigger_ai_event_task.s(
-                enqueable.model_fqn,
-                enqueable.session_id,
-                enqueable.event_to_send_after,
+                model_fqn,
+                session_id,
+                event_to_send_after,
             )
         )
-        return task.apply_async((enqueable.render_data,)).id
+        return task.apply_async((render_data,)).id
