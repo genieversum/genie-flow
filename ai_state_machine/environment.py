@@ -1,7 +1,6 @@
 import logging
 from os import PathLike
 from pathlib import Path
-from queue import Queue
 from typing import TypedDict, Callable, Optional, TypeVar, Any, Type
 
 import jinja2
@@ -123,16 +122,16 @@ class GenieEnvironment:
             result = []
             for key in template.keys():
                 result.extend(
-                    [f"{key}/{t}" for t in self._non_existing_templates(template[key])]
+                    [f"{key}:{t}" for t in self._non_existing_templates(template[key])]
                 )
             return result
 
     def _validate_state_templates(self, state_machine_class: type[GenieStateMachine]):
         templates = state_machine_class.templates
         states = [
-            state
+            getattr(state_machine_class, state)
             for state in dir(state_machine_class)
-            if isinstance(state, State)
+            if isinstance(getattr(state_machine_class, state), State)
         ]
         states_without_template = {
             state.id
@@ -149,7 +148,8 @@ class GenieEnvironment:
 
         if states_without_template or unknown_template_names:
             raise ValueError(
-                f"Missing templates for states: [{', '.join(states_without_template)}] and "
+                f"GenieStateMachine {state_machine_class} is missing templates for states: ["
+                f"{', '.join(states_without_template)}] and "
                 f"cannot find templates with names: [{', '.join(unknown_template_names)}]"
             )
 

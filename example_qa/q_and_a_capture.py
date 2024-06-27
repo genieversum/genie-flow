@@ -43,34 +43,35 @@ class QandACaptureMachine(GenieStateMachine):
 
     # TEMPLATES
     templates = dict(
-        intro="q_and_a/intro.jinja2",
+        intro="q_and_a/intro_ask_name.jinja2",
         ai_extracts_name="q_and_a/ai_name_extraction.jinja2",
         need_to_retry="q_and_a/request_for_name_retry.jinja2",
         welcome_message="q_and_a/welcome.jinja2",
         user_enters_query="q_and_a/user_input.jinja2",
         ai_creates_response="q_and_a/ai_response.jinja2",
+        outro="q_and_a/outro.jinja2",
     )
 
     # CONDITIONS
-    def name_is_defined(self, event: EventData) -> bool:
+    def name_is_defined(self, event_data: EventData) -> bool:
         return (
-            event.args is not None
-            and len(event.args) != 0
-            and event.args[0] != "UNDEFINED"
+            event_data.args is not None
+            and len(event_data.args) != 0
+            and event_data.args[0] != "UNDEFINED"
         )
 
-    def user_says_stop(self, event: EventData):
+    def user_says_stop(self, event_data: EventData):
         return (
-            event.args is not None
-            and len(event.args) != 0
-            and event.args[0] == "STOP"
+            event_data.args is not None
+            and len(event_data.args) != 0
+            and event_data.args[0] == "STOP"
         )
 
-    def user_wants_to_quit(self, event: EventData):
+    def user_wants_to_quit(self, event_data: EventData):
         return (
-            event.args is not None
-            and len(event.args) != 0
-            and "STOP" in event.args[0]
+            event_data.args is not None
+            and len(event_data.args) != 0
+            and "STOP" in event_data.args[0]
         )
 
     # ACTIONS

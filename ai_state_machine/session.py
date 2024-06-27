@@ -110,10 +110,8 @@ class SessionManager:
         :return: an instance of `AIResponse` with the appropriate values
         """
         state_machine = model.get_state_machine_class()(model)
-        enqueables = state_machine.send(event.event, event.event_input)
-
-        task_ids = self.celery_manager.enqueue_tasks(enqueables)
-        model.add_running_tasks(task_ids)
+        state_machine.add_observer(self.celery_manager)
+        state_machine.send(event.event, event.event_input)
 
         if model.has_running_tasks:
             return AIResponse(session_id=event.session_id, next_actions=["poll"])

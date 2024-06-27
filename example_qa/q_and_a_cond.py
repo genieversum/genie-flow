@@ -34,6 +34,7 @@ class QandACondMachine(GenieStateMachine):
         intro="q_and_a/intro.jinja2",
         user_enters_query="q_and_a/user_input.jinja2",
         ai_creates_response="q_and_a/ai_response.jinja2",
+        outro="q_and_a/outro.jinja2",
     )
 
     # CONDITIONS
