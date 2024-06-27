@@ -4,7 +4,6 @@ from statemachine.exceptions import TransitionNotAllowed
 
 from ai_state_machine.celery import CeleryManager
 from ai_state_machine.environment import GenieEnvironment
-from ai_state_machine.event_observer import GenieStateMachineObserver
 from ai_state_machine.genie import GenieModel
 from ai_state_machine.model.types import ModelKeyRegistryType
 from ai_state_machine.model.api import AIResponse, EventInput, AIStatusResponse
@@ -111,11 +110,7 @@ class SessionManager:
         :return: an instance of `AIResponse` with the appropriate values
         """
         state_machine = model.get_state_machine_class()(model)
-        event_observer = GenieStateMachineObserver(
-            self.genie_environment,
-            self.celery_manager,
-        )
-        state_machine.add_observer(event_observer)
+        state_machine.add_observer(self.celery_manager)
         state_machine.send(event.event, event.event_input)
 
         if model.has_running_tasks:

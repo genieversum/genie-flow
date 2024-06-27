@@ -3,13 +3,17 @@ from typing import Any
 
 from celery import Celery, Task
 from celery.canvas import Signature, chord, group
+from loguru import logger
+from statemachine import State
+from statemachine.event_data import EventData
 
 from ai_state_machine.environment import GenieEnvironment
-from ai_state_machine.event_observer import GenieStateMachineObserver
+from ai_state_machine.genie import GenieModel, GenieStateMachine
 from ai_state_machine.model.template import CompositeTemplateType, CompositeContentType
 from ai_state_machine.model.dialogue import DialogueElement
 from ai_state_machine.session_lock import SessionLockManager
-from ai_state_machine.utils import get_class_from_fully_qualified_name
+from ai_state_machine.utils import get_class_from_fully_qualified_name, \
+    get_fully_qualified_name_from_class
 
 
 class CeleryManager:
@@ -42,19 +46,28 @@ class CeleryManager:
                 session_id: str,
                 event_name: str,
         ):
+            """
+            This Celery Task is executed at the end of an AI transition and all the relevant
+            Invokers have run. It takes the output of the previous task, pulls up the model
+            form the store, creates the state machine for it and sends that state machine
+            the event that was given.
+
+            :param task_instance: Celery Task instance - a reference to this task itself (bound)
+            :param response: The response from the previous task
+            :param cls_fqn: The fully qualified name of the class of the model
+            :param session_id: The session id
+            :param event_name: The name of the event that needs to be sent to the state machine
+            """
             model_class = get_class_from_fully_qualified_name(cls_fqn)
             with self.session_lock_manager.get_locked_model(session_id, model_class) as model:
                 model.remove_running_task(task_instance.request.id)
 
                 state_machine = model.get_state_machine_class()(model)
-                event_observer = GenieStateMachineObserver(
-                    self.genie_environment,
-                    self,
-                )
-                state_machine.add_observer(event_observer)
+                state_machine.add_observer(self)
 
                 logging.debug(f"sending {event_name} to model for session {session_id}")
                 state_machine.send(event_name, response)
+                logging.debug(f"actor input is now {model.actor_input}")
 
         return trigger_ai_event
 
@@ -62,6 +75,14 @@ class CeleryManager:
 
         @self.celery_app.task(name="genie_flow.invoke_task")
         def invoke_ai_event(render_data: dict[str, Any], template_name: str) -> str:
+            """
+            This Celery Task executes the actual Invocation. It is given the data that should be
+            used to render the template. It then recreates the Dialogue and invokes the template.
+
+            :param render_data: The data that should be used to render the template
+            :param template_name: The name of the template that should be used to render
+            :returns: the result of the invocation
+            """
             dialogue_raw: list[dict] = getattr(render_data, "dialogue", list())
             dialogue = [DialogueElement(**x) for x in dialogue_raw]
             return self.genie_environment.invoke_template(
@@ -161,3 +182,44 @@ class CeleryManager:
             )
         )
         return task.apply_async((render_data,)).id
+
+    def _enqueue_task(
+            self,
+            state_machine: GenieStateMachine,
+            model: GenieModel,
+            target_state: State,
+    ):
+        task_id = self.enqueue_task(
+            template=state_machine.get_template_for_state(target_state),
+            session_id=model.session_id,
+            render_data=state_machine.render_data,
+            model_fqn=get_fully_qualified_name_from_class(model),
+            event_to_send_after=target_state.transitions.unique_events[0],
+        )
+        model.add_running_task(task_id)
+
+    def on_user_input(self, event_data: EventData):
+        logger.debug("User input received")
+        event_data.machine.model.actor = "user"
+        self._enqueue_task(
+            event_data.machine,
+            event_data.machine.model,
+            event_data.target,
+        )
+
+    def on_ai_extraction(self, event_data: EventData):
+        logger.debug("AI extraction event received")
+        event_data.machine.model.actor = "assistant"
+        event_data.machine.model.actor_input = self.genie_environment.render_template(
+            template_path=event_data.machine.get_template_for_state(event_data.target),
+            data_context=event_data.machine.render_data,
+        )
+
+    def on_advance(self, event_data: EventData):
+        logger.debug("Advance event received")
+        event_data.machine.model.actor = "assistant"
+        self._enqueue_task(
+            event_data.machine,
+            event_data.machine.model,
+            event_data.target,
+        )
