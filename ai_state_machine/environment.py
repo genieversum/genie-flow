@@ -100,6 +100,8 @@ class GenieEnvironment:
             )
         return self._jinja_env
 
+
+
     def _non_existing_templates(self, template: CompositeTemplateType) -> list[CompositeTemplateType]:
         if isinstance(template, str):
             try:
@@ -128,21 +130,17 @@ class GenieEnvironment:
 
     def _validate_state_templates(self, state_machine_class: type[GenieStateMachine]):
         templates = state_machine_class.templates
-        states = [
-            getattr(state_machine_class, state)
-            for state in dir(state_machine_class)
-            if isinstance(getattr(state_machine_class, state), State)
-        ]
         states_without_template = {
             state.id
-            for state in states
+            for state in state_machine_class.states
             if isinstance(state, State) and state.id not in templates
         }
 
         unknown_template_names = self._non_existing_templates(
             [
-                templates[t]
-                for t in set(state.id for state in states) - states_without_template
+                templates[state.id]
+                for state in state_machine_class.states
+                if state not in states_without_template
             ]
         )
 
@@ -152,6 +150,21 @@ class GenieEnvironment:
                 f"{', '.join(states_without_template)}] and "
                 f"cannot find templates with names: [{', '.join(unknown_template_names)}]"
             )
+
+    def _validate_state_values(self, state_machine_class: type[GenieStateMachine]):
+        state_values = [state.value for state in state_machine_class.states]
+        state_values_set = set(state_values)
+        duplicate_values = set()
+        for state_value in state_values:
+            try:
+                state_values_set.remove(state_value)
+            except KeyError:
+                duplicate_values.add(state_value)
+
+        if len(duplicate_values) > 0:
+            raise ValueError(
+                f"For GenieStateMachine {state_machine_class}, "
+                f"the following values are duplicates: {duplicate_values}")
 
     def register_model(self, model_key: str, model_class: Type[Model]):
         """
@@ -166,6 +179,7 @@ class GenieEnvironment:
                 f"Can only register subclasses of GenieModel, not {model_class}"
             )
 
+        self._validate_state_values(model_class.get_state_machine_class())
         self._validate_state_templates(model_class.get_state_machine_class())
 
         if model_key in self.model_key_registry:
