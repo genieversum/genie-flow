@@ -12,8 +12,29 @@ from ai_state_machine.model.dialogue import DialogueElement
 
 
 class WeaviateClientFactory:
+    """
+    A factory to create Weaviate clients. Maintains a singleton but when that singleton
+    is not live, will create a new one.
+
+    Configuration is set at initiation of the factory, and then used for the Weaviate client.
+
+    This factory works like a context manager, so can be used as follows:
+
+    ```
+    with WeaviateClientFactory() as client:
+        client.collections. ...
+    ```
+
+    """
 
     def __init__(self, config: dict[str]):
+        """
+        Creates a new Weaviate client factory. Configuration should include: `http_host`,
+        `http_port`, `http_secure`, `grpc_host`, `grpc_port`, and `grpc_secure`. The values from
+        config will be overriden by environment variables, respectively: `WEAVIATE_HTTP_HOST`,
+        `WEAVIATE_HTTP_PORT`, `WEAVIATE_HTTP_SECURE`, `WEAVIATE_GRPC_HOST`, `WEAVIATE_GRPC_PORT` and
+        `WEAVIATE_GRPC_SECURE`.
+        """
         self._client: Optional[WeaviateClient] = None
 
         self.http_host = get_config_value(
@@ -73,6 +94,12 @@ class WeaviateClientFactory:
 
 
 class WeaviateSimilaritySearchInvoker(GenieInvoker):
+    """
+    A Genie Invoker to retrieve documents from Weaviate, using similarity search.
+
+    This is the basic Weaviate similarity search invoker that reads `distance`, and `limit` from
+    the `meta.yaml` file that is used to create this invoker.
+    """
 
     def __init__(
             self,
@@ -88,6 +115,11 @@ class WeaviateSimilaritySearchInvoker(GenieInvoker):
 
     @classmethod
     def from_config(cls, config: dict):
+        """
+        Creates a Weaviate SimilaritySearchInvoker from configuration. Configuration should include
+        a key `connection` which contains all keys for setting up the connection. Should also
+        include the key `query`, with settings for `collection`, `distance`, and `limit`.
+        """
         connection_config = config["connection"]
         query_config = config["query"]
         return cls(
@@ -98,6 +130,14 @@ class WeaviateSimilaritySearchInvoker(GenieInvoker):
         )
 
     def invoke(self, content: str, dialogue: Optional[list[DialogueElement]]) -> str:
+        """
+        This invokes the similarity search, based on the configuration for `collection`, `distance`,
+        and `limit'. Will return a JSON version of the documents retrieved, containing:
+
+            `_id` - the document id as used by Weaviate,
+            `distance` - the distance reported for the similarity search,
+            all other properties that have been stored with the object
+        """
         logger.debug(f"invoking weaviate near text search with '{content}'")
         with self.client_factory as client:
             collection = client.collections.get(self.collection)
