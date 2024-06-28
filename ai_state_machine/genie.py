@@ -1,3 +1,4 @@
+import json
 from typing import Optional, Any, Iterable
 
 from loguru import logger
@@ -124,8 +125,14 @@ class GenieStateMachine(StateMachine):
         - all keys and values of the machine's current model
         """
         render_data = self.model.model_dump()
+        try:
+            parsed_json = json.loads(self.model.actor_input)
+        except json.JSONDecodeError:
+            parsed_json = None
+
         render_data.update(
             {
+                "parsed_actor_input": parsed_json,
                 "state_id": self.current_state.id,
                 "state_name": self.current_state.name,
                 "chat_history": str(self.model.format_dialogue(DialogueFormat.CHAT)),
@@ -171,7 +178,7 @@ class GenieStateMachine(StateMachine):
         """
         try:
             self.model.actor_input = event_data.args[0]
-            logger.debug("Setting the actor input to %s", self.model.actor_input)
+            logger.debug("setting the actor input to: {}", self.model.actor_input)
         except (TypeError, IndexError):
             logger.debug("Starting a transition without an actor input")
             self.model.actor_input = ""
