@@ -228,9 +228,12 @@ class CeleryManager:
         if isinstance(template, dict):
             dict_keys = list(template.keys())  # make sure to go through keys in fixed order
             return chord(
-                self._compile_task(template[k], render_data, session_id, model_fqn)
-                for k in dict_keys
-            )(self._combine_group_to_dict_task.s(dict_keys))
+                (
+                    self._compile_task(template[k], render_data, session_id, model_fqn)
+                    for k in dict_keys
+                ),
+                self._combine_group_to_dict_task.s(dict_keys)
+            )
 
         raise ValueError(
             f"cannot compile a task for a render of type '{type(template)}'"
