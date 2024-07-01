@@ -43,6 +43,10 @@ class GenieModel(Model):
         default=0,
         description="the number of Celery tasks that are currently running for this model",
     )
+    task_error: Optional[str] = Field(
+        default=None,
+        description="The error message returned from a running task",
+    )
     actor: Optional[str] = Field(
         None,
         description="The actor that has created the current input",
@@ -55,6 +59,10 @@ class GenieModel(Model):
     @property
     def has_running_tasks(self) -> bool:
         return self.running_task_ids > 0
+
+    @property
+    def has_errors(self) -> bool:
+        return self.task_error is not None
 
     def add_running_task(self, task_id: str):
         self.running_task_ids += 1
