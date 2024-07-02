@@ -3,6 +3,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+from ai_state_machine.genie import GenieModel
+
 
 class GenieMessage(BaseModel, ABC):
     """
@@ -35,6 +37,31 @@ class AIStatusResponse(GenieMessageWithActions):
     ready: bool = Field(description="indicated if the response is ready")
 
 
+class AIProgressResponse(BaseModel):
+    total_number_of_subtasks: int = Field()
+    number_of_subtasks_executed: int = Field()
+
+    @classmethod
+    def for_model(cls, model: GenieModel) -> "AIProgressResponse":
+        if not model.has_running_tasks:
+            return AIProgressResponse(
+                total_number_of_subtasks=0,
+                number_of_subtasks_executed=0,
+            )
+
+        return AIProgressResponse(
+            total_number_of_subtasks=model.total_nr_subtasks,
+            number_of_subtasks_executed=model.nr_subtasks_executed,
+        )
+
+    @property
+    def percent_completed(self) -> float:
+        if self.number_of_subtasks_executed == 0:
+            return 100.0
+
+        return 100.0 * float(self.number_of_subtasks_executed) / float(self.total_number_of_subtasks)
+
+
 class AIResponse(GenieMessageWithActions):
     """
     The response that results from sending an event and the model instance's state machine
@@ -44,6 +71,9 @@ class AIResponse(GenieMessageWithActions):
     error: Optional[str] = Field(None, description="A potential error message")
     response: Optional[str] = Field(
         None, description="The text response from the AI service"
+    )
+    progress: Optional[AIProgressResponse] = Field(
+        None, description="The progress of any background process execution"
     )
 
 

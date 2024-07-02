@@ -1,12 +1,13 @@
 import uuid
 
+from celery.result import AsyncResult
 from statemachine.exceptions import TransitionNotAllowed
 
 from ai_state_machine.celery import CeleryManager
 from ai_state_machine.environment import GenieEnvironment
 from ai_state_machine.genie import GenieModel
 from ai_state_machine.model.types import ModelKeyRegistryType
-from ai_state_machine.model.api import AIResponse, EventInput, AIStatusResponse
+from ai_state_machine.model.api import AIResponse, EventInput, AIStatusResponse, AIProgressResponse
 from ai_state_machine.session_lock import SessionLockManager
 
 
@@ -81,7 +82,11 @@ class SessionManager:
         :return: an instance of `AIResponse` with the appropriate values
         """
         if model.has_running_tasks:
-            return AIResponse(session_id=model.session_id, next_actions=["poll"])
+            return AIResponse(
+                session_id=model.session_id,
+                next_actions=["poll"],
+                progress=AIProgressResponse.for_model(model)
+            )
 
         state_machine = model.get_state_machine_class()(model)
         return AIResponse(

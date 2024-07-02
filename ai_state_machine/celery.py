@@ -1,8 +1,9 @@
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from celery import Celery, Task
 from celery.canvas import Signature, chord, group
+from celery.result import AsyncResult
 from loguru import logger
 from statemachine import State
 from statemachine.event_data import EventData
@@ -14,6 +15,94 @@ from ai_state_machine.model.dialogue import DialogueElement
 from ai_state_machine.session_lock import SessionLockManager
 from ai_state_machine.utils import get_class_from_fully_qualified_name, \
     get_fully_qualified_name_from_class
+
+
+class _TaskCompiler:
+
+    def __init__(
+            self,
+            celery_app: Celery,
+            template: CompositeTemplateType,
+            session_id: str,
+            render_data: dict[str, Any],
+            model_fqn: str,
+            event_to_send_after: str,
+    ):
+        self.celery_app = celery_app
+        self.session_id = session_id
+        self.model_fqn = model_fqn
+        self.event_to_send_after = event_to_send_after
+
+        self.nr_tasks = 0
+        self.task: Optional[Signature] = None
+        self._compile_task(template, render_data)
+
+    @property
+    def _invoke_task(self) -> Task:
+        return self.celery_app.tasks["genie_flow.invoke_task"]
+
+    @property
+    def _chained_template_task(self) -> Task:
+        return self.celery_app.tasks["genie_flow.chained_template"]
+
+    @property
+    def _combine_group_to_dict_task(self) -> Task:
+        return self.celery_app.tasks["genie_flow.combine_group_to_dict"]
+
+    @property
+    def _trigger_ai_event_task(self) -> Task:
+        return self.celery_app.tasks["genie_flow.trigger_ai_event"]
+
+    def _compile_task_graph(
+            self,
+            template: CompositeTemplateType,
+            render_data: dict[str, Any],
+    ) -> Signature:
+        """
+        Compiles a Celery task that follows the structure of the composite template.
+        """
+        if isinstance(template, str):
+            self.nr_tasks += 1
+            return self._invoke_task.s(template)
+
+        if isinstance(template, Task):
+            self.nr_tasks += 1
+            return template.s(render_data)
+
+        if isinstance(template, list):
+            chained = None
+            for t in template:
+                if chained is None:
+                    chained = self._compile_task_graph(t, render_data)
+                else:
+                    chained |= self._chained_template_task.s(render_data)
+                    chained |= self._compile_task_graph(t, render_data)
+            self.nr_tasks += 2 * len(template) - 1
+            return chained
+
+        if isinstance(template, dict):
+            dict_keys = list(template.keys())  # make sure to go through keys in fixed order
+            self.nr_tasks += len(dict_keys) + 1
+            return chord(
+                group(*[self._compile_task_graph(template[k], render_data) for k in dict_keys]),
+                self._combine_group_to_dict_task.s(dict_keys),
+            )
+
+        raise ValueError(
+            f"cannot compile a task for a render of type '{type(template)}'"
+        )
+
+    def _compile_task(self, template, render_data: dict[str, Any]):
+        template_task = self._compile_task_graph(template, render_data)
+        self.task = (
+            template_task |
+            self._trigger_ai_event_task.s(
+                self.model_fqn,
+                self.session_id,
+                self.event_to_send_after,
+            )
+        )
+        self.nr_tasks += 1
 
 
 class CeleryManager:
@@ -60,7 +149,7 @@ class CeleryManager:
             """
             model_class = get_class_from_fully_qualified_name(cls_fqn)
             with self.session_lock_manager.get_locked_model(session_id, model_class) as model:
-                model.remove_running_task(task_instance.request.id)
+                model.complete_running_task(task_instance.request.id)
 
                 state_machine = model.get_state_machine_class()(model)
                 state_machine.add_observer(self)
@@ -68,6 +157,7 @@ class CeleryManager:
                 logging.debug(f"sending {event_name} to model for session {session_id}")
                 state_machine.send(event_name, response)
                 logging.debug(f"actor input is now {model.actor_input}")
+                model.complete_subtask()
 
         return trigger_ai_event
 
@@ -115,56 +205,6 @@ class CeleryManager:
 
         return chained_template
 
-    @property
-    def _invoke_task(self) -> Task:
-        return self.celery_app.tasks["genie_flow.invoke_task"]
-
-    @property
-    def _chained_template_task(self) -> Task:
-        return self.celery_app.tasks["genie_flow.chained_template"]
-
-    @property
-    def _combine_group_to_dict_task(self) -> Task:
-        return self.celery_app.tasks["genie_flow.combine_group_to_dict"]
-
-    @property
-    def _trigger_ai_event_task(self) -> Task:
-        return self.celery_app.tasks["genie_flow.trigger_ai_event"]
-
-    def _compile_task(
-            self,
-            template: CompositeTemplateType,
-            render_data: dict[str, Any],
-    ) -> Signature:
-        """
-        Compiles a Celery task that follows the structure of the composite template.
-        """
-        if isinstance(template, str):
-            return self._invoke_task.s(template)
-
-        if isinstance(template, Task):
-            return template.s(render_data)
-
-        if isinstance(template, list):
-            chained = None
-            for t in template:
-                if chained is None:
-                    chained = self._compile_task(t, render_data)
-                else:
-                    chained |= self._chained_template_task.s(render_data)
-                    chained |= self._compile_task(t, render_data)
-            return chained
-
-        if isinstance(template, dict):
-            dict_keys = list(template.keys())  # make sure to go through keys in fixed order
-            return chord(
-                group(*[self._compile_task(template[k], render_data) for k in dict_keys]),
-                self._combine_group_to_dict_task.s(dict_keys),
-            )
-        raise ValueError(
-            f"cannot compile a task for a render of type '{type(template)}'"
-        )
-
     def enqueue_task(
             self,
             template: CompositeTemplateType,
@@ -172,16 +212,18 @@ class CeleryManager:
             render_data: dict[str, Any],
             model_fqn: str,
             event_to_send_after: str,
-    ) -> str:
-        task = (
-            self._compile_task(template, render_data) |
-            self._trigger_ai_event_task.s(
-                model_fqn,
-                session_id,
-                event_to_send_after,
-            )
+    ) -> tuple[str, int]:
+        task_compiler = _TaskCompiler(
+            self.celery_app,
+            template,
+            session_id,
+            render_data,
+            model_fqn,
+            event_to_send_after,
         )
-        return task.apply_async((render_data,)).id
+
+        task_id = task_compiler.task.apply_async((render_data,)).id
+        return task_id, task_compiler.nr_tasks
 
     def _enqueue_task(
             self,
@@ -189,14 +231,17 @@ class CeleryManager:
             model: GenieModel,
             target_state: State,
     ):
-        task_id = self.enqueue_task(
+        task_id, nr_tasks = self.enqueue_task(
             template=state_machine.get_template_for_state(target_state),
             session_id=model.session_id,
             render_data=state_machine.render_data,
             model_fqn=get_fully_qualified_name_from_class(model),
             event_to_send_after=target_state.transitions.unique_events[0],
         )
-        model.add_running_task(task_id)
+        model.set_running_task(task_id, nr_tasks)
+
+    def get_task_result(self, task_id) -> AsyncResult:
+        return AsyncResult(task_id, app=self.celery_app)
 
     def on_user_input(self, event_data: EventData):
         logger.debug("User input received")

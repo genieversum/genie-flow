@@ -39,9 +39,17 @@ class GenieModel(Model):
         default_factory=list,
         description="The list of dialogue elements that have been used in the dialogue so far",
     )
-    running_task_ids: int = Field(
+    running_task_id: Optional[str] = Field(
+        default=None,
+        description="A potential task id of a running background task for this model"
+    )
+    total_nr_subtasks: int = Field(
         default=0,
-        description="the number of Celery tasks that are currently running for this model",
+        description="the total number of subtasks that need to be executed by the running task"
+    )
+    nr_subtasks_executed: int = Field(
+        default=0,
+        description="the number of subtasks that have been executed by the running task"
     )
     actor: Optional[str] = Field(
         None,
@@ -54,15 +62,43 @@ class GenieModel(Model):
 
     @property
     def has_running_tasks(self) -> bool:
-        return self.running_task_ids > 0
+        return self.running_task_id is not None
 
-    def add_running_task(self, task_id: str):
-        self.running_task_ids += 1
+    def set_running_task(self, task_id: str, nr_subtasks: int):
+        if self.running_task_id is not None:
+            raise ValueError(
+                f"Already a running task when adding task {task_id} "
+                f"to session {self.session_id}"
+            )
+        self.running_task_id = task_id
+        self.total_nr_subtasks = nr_subtasks
+        self.nr_subtasks_executed = 0
 
-    def remove_running_task(self, task_id: str):
-        self.running_task_ids -= 1
-        if self.running_task_ids < 0:
-            raise ValueError(f"removed too many running tasks")
+    def complete_subtask(self, task_id: str):
+        if self.running_task_id is None:
+            raise ValueError(
+                f"No running task for session {self.session_id} "
+                f"so not able to complete subtask for task {task_id}"
+            )
+        self.nr_subtasks_executed += 1
+        if self.nr_subtasks_executed > self.total_nr_subtasks:
+            raise ValueError(
+                f"Completed too many subtasks for session {self.session_id} "
+                f"for task id {task_id}"
+            )
+
+    def complete_running_task(self, task_id: str):
+        if self.running_task_id is None:
+            raise ValueError(
+                f"No running task for session {self.session_id} "
+                f"so not able to complete running task for task {task_id}"
+            )
+        if self.running_task_id != task_id:
+            raise ValueError(
+                f"Session {self.session_id} does not have a task running with "
+                f"task_id {task_id}. The running task has task_id {self.running_task_id}"
+            )
+        self.running_task_id = None
 
     @classmethod
     def get_state_machine_class(cls) -> type["GenieStateMachine"]:
