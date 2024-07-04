@@ -17,6 +17,7 @@ class GenieFlow:
         container = GenieFlowContainer()
         container.config.from_yaml(config_file_path, required=True)
         container.wire(packages=["ai_state_machine"])
+        container.storage.container.wire(modules=["ai_state_machine.celery"])
         container.init_resources()
 
         return cls(container)

@@ -5,7 +5,7 @@ from statemachine.exceptions import TransitionNotAllowed
 
 from ai_state_machine.celery import CeleryManager
 from ai_state_machine.environment import GenieEnvironment
-from ai_state_machine.genie import GenieModel
+from ai_state_machine.genie import GenieModel, GenieTaskProgress
 from ai_state_machine.model.types import ModelKeyRegistryType
 from ai_state_machine.model.api import AIResponse, EventInput, AIStatusResponse, AIProgressResponse
 from ai_state_machine.session_lock import SessionLockManager
@@ -82,10 +82,19 @@ class SessionManager:
         :return: an instance of `AIResponse` with the appropriate values
         """
         if model.has_running_tasks:
+            task_progress_list = GenieTaskProgress.select(ids=[model.session_id])
+            if len(task_progress_list) != 1:
+                raise ValueError(
+                    f"progress for session {model.session_id} "
+                    f"should not have {len(task_progress_list)} progress records")
+            task_progress: GenieTaskProgress = task_progress_list[0]
             return AIResponse(
                 session_id=model.session_id,
                 next_actions=["poll"],
-                progress=AIProgressResponse.for_model(model)
+                progress=AIProgressResponse(
+                    total_number_of_subtasks=task_progress.total_nr_subtasks,
+                    number_of_subtasks_executed=task_progress.nr_subtasks_executed,
+                )
             )
 
         state_machine = model.get_state_machine_class()(model)

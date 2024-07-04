@@ -10,6 +10,24 @@ from ai_state_machine.model.dialogue import DialogueElement, DialogueFormat
 from ai_state_machine.model.template import CompositeTemplateType
 
 
+class GenieTaskProgress(Model):
+    _primary_key_field = "session_id"
+
+    session_id: str = Field(
+        description="The session id for which a task is running",
+    )
+    task_id: str = Field(
+        description="The ID of the running root task for the session",
+    )
+    total_nr_subtasks: int = Field(
+        description="the total number of subtasks that need to be executed by the running task",
+    )
+    nr_subtasks_executed: int = Field(
+        default=0,
+        description="the number of subtasks that have been executed by the running task",
+    )
+
+
 class GenieModel(Model):
     """
     The base model for all models that will carry data in the dialogue. Contains the attributes
@@ -39,18 +57,6 @@ class GenieModel(Model):
         default_factory=list,
         description="The list of dialogue elements that have been used in the dialogue so far",
     )
-    running_task_id: Optional[str] = Field(
-        default=None,
-        description="A potential task id of a running background task for this model"
-    )
-    total_nr_subtasks: int = Field(
-        default=0,
-        description="the total number of subtasks that need to be executed by the running task"
-    )
-    nr_subtasks_executed: int = Field(
-        default=0,
-        description="the number of subtasks that have been executed by the running task"
-    )
     actor: Optional[str] = Field(
         None,
         description="The actor that has created the current input",
@@ -62,43 +68,15 @@ class GenieModel(Model):
 
     @property
     def has_running_tasks(self) -> bool:
-        return self.running_task_id is not None
-
-    def set_running_task(self, task_id: str, nr_subtasks: int):
-        if self.running_task_id is not None:
-            raise ValueError(
-                f"Already a running task when adding task {task_id} "
-                f"to session {self.session_id}"
-            )
-        self.running_task_id = task_id
-        self.total_nr_subtasks = nr_subtasks
-        self.nr_subtasks_executed = 0
-
-    def complete_subtask(self, task_id: str):
-        if self.running_task_id is None:
-            raise ValueError(
-                f"No running task for session {self.session_id} "
-                f"so not able to complete subtask for task {task_id}"
-            )
-        self.nr_subtasks_executed += 1
-        if self.nr_subtasks_executed > self.total_nr_subtasks:
-            raise ValueError(
-                f"Completed too many subtasks for session {self.session_id} "
-                f"for task id {task_id}"
-            )
-
-    def complete_running_task(self, task_id: str):
-        if self.running_task_id is None:
-            raise ValueError(
-                f"No running task for session {self.session_id} "
-                f"so not able to complete running task for task {task_id}"
-            )
-        if self.running_task_id != task_id:
-            raise ValueError(
-                f"Session {self.session_id} does not have a task running with "
-                f"task_id {task_id}. The running task has task_id {self.running_task_id}"
-            )
-        self.running_task_id = None
+        task_progress_list = GenieTaskProgress.select(
+            ids=[self.session_id],
+            columns=["task_id"],
+        )
+        if task_progress_list is None or len(task_progress_list) == 0:
+            return False
+        if len(task_progress_list) > 1:
+            logger.error("Too many task progress records for session {}", self.session_id)
+        return True
 
     @classmethod
     def get_state_machine_class(cls) -> type["GenieStateMachine"]:
@@ -149,7 +127,7 @@ class GenieStateMachine(StateMachine):
         super(GenieStateMachine, self).__init__(model=model)
 
     @property
-    def render_data(self) -> dict[str, str]:
+    def render_data(self) -> dict[str, Any]:
         """
         Returns a dictionary containing all data that can be used to render a template.
 

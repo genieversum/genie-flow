@@ -41,19 +41,6 @@ class AIProgressResponse(BaseModel):
     total_number_of_subtasks: int = Field()
     number_of_subtasks_executed: int = Field()
 
-    @classmethod
-    def for_model(cls, model: GenieModel) -> "AIProgressResponse":
-        if not model.has_running_tasks:
-            return AIProgressResponse(
-                total_number_of_subtasks=0,
-                number_of_subtasks_executed=0,
-            )
-
-        return AIProgressResponse(
-            total_number_of_subtasks=model.total_nr_subtasks,
-            number_of_subtasks_executed=model.nr_subtasks_executed,
-        )
-
     @property
     def percent_completed(self) -> float:
         if self.number_of_subtasks_executed == 0:
