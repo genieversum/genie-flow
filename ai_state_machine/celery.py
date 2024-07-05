@@ -173,7 +173,14 @@ class CeleryManager:
                 result_of_previous_call: CompositeContentType,
                 render_data: dict[str, str],
         ) -> str | dict[str, Any]:
+            try:
+                parsed_result = json.loads(result_of_previous_call)
+            except json.JSONDecodeError:
+                parsed_result = None
+
             render_data["previous_result"] = result_of_previous_call
+            render_data["parsed_previous_result"] = parsed_result
+
             return render_data
 
         return chained_template
