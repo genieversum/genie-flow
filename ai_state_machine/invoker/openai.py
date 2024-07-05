@@ -1,5 +1,4 @@
 import logging
-import os
 from abc import ABC
 from typing import Optional
 
@@ -14,6 +13,7 @@ from openai.types.chat import (
 from openai.types.chat.completion_create_params import ResponseFormat
 
 from ai_state_machine.invoker.genie import GenieInvoker
+from ai_state_machine.invoker.utils import get_config_value
 from ai_state_machine.model.dialogue import DialogueElement
 
 
@@ -52,31 +52,22 @@ class AbstractAzureOpenAIInvoker(GenieInvoker, ABC):
 
     @classmethod
     def _create_client(cls, config: dict[str, str]) -> AzureOpenAI:
-
-        def get_config_value(
-                env_variable_name: str,
-                config_variable_name: str,
-                variable_name: str,
-        ) -> str:
-            result = os.getenv(env_variable_name)
-            result = result or config.get(config_variable_name, None)
-            if result is None:
-                raise ValueError(f"No value for {variable_name}")
-            return result
-
         api_key = get_config_value(
+            config,
             "AZURE_OPENAI_API_KEY",
             "api_key",
             "API Key",
         )
 
         api_version = get_config_value(
+            config,
             "AZURE_OPENAI_API_VERSION",
             "api_version",
             "API Version",
         )
 
         endpoint = get_config_value(
+            config,
             "AZURE_OPENAI_ENDPOINT",
             "endpoint",
             "Endpoint",

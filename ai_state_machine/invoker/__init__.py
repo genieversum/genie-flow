@@ -6,6 +6,7 @@ from ai_state_machine.invoker.openai import (
     AzureOpenAIChatInvoker,
     AzureOpenAIChatJSONInvoker,
 )
+from ai_state_machine.invoker.weaviate import WeaviateSimilaritySearchInvoker
 from ai_state_machine.invoker.verbatim import VerbatimInvoker
 
 
