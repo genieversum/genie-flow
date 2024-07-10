@@ -1,5 +1,5 @@
 import json
-from typing import Any
+from typing import Any, Optional
 
 import redis_lock
 from celery import Celery, Task
@@ -59,6 +59,10 @@ class _TaskCompiler:
     def _trigger_ai_event_task(self) -> Task:
         return self.celery_app.tasks["genie_flow.trigger_ai_event"]
 
+    @property
+    def error_handler(self) -> Task:
+        return self.celery_app.tasks["genie_flow.error_handler"]
+
     def _compile_task_graph(
             self,
             template: CompositeTemplateType,
@@ -116,39 +120,52 @@ class _ProgressLoggingTask(Task):
     def get_lock_for_session(
             self,
             session_id: str,
-            lock_manager: SessionLockManager = Provide[GenieFlowPersistenceContainer.session_lock_manager],
+            lock_manager: SessionLockManager = (
+                    Provide[GenieFlowPersistenceContainer.session_lock_manager]
+            ),
     ) -> redis_lock.Lock:
         return lock_manager.get_lock_for_session(session_id)
+
+    @staticmethod
+    def _retrieve_progress(session_id) -> Optional[GenieTaskProgress]:
+        task_progress_list = GenieTaskProgress.select(ids=[session_id])
+        if task_progress_list is None or len(task_progress_list) == 0:
+            logger.warning("No progress record for session {}", session_id)
+            return None
+
+        if len(task_progress_list) > 1:
+            logger.error(
+                f"Found too many tasks progress records for session {session_id};"
+                f" should be exactly one"
+            )
+
+        return task_progress_list[0]
 
     def on_success(self, retval, task_id, args, kwargs):
         logger.info(f"Just finished task {task_id} successfully with return value {retval}")
         session_id: str = args[-1]
         with self.get_lock_for_session(session_id):
-            task_progress_list = GenieTaskProgress.select(
-                ids=[session_id],
-                columns=["nr_subtasks_executed"],
-            )
-            if task_progress_list is None or len(task_progress_list) == 0:
-                logger.debug("No progress record for session {}", session_id)
+            task_progress = self._retrieve_progress(session_id)
+            if task_progress is None:
                 return
 
-            if len(task_progress_list) > 1:
-                logger.error(
-                    f"Found too many tasks progress records for session {session_id};"
-                    f" should be exactly one"
-                )
-
-            task_progress: dict[str, Any] = task_progress_list[0]
-            task_progress["nr_subtasks_executed"] += 1
+            task_progress.nr_subtasks_executed += 1
             GenieTaskProgress.update(
                 session_id,
-                {"nr_subtasks_executed": task_progress["nr_subtasks_executed"]},
+                {"nr_subtasks_executed": task_progress.nr_subtasks_executed},
             )
             logger.debug(
                 "session {} has now done {} tasks",
                 session_id,
-                task_progress["nr_subtasks_executed"],
+                task_progress.nr_subtasks_executed,
             )
+
+    def on_failure(self, exc, task_id, args, kwargs, einfo):
+        logger.error(f"Task {task_id} failed with {exc}")
+        session_id: str = args[-1]
+        with self.get_lock_for_session(session_id):
+            self._retrieve_progress(session_id)
+            GenieTaskProgress.delete(session_id)
 
 
 class CeleryManager:
@@ -178,10 +195,7 @@ class CeleryManager:
             model: GenieModel,
             session_id: str,
             event_name: str,
-            request_id: str,
     ):
-        model.remove_running_task(request_id)
-
         state_machine = model.get_state_machine_class()(model)
         state_machine.add_observer(self)
 
@@ -218,7 +232,6 @@ class CeleryManager:
                     model=model,
                     session_id=session_id,
                     event_name=event_name,
-                    request_id=request.id,
                 )
 
                 if model.task_error is None:
@@ -364,20 +377,29 @@ class CeleryManager:
             model: GenieModel,
             target_state: State,
     ):
+        model_fqn = get_fully_qualified_name_from_class(model)
+        event_to_send_after = target_state.transitions.unique_events[0]
         task_compiler = _TaskCompiler(
             self.celery_app,
             state_machine.get_template_for_state(target_state),
             model.session_id,
             state_machine.render_data,
-            get_fully_qualified_name_from_class(model),
-            target_state.transitions.unique_events[0],
+            model_fqn,
+            event_to_send_after,
+        )
+        task_compiler.task.on_error(
+            task_compiler.error_handler.s(
+                model_fqn,
+                model.session_id,
+                event_to_send_after,
+            )
         )
 
-        task_id = task_compiler.task.apply_async((state_machine.render_data,)).id
+        task = task_compiler.task.apply_async((state_machine.render_data,))
         GenieTaskProgress.insert(
             GenieTaskProgress(
                 session_id=model.session_id,
-                task_id=task_id,
+                task_id=task.id,
                 total_nr_subtasks=task_compiler.nr_tasks,
             )
         )
