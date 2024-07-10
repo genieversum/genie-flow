@@ -172,14 +172,25 @@ class CeleryManager:
         def chained_template(
                 result_of_previous_call: CompositeContentType,
                 render_data: dict[str, str],
-        ) -> str | dict[str, Any]:
-            try:
-                parsed_result = json.loads(result_of_previous_call)
-            except json.JSONDecodeError:
-                parsed_result = None
+        ) -> CompositeContentType:
+
+            def parse_result(result: CompositeContentType) -> CompositeContentType:
+                if isinstance(result, str):
+                    try:
+                        return json.loads(result_of_previous_call)
+                    except json.JSONDecodeError:
+                        return result
+
+                if isinstance(result, list):
+                    return [parse_result(e) for e in result]
+
+                if isinstance(result, dict):
+                    return {k: parse_result(result[k]) for k in result.keys()}
+
+                return result
 
             render_data["previous_result"] = result_of_previous_call
-            render_data["parsed_previous_result"] = parsed_result
+            render_data["parsed_previous_result"] = parse_result(result_of_previous_call)
 
             return render_data
 
