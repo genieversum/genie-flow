@@ -39,17 +39,16 @@ developer.
 : A list of `DialogueElement`s that is the sequence of uttering by the different actors involved
 in the dialogue.
 
-`running_task_id`
-: The optional id of a [Celery](https://docs.celeryq.dev/en/stable/getting-started/introduction.html)
-task that may be running as part of the dialogue. This could be, for instance, an LLM call that
-has been triggered by a user input.
-
 `actor`
 : The name of the actor that has most recently uttered a statement. By default, this is `USER` for
 a Human actor and `LLM` for an LLM.
 
 `actor_input`
 : The input that was last uttered by the most recent actor.
+
+`parsed_actor_input`
+: If the `actor_input` was a JSON serialized object, this property will contain the object value
+as parsed.
 
 ### data object methods and properties
 

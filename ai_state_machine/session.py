@@ -1,3 +1,4 @@
+import json
 import uuid
 
 from celery.result import AsyncResult
@@ -98,6 +99,12 @@ class SessionManager:
             )
 
         state_machine = model.get_state_machine_class()(model)
+        if model.has_errors:
+            return AIResponse(
+                session_id=model.session_id,
+                error=model.task_error,
+                next_actions=state_machine.current_state.transitions.unique_events,
+            )
         return AIResponse(
             session_id=model.session_id,
             response=state_machine.model.current_response.actor_text,
@@ -152,10 +159,21 @@ class SessionManager:
 
             try:
                 return self._handle_event(event, model)
-            except TransitionNotAllowed as e:
+            except TransitionNotAllowed:
+                state_machine = model.get_state_machine_class()(model)
                 return AIResponse(
                     session_id=event.session_id,
-                    error=str(e),
+                    error=json.dumps(
+                        dict(
+                            session_id=model.session_id,
+                            current_state=dict(
+                                id=state_machine.current_state.id,
+                                name=state_machine.current_state.name,
+                            ),
+                            possible_events=state_machine.current_state.transitions.unique_events,
+                            received_event=event.event,
+                        )
+                    )
                 )
 
     def get_task_state(self, model_key: str, session_id: str) -> AIStatusResponse:

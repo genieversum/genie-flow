@@ -1,4 +1,5 @@
 from fastapi import HTTPException, APIRouter, FastAPI
+from fastapi import status
 from pydantic import BaseModel
 
 from ai_state_machine.model.api import AIStatusResponse, AIResponse, EventInput
@@ -7,15 +8,16 @@ from ai_state_machine.session import SessionManager
 
 def _unknown_state_machine_exception(state_machine_key: str) -> HTTPException:
     return HTTPException(
-        status_code=404,
+        status_code=status.HTTP_404_NOT_FOUND,
         detail=f"State machine {state_machine_key} is unknown",
     )
 
 
 class GenieFlowRouterBuilder:
 
-    def __init__(self, session_manager: SessionManager):
+    def __init__(self, session_manager: SessionManager, debug: bool):
         self.session_manager = session_manager
+        self.debug = debug
 
     @property
     def router(self) -> APIRouter:
@@ -50,7 +52,13 @@ class GenieFlowRouterBuilder:
 
     def start_event(self, state_machine_key: str, event: EventInput) -> AIResponse:
         try:
-            return self.session_manager.process_event(state_machine_key, event)
+            result = self.session_manager.process_event(state_machine_key, event)
+            if result.error is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=result.error if self.debug else "Genie Flow Internal Error"
+                )
+            return result
         except KeyError:
             raise _unknown_state_machine_exception(state_machine_key)
 
@@ -81,8 +89,9 @@ def create_fastapi_app(
         **config
     )
 
+    debug = config.get("debug", False)
     fastapi_app.include_router(
-        GenieFlowRouterBuilder(session_manager).router,
+        GenieFlowRouterBuilder(session_manager, debug).router,
         prefix=getattr(config, "prefix", "/v1/ai"),
     )
     return fastapi_app

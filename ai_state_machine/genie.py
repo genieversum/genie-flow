@@ -1,4 +1,5 @@
-from typing import Optional, Any, Iterable
+import json
+from typing import Optional, Any
 
 from loguru import logger
 from pydantic import Field
@@ -57,6 +58,10 @@ class GenieModel(Model):
         default_factory=list,
         description="The list of dialogue elements that have been used in the dialogue so far",
     )
+    task_error: Optional[str] = Field(
+        default=None,
+        description="The error message returned from a running task",
+    )
     actor: Optional[str] = Field(
         None,
         description="The actor that has created the current input",
@@ -77,6 +82,10 @@ class GenieModel(Model):
         if len(task_progress_list) > 1:
             logger.error("Too many task progress records for session {}", self.session_id)
         return True
+
+    @property
+    def has_errors(self) -> bool:
+        return self.task_error is not None
 
     @classmethod
     def get_state_machine_class(cls) -> type["GenieStateMachine"]:
@@ -138,8 +147,14 @@ class GenieStateMachine(StateMachine):
         - all keys and values of the machine's current model
         """
         render_data = self.model.model_dump()
+        try:
+            parsed_json = json.loads(self.model.actor_input)
+        except json.JSONDecodeError:
+            parsed_json = None
+
         render_data.update(
             {
+                "parsed_actor_input": parsed_json,
                 "state_id": self.current_state.id,
                 "state_name": self.current_state.name,
                 "chat_history": str(self.model.format_dialogue(DialogueFormat.CHAT)),
@@ -185,7 +200,7 @@ class GenieStateMachine(StateMachine):
         """
         try:
             self.model.actor_input = event_data.args[0]
-            logger.debug("Setting the actor input to %s", self.model.actor_input)
+            logger.debug("setting the actor input to: {}", self.model.actor_input)
         except (TypeError, IndexError):
             logger.debug("Starting a transition without an actor input")
             self.model.actor_input = ""

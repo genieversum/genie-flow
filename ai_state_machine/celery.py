@@ -1,11 +1,11 @@
-import logging
-from typing import Any, Optional
+import json
+from typing import Any
 
 import redis_lock
 from celery import Celery, Task
+from celery.app.task import Context
 from celery.canvas import Signature, chord, group
 from celery.result import AsyncResult
-from celery.worker.request import Request
 from dependency_injector.wiring import inject, Provide
 from loguru import logger
 from statemachine import State
@@ -166,10 +166,73 @@ class CeleryManager:
         self.session_lock_manager = session_lock_manager
         self.genie_environment = genie_environment
 
+        self._add_error_handler()
         self._add_trigger_ai_event_task()
         self._add_invoke_task()
         self._add_combine_group_to_dict()
         self._add_chained_template()
+
+    def _process_model_event(
+            self,
+            event_argument: str,
+            model: GenieModel,
+            session_id: str,
+            event_name: str,
+            request_id: str,
+    ):
+        model.remove_running_task(request_id)
+
+        state_machine = model.get_state_machine_class()(model)
+        state_machine.add_observer(self)
+
+        logger.debug(f"sending {event_name} to model for session {session_id}")
+        state_machine.send(event_name, event_argument)
+        logger.debug(f"actor input is now {model.actor_input}")
+
+    def _add_error_handler(self):
+
+        @self.celery_app.task(name="genie_flow.error_handler")
+        def error_handler(
+                request: Context,
+                exc,
+                traceback,
+                cls_fqn: str,
+                session_id: str,
+                event_name: str,
+        ):
+            """
+            Process a backend error. The error is captured and the exception added to the model's
+            task_error property. The final event is (still) being sent to the state machine. But the
+            actor's input is an empty string.
+            """
+            logger.error(f"Task {request.id} raised an error: {exc}")
+            logger.exception(traceback)
+
+            model_class = get_class_from_fully_qualified_name(cls_fqn)
+            with self.session_lock_manager.get_locked_model(
+                    session_id,
+                    model_class,
+            ) as model:
+                self._process_model_event(
+                    event_argument="",
+                    model=model,
+                    session_id=session_id,
+                    event_name=event_name,
+                    request_id=request.id,
+                )
+
+                if model.task_error is None:
+                    model.task_error = ""
+                model.task_error += json.dumps(
+                    dict(
+                        session_id=session_id,
+                        task_id=request.id,
+                        task_name=request.id,
+                        exception=str(exc),
+                    )
+                )
+
+        return error_handler
 
     def _add_trigger_ai_event_task(self):
 
@@ -210,9 +273,9 @@ class CeleryManager:
                 state_machine = model.get_state_machine_class()(model)
                 state_machine.add_observer(self)
 
-                logging.debug(f"sending {event_name} to model for session {session_id}")
+                logger.debug(f"sending {event_name} to model for session {session_id}")
                 state_machine.send(event_name, response)
-                logging.debug(f"actor input is now {model.actor_input}")
+                logger.debug(f"actor input is now {model.actor_input}")
 
         return trigger_ai_event
 
@@ -271,8 +334,26 @@ class CeleryManager:
                 result_of_previous_call: CompositeContentType,
                 render_data: dict[str, str],
                 session_id: str,
-        ) -> str | dict[str, Any]:
+        ) -> CompositeContentType:
+
+            def parse_result(result: CompositeContentType) -> CompositeContentType:
+                if isinstance(result, str):
+                    try:
+                        return json.loads(result)
+                    except json.JSONDecodeError:
+                        return result
+
+                if isinstance(result, list):
+                    return [parse_result(e) for e in result]
+
+                if isinstance(result, dict):
+                    return {k: parse_result(result[k]) for k in result.keys()}
+
+                return result
+
             render_data["previous_result"] = result_of_previous_call
+            render_data["parsed_previous_result"] = parse_result(result_of_previous_call)
+
             return render_data
 
         return chained_template
