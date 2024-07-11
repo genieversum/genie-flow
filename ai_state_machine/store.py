@@ -2,7 +2,7 @@ from typing import Type
 
 from pydantic_redis import Model, Store
 
-from ai_state_machine.genie import GenieModel
+from ai_state_machine.genie import GenieModel, GenieTaskProgress
 from ai_state_machine.model.dialogue import DialogueElement
 from ai_state_machine.utils import get_class_from_fully_qualified_name
 
@@ -15,6 +15,7 @@ class StoreManager:
     ):
         self.store = store
         self.register_model(DialogueElement)
+        self.register_model(GenieTaskProgress)
         self.register_model(GenieModel)
 
     def register_model(self, model_class: Type[Model]):

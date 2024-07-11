@@ -1,5 +1,5 @@
 import json
-from typing import Optional, Any, Iterable
+from typing import Optional, Any
 
 from loguru import logger
 from pydantic import Field
@@ -9,6 +9,24 @@ from statemachine.event_data import EventData
 
 from ai_state_machine.model.dialogue import DialogueElement, DialogueFormat
 from ai_state_machine.model.template import CompositeTemplateType
+
+
+class GenieTaskProgress(Model):
+    _primary_key_field = "session_id"
+
+    session_id: str = Field(
+        description="The session id for which a task is running",
+    )
+    task_id: str = Field(
+        description="The ID of the running root task for the session",
+    )
+    total_nr_subtasks: int = Field(
+        description="the total number of subtasks that need to be executed by the running task",
+    )
+    nr_subtasks_executed: int = Field(
+        default=0,
+        description="the number of subtasks that have been executed by the running task",
+    )
 
 
 class GenieModel(Model):
@@ -40,10 +58,6 @@ class GenieModel(Model):
         default_factory=list,
         description="The list of dialogue elements that have been used in the dialogue so far",
     )
-    running_task_ids: int = Field(
-        default=0,
-        description="the number of Celery tasks that are currently running for this model",
-    )
     task_error: Optional[str] = Field(
         default=None,
         description="The error message returned from a running task",
@@ -59,19 +73,19 @@ class GenieModel(Model):
 
     @property
     def has_running_tasks(self) -> bool:
-        return self.running_task_ids > 0
+        task_progress_list = GenieTaskProgress.select(
+            ids=[self.session_id],
+            columns=["task_id"],
+        )
+        if task_progress_list is None or len(task_progress_list) == 0:
+            return False
+        if len(task_progress_list) > 1:
+            logger.error("Too many task progress records for session {}", self.session_id)
+        return True
 
     @property
     def has_errors(self) -> bool:
         return self.task_error is not None
-
-    def add_running_task(self, task_id: str):
-        self.running_task_ids += 1
-
-    def remove_running_task(self, task_id: str):
-        self.running_task_ids -= 1
-        if self.running_task_ids < 0:
-            raise ValueError(f"removed too many running tasks")
 
     @classmethod
     def get_state_machine_class(cls) -> type["GenieStateMachine"]:
@@ -122,7 +136,7 @@ class GenieStateMachine(StateMachine):
         super(GenieStateMachine, self).__init__(model=model)
 
     @property
-    def render_data(self) -> dict[str, str]:
+    def render_data(self) -> dict[str, Any]:
         """
         Returns a dictionary containing all data that can be used to render a template.
 
