@@ -2,6 +2,7 @@ from dependency_injector import containers, providers
 
 from ai_state_machine.invoker import VerbatimInvoker, AzureOpenAIChatInvoker, \
     AzureOpenAIChatJSONInvoker, InvokerFactory, WeaviateSimilaritySearchInvoker
+from ai_state_machine.invoker.api import APIInvoker
 
 
 class GenieFlowInvokerContainer(containers.DeclarativeContainer):
@@ -13,6 +14,7 @@ class GenieFlowInvokerContainer(containers.DeclarativeContainer):
         azure_openai_chat=providers.Object(AzureOpenAIChatInvoker),
         azure_openai_chat_json=providers.Object(AzureOpenAIChatJSONInvoker),
         weaviate_similarity=providers.Object(WeaviateSimilaritySearchInvoker),
+        api=providers.Object(APIInvoker),
     )
 
     invoker_factory = providers.Factory(
