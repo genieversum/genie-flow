@@ -47,4 +47,6 @@ class APIInvoker(GenieInvoker):
         query_params = json.loads(content)
         response = self.connection_factory.request(query_params)
         response.raise_for_status()
+        if response.status_code == 204 or response.text == "":
+            return ""
         return json.dumps(response.json())
