@@ -1,6 +1,7 @@
 from fastapi import HTTPException, APIRouter, FastAPI
 from fastapi import status
 from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
 
 from ai_state_machine.model.api import AIStatusResponse, AIResponse, EventInput
 from ai_state_machine.session import SessionManager
@@ -94,4 +95,13 @@ def create_fastapi_app(
         GenieFlowRouterBuilder(session_manager, debug).router,
         prefix=getattr(config, "prefix", "/v1/ai"),
     )
+
+    fastapi_app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
+
     return fastapi_app
