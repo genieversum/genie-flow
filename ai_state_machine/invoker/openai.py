@@ -3,6 +3,7 @@ from abc import ABC
 from typing import Optional
 
 import openai
+from loguru import logger
 from openai.lib.azure import AzureOpenAI
 from openai.types.chat import (
     ChatCompletionSystemMessageParam,
@@ -110,6 +111,7 @@ class AzureOpenAIChatInvoker(AbstractAzureOpenAIInvoker):
                 content=content,
             )
         )
+        logger.debug("Invoking OpenAI Chat with the following prompts: {}", messages)
         response = self._client.chat.completions.create(
             model=self._deployment_name,
             messages=messages,

@@ -333,7 +333,14 @@ class CeleryManager:
                 keys: list[str],
                 session_id: str,
         ) -> CompositeContentType:
-            return dict(zip(keys, results))
+            def parse_if_json(s: str) -> Any:
+                try:
+                    return json.loads(s)
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    return s
+
+            parsed_results = [parse_if_json(s) for s in results]
+            return json.dumps(dict(zip(keys, parsed_results)))
 
         return combine_group_to_dict
 
