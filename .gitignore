@@ -3,6 +3,6 @@
 .ipynb_checkpoints
 __pycache__
 main.log
-.env
 dist/
 build/
+genie_flow.egg-info
