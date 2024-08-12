@@ -2,9 +2,10 @@ import json
 from hashlib import md5
 from typing import Optional, LiteralString
 
-from dependency_injector import containers, providers
 from loguru import logger
-from neo4j import GraphDatabase, Driver
+from neo4j import GraphDatabase, Driver, Result, Record
+from neo4j.exceptions import ResultConsumedError
+from pydantic import BaseModel, Field
 
 from ai_state_machine.invoker import GenieInvoker
 from ai_state_machine.invoker.utils import get_config_value
@@ -21,39 +22,79 @@ def _create_driver(config: dict):
     return GraphDatabase.driver(uri=db_uri, auth=db_auth)
 
 
-# class _Neo4jDriverContainer(containers.DeclarativeContainer):
-#     config = providers.Configuration()
-#
-#     driver = providers.Resource(
-#         _create_driver,
-#         config=config,
-#     )
+class Neo4jQueryResult(BaseModel):
+    headers: list[str] = Field(
+        default_factory=list,
+        description="List of headers returned by neo4j query",
+    )
+    records: list[list[str | int | float | None]] = Field(
+        default_factory=list,
+        description="List of list of values returned by neo4j query",
+    )
+    has_more: bool = Field(
+        default=False,
+        description="True if there are more records available from the query that have"
+                    "not been fetched because of limit settings",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Error message returned by neo4j query",
+    )
+
+    @classmethod
+    def from_neo4j_result(
+            cls,
+            records: list[Record],
+            keys: tuple[str],
+            has_more: bool,
+    ) -> "Neo4jQueryResult":
+        return cls(
+            headers=keys,
+            records=[record for record in records],
+            has_more=has_more,
+        )
+
+
+class Neo4jClient:
+
+    def __init__(
+            self,
+            driver: Driver,
+            database_name: str,
+            limit: int,
+            execute_write_queries: bool,
+    ):
+        self.driver = driver
+        self.database_name = database_name
+        self.limit = limit
+        self.execute_write_queries = execute_write_queries
+
+    def _limiting_transformer(self, result: Result) -> Neo4jQueryResult:
+        records = result.fetch(self.limit)
+        keys = result.keys()
+        has_more = False
+        try:
+            result.peek()
+            has_more = True
+        except ResultConsumedError:
+            pass
+        return Neo4jQueryResult.from_neo4j_result(records, keys, has_more)
+
+    def execute(self, query: LiteralString) -> str:
+        try:
+            result = self.driver.execute_query(
+                query_=query,
+                database_=self.database_name,
+                result_transformer_=self._limiting_transformer,
+            )
+            logger.info("executed query {}", md5(query.encode("utf-8")).hexdigest())
+            return result.model_dump_json()
+        except Exception as e:
+            result = Neo4jQueryResult(error=str(e))
+            return result.model_dump_json()
 
 
 class Neo4jClientFactory:
-
-    class Neo4jClient:
-
-        def __init__(
-                self,
-                driver: Driver,
-                database_name: str,
-                limit: int,
-                execute_write_queries: bool,
-        ):
-            self.driver = driver
-            self.database_name = database_name
-            self.limit = limit
-            self.execute_write_queries = execute_write_queries
-
-        def execute(self, query: LiteralString) -> str:
-            records, summary, keys = self.driver.execute_query(
-                query_=query,
-                database_=self.database_name,
-            )
-            logger.info("executed query, result summary {}", summary)
-            return json.dumps([record for record in records[:self.limit]])
-
     def __init__(self, config: dict):
         global _DRIVER
 
@@ -103,7 +144,7 @@ class Neo4jClientFactory:
         )
 
     def __enter__(self):
-        return Neo4jClientFactory.Neo4jClient(
+        return Neo4jClient(
             _DRIVER,
             self.database_name,
             self.limit,
