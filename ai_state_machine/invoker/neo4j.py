@@ -8,7 +8,7 @@ from neo4j.exceptions import ResultConsumedError
 from pydantic import BaseModel, Field
 
 from ai_state_machine.invoker import GenieInvoker
-from ai_state_machine.invoker.utils import get_config_value
+from ai_state_machine.invoker.utils import get_config_value, ConfigReader
 from ai_state_machine.model.dialogue import DialogueElement
 
 
@@ -22,12 +22,20 @@ def _create_driver(config: dict):
     return GraphDatabase.driver(uri=db_uri, auth=db_auth)
 
 
+RecordFieldBaseType = str | int | float | None
+RecordFieldExtendedType = (
+        RecordFieldBaseType |
+        list[RecordFieldBaseType] |
+        dict[str, RecordFieldBaseType]
+)
+RecordType = list[RecordFieldExtendedType]
+
 class Neo4jQueryResult(BaseModel):
     headers: list[str] = Field(
         default_factory=list,
         description="List of headers returned by neo4j query",
     )
-    records: list[list[str | int | float | list[str] | None]] = Field(
+    records: list[RecordType] = Field(
         default_factory=list,
         description="List of list of values returned by neo4j query",
     )
@@ -95,7 +103,6 @@ class Neo4jClient:
                 query_=query,
                 database_=self.database_name,
                 result_transformer_=self._limiting_transformer,
-
             )
             logger.info(
                 "executed query hash {query_hash}",
@@ -111,57 +118,20 @@ class Neo4jClientFactory:
     def __init__(self, config: dict):
         global _DRIVER
 
+        config_reader = ConfigReader(config, "NEO4J")
         if _DRIVER is None:
             config_to_use = dict(
-                database_uri=get_config_value(
-                    config,
-                    "NEO4J_DATABASE_URI",
-                    "database_uri",
-                    "Neo4j Database URI",
-                ),
-                username=get_config_value(
-                    config,
-                    "NEO4J_USERNAME",
-                    "username",
-                    "Neo4j Username",
-                ),
-                password=get_config_value(
-                    config,
-                    "NEO4J_PASSWORD",
-                    "password",
-                    "Neo4j Password",
-                ),
+                database_uri=config_reader.get_config_value("database_uri"),
+                username=config_reader.get_config_value("username"),
+                password=config_reader.get_config_value("password"),
             )
             _DRIVER = _create_driver(config_to_use)
             _DRIVER.verify_connectivity()
 
-        self.database_name = get_config_value(
-            config,
-            "NEO4J_DATABASE_NAME",
-            "database_name",
-            "Neo4j Database Name",
-        )
-        self.limit = get_config_value(
-            config,
-            "NEO4J_LIMIT",
-            "limit",
-            "Neo4j Limit of returned records",
-            1000,
-        )
-        self.query_timeout = get_config_value(
-            config,
-            "NEO4J_QUERY_TIMEOUT",
-            "query_timeout",
-            "Neo4j Query Timeout in seconds",
-            default_value=None,
-        )
-        self.execute_write_queries = get_config_value(
-            config,
-            "NEO4J_WRITE_QUERIES",
-            "write_queries",
-            "Neo4j executes Write queries",
-            False,
-        )
+        self.database_name = config_reader.get_config_value("database_name")
+        self.limit = config_reader.get_config_value("limit",1000)
+        self.query_timeout = config_reader.get_config_value("query_timeout", None)
+        self.execute_write_queries = config_reader.get_config_value("write_queries", False)
 
     def __enter__(self):
         return Neo4jClient(
