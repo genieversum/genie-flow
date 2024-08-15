@@ -3,7 +3,7 @@ from hashlib import md5
 from typing import Optional, LiteralString
 
 from loguru import logger
-from neo4j import GraphDatabase, Driver, Result, Record
+from neo4j import GraphDatabase, Driver, Result, Record, Query
 from neo4j.exceptions import ResultConsumedError
 from pydantic import BaseModel, Field
 
@@ -27,7 +27,7 @@ class Neo4jQueryResult(BaseModel):
         default_factory=list,
         description="List of headers returned by neo4j query",
     )
-    records: list[list[str | int | float | None]] = Field(
+    records: list[list[str | int | float | list[str] | None]] = Field(
         default_factory=list,
         description="List of list of values returned by neo4j query",
     )
@@ -62,11 +62,13 @@ class Neo4jClient:
             driver: Driver,
             database_name: str,
             limit: int,
+            query_timeout: float,
             execute_write_queries: bool,
     ):
         self.driver = driver
         self.database_name = database_name
         self.limit = limit
+        self.query_timeout = query_timeout
         self.execute_write_queries = execute_write_queries
 
     def _limiting_transformer(self, result: Result) -> Neo4jQueryResult:
@@ -74,20 +76,31 @@ class Neo4jClient:
         keys = result.keys()
         has_more = False
         try:
-            result.peek()
-            has_more = True
+            peek = result.peek()
+            logger.debug("peeking returns: {peek}", peek=str(peek))
+            has_more = peek is not None
         except ResultConsumedError:
             pass
         return Neo4jQueryResult.from_neo4j_result(records, keys, has_more)
 
-    def execute(self, query: LiteralString) -> str:
+    def execute(self, query_string: LiteralString) -> str:
+        logger.debug("executing query {query_string}", query_string=query_string)
+        logger.info(
+            "executing query hash {query_hash}",
+            query_hash=md5(query_string.encode("utf-8")).hexdigest(),
+        )
+        query = Query(query_string, timeout=self.query_timeout)
         try:
             result = self.driver.execute_query(
                 query_=query,
                 database_=self.database_name,
                 result_transformer_=self._limiting_transformer,
+
             )
-            logger.info("executed query {}", md5(query.encode("utf-8")).hexdigest())
+            logger.info(
+                "executed query hash {query_hash}",
+                query_hash=md5(query_string.encode("utf-8")).hexdigest(),
+            )
             return result.model_dump_json()
         except Exception as e:
             result = Neo4jQueryResult(error=str(e))
@@ -135,6 +148,13 @@ class Neo4jClientFactory:
             "Neo4j Limit of returned records",
             1000,
         )
+        self.query_timeout = get_config_value(
+            config,
+            "NEO4J_QUERY_TIMEOUT",
+            "query_timeout",
+            "Neo4j Query Timeout in seconds",
+            default_value=None,
+        )
         self.execute_write_queries = get_config_value(
             config,
             "NEO4J_WRITE_QUERIES",
@@ -148,6 +168,7 @@ class Neo4jClientFactory:
             _DRIVER,
             self.database_name,
             self.limit,
+            self.query_timeout,
             self.execute_write_queries,
         )
 
@@ -175,6 +196,9 @@ class Neo4jInvoker(GenieInvoker):
         - limit: (NEO4J_LIMIT) the maximum number of records returned by a query. Defaults to
         1000 if there is no limit specified in the `meta.yaml` file nor in an environment
         variable.
+        - query_timeout: (NEO4J_QUERY_TIMEOUT) the number of seconds to wait for a query to
+        execute, otherwise cancel the query. A zero indicates indefinite wait. None (the
+        default) will use the default on the server.
         - write_queries: (NEO4J_WRITE_QUERIES) indicates whether we allow write-queries.
         Defaults to False if not provided.
         """
@@ -182,15 +206,21 @@ class Neo4jInvoker(GenieInvoker):
         return cls(config)
 
     def invoke(self, content: str, dialogue: Optional[list[DialogueElement]]) -> str:
+        query_hash = md5(content.encode("utf-8")).hexdigest()
         logger.info(
-            "invoking neo4j query with query '{}'",
-            md5(content.encode("utf-8")).hexdigest(),
+            "invoking neo4j query with query hash {query_hash}",
+            query_hash=query_hash,
         )
         with self.client_factory as client:
             result = client.execute(content)
+        logger.debug(
+            "invoking neo4j query {query} resulted in {result}",
+            query=content,
+            result=result,
+        )
         logger.info(
-            "finished invoking neo4j query {} with result {}",
-            md5(content.encode("utf-8")).hexdigest(),
-            md5(result.encode("utf-8")).hexdigest(),
+            "finished invoking neo4j query {query_hash} with result {result_hash}",
+            query_hash=query_hash,
+            result_hash=md5(result.encode("utf-8")).hexdigest(),
         )
         return result
