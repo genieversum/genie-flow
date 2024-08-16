@@ -28,7 +28,8 @@ setup(
         'PyYAML~=6.0.1',
         'requests~=2.31.0',
         'dependency-injector',
-        'weaviate-client~=4.6.5'
+        'weaviate-client~=4.6.5',
+        'neo4j~=5.22.0'
     ],
     classifiers=[
         'Programming Language :: Python :: 3',
