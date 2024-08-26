@@ -92,7 +92,11 @@ class AzureOpenAIChatInvoker(AbstractAzureOpenAIInvoker):
     def from_config(cls, config: dict[str, str]) -> "AzureOpenAIChatInvoker":
         return cls(
             openai_client=cls._create_client(config),
-            deployment_name=config["deployment_name"],
+            deployment_name=get_config_value(
+            config,
+            "AZURE_OPENAI_DEPLOYMENT_NAME",
+            "deployment_name",
+            "Deployment Name",
         )
 
     @property
