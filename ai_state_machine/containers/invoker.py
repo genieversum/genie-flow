@@ -3,6 +3,7 @@ from dependency_injector import containers, providers
 from ai_state_machine.invoker import VerbatimInvoker, AzureOpenAIChatInvoker, \
     AzureOpenAIChatJSONInvoker, InvokerFactory, WeaviateSimilaritySearchInvoker
 from ai_state_machine.invoker.api import APIInvoker
+from ai_state_machine.invoker.neo4j import Neo4jInvoker
 
 
 class GenieFlowInvokerContainer(containers.DeclarativeContainer):
@@ -15,6 +16,7 @@ class GenieFlowInvokerContainer(containers.DeclarativeContainer):
         azure_openai_chat_json=providers.Object(AzureOpenAIChatJSONInvoker),
         weaviate_similarity=providers.Object(WeaviateSimilaritySearchInvoker),
         api=providers.Object(APIInvoker),
+        neo4j=providers.Object(Neo4jInvoker),
     )
 
     invoker_factory = providers.Factory(

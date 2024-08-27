@@ -17,7 +17,7 @@ setup(
     install_requires=[
         'python-statemachine',
         'pydantic~=2.7.1',
-        'pydantic-redis',
+        'pydantic-redis==0.5.0',
         'jinja2~=3.1.4',
         'loguru~=0.7.2',
         'fastapi~=0.111.0',
@@ -27,7 +27,9 @@ setup(
         'openai~=1.28.1',
         'PyYAML~=6.0.1',
         'requests~=2.31.0',
-        'dependency-injector'
+        'dependency-injector',
+        'weaviate-client~=4.6.5',
+        'neo4j~=5.22.0'
     ],
     classifiers=[
         'Programming Language :: Python :: 3',
