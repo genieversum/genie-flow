@@ -93,10 +93,11 @@ class AzureOpenAIChatInvoker(AbstractAzureOpenAIInvoker):
         return cls(
             openai_client=cls._create_client(config),
             deployment_name=get_config_value(
-            config,
-            "AZURE_OPENAI_DEPLOYMENT_NAME",
-            "deployment_name",
-            "Deployment Name",
+                config,
+                "AZURE_OPENAI_DEPLOYMENT_NAME",
+                "deployment_name",
+                "Deployment Name",
+            )
         )
 
     @property
