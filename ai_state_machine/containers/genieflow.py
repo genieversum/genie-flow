@@ -69,4 +69,5 @@ class GenieFlowContainer(containers.DeclarativeContainer):
         create_fastapi_app,
         session_manager=session_manager,
         config=config.api,
+        cors_settings=config.cors
     )

@@ -1,3 +1,5 @@
+from typing import Optional
+
 from fastapi import HTTPException, APIRouter, FastAPI
 from fastapi import status
 from pydantic import BaseModel
@@ -81,6 +83,7 @@ class GenieFlowRouterBuilder:
 def create_fastapi_app(
         session_manager: SessionManager,
         config: dict,
+        cors_settings: dict,
 ) -> FastAPI:
     fastapi_app = FastAPI(
         title="GenieFlow",
@@ -97,11 +100,8 @@ def create_fastapi_app(
     )
 
     fastapi_app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
-    allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
-)
+        CORSMiddleware,
+        **cors_settings
+    )
 
     return fastapi_app
