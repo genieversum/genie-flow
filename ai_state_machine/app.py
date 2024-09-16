@@ -1,6 +1,9 @@
+from typing import Optional
+
 from fastapi import HTTPException, APIRouter, FastAPI
 from fastapi import status
 from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
 
 from ai_state_machine.model.api import AIStatusResponse, AIResponse, EventInput
 from ai_state_machine.session import SessionManager
@@ -80,6 +83,7 @@ class GenieFlowRouterBuilder:
 def create_fastapi_app(
         session_manager: SessionManager,
         config: dict,
+        cors_settings: dict,
 ) -> FastAPI:
     fastapi_app = FastAPI(
         title="GenieFlow",
@@ -94,4 +98,10 @@ def create_fastapi_app(
         GenieFlowRouterBuilder(session_manager, debug).router,
         prefix=getattr(config, "prefix", "/v1/ai"),
     )
+
+    fastapi_app.add_middleware(
+        CORSMiddleware,
+        **cors_settings
+    )
+
     return fastapi_app
