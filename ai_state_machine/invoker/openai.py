@@ -1,5 +1,7 @@
+import json
 import logging
 from abc import ABC
+from json import JSONDecodeError
 from typing import Optional
 
 import openai
@@ -26,16 +28,24 @@ _CHAT_COMPLETION_MAP = {
 
 
 def chat_completion_message(
-    dialogue_element: DialogueElement,
+    dialogue_element: dict[str, str],
 ) -> ChatCompletionMessageParam:
     try:
-        return _CHAT_COMPLETION_MAP[dialogue_element.actor](
-            role=dialogue_element.actor,
-            content=dialogue_element.actor_text,
-        )
+        role = dialogue_element["role"]
     except KeyError:
-        raise ValueError(f"Unexpected actor type: {dialogue_element.actor}")
+        raise KeyError("not provided a role")
 
+    try:
+        chat_cls = _CHAT_COMPLETION_MAP[role]
+    except KeyError:
+        raise KeyError(f"unknown chat role '{role}'")
+
+    try:
+        content = dialogue_element["content"]
+    except KeyError:
+        raise KeyError("not provided content")
+
+    return chat_cls(role=role, content=content)
 
 class AbstractAzureOpenAIInvoker(GenieInvoker, ABC):
     """
@@ -104,18 +114,33 @@ class AzureOpenAIChatInvoker(AbstractAzureOpenAIInvoker):
     def _response_format(self) -> Optional[ResponseFormat]:
         return None
 
-    def invoke(
-        self, content: str, dialogue: Optional[list[DialogueElement]] = None
-    ) -> str:
-        if dialogue is None:
-            dialogue = []
-        messages = [chat_completion_message(element) for element in dialogue]
-        messages.append(
-            ChatCompletionUserMessageParam(
-                role="user",
-                content=content,
-            )
-        )
+    def invoke(self, content: str) -> str:
+        """
+        Invoking the chat API of OpenAI involves sending a list of chat elements. The content
+        passed to this should be a JSON list, as follows:
+
+        [
+            {
+                "role": "<role name>",
+                "content": "<content>"
+            },
+            ...
+        ]
+
+        Here, `role` can be either "system", "assistant" or "user".
+
+        :param content: JSON version of a list of all chat elements that need to be taken into
+        account for the chat invocation.
+        :returns: the JSON version of the returned response from the API
+        """
+        try:
+            messages_raw = json.loads(content)
+        except JSONDecodeError:
+            logger.error("failed to decode JSON content")
+            logger.debug("cannot parse the following content as JSON: '{}'", content)
+            raise ValueError("Invoker input cannot be parsed. Is it JSON?")
+
+        messages = [chat_completion_message(element) for element in messages_raw]
         logger.debug("Invoking OpenAI Chat with the following prompts: {}", messages)
         response = self._client.chat.completions.create(
             model=self._deployment_name,
@@ -125,8 +150,8 @@ class AzureOpenAIChatInvoker(AbstractAzureOpenAIInvoker):
         try:
             return response.choices[0].message.content
         except Exception as e:
-            logging.warning(f"Failed to call OpenAI: {str(e)}")
-            return f"** call to OpenAI API failed; error: {str(e)}"
+            logging.exception("Failed to call OpenAI", exc_info=e)
+            raise
 
 
 class AzureOpenAIChatJSONInvoker(AzureOpenAIChatInvoker):
@@ -144,12 +169,11 @@ class AzureOpenAIChatJSONInvoker(AzureOpenAIChatInvoker):
     def _response_format(self) -> Optional[ResponseFormat]:
         return ResponseFormat(type="json_object")
 
-    def invoke(
-        self, content: str, dialogue: Optional[list[DialogueElement]] = None
-    ) -> str:
+    def invoke(self, content: str) -> str:
         if "json" not in content.lower():
-            logging.warning(
+            logging.error(
                 "sending a JSON invocation to Azure OpenAI without mentioning "
                 "the word 'json'."
             )
-        return super(AzureOpenAIChatJSONInvoker).invoke(content, dialogue)
+            raise ValueError("The JSON invoker prompt needs to contain the word 'json'")
+        return super(AzureOpenAIChatJSONInvoker).invoke(content)
