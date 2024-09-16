@@ -175,7 +175,12 @@ class Neo4jInvoker(GenieInvoker):
         logger.debug("Creating Neo4jInvoker from config {}", config)
         return cls(config)
 
-    def invoke(self, content: str, dialogue: Optional[list[DialogueElement]]) -> str:
+    def invoke(self, content: str) -> str:
+        """
+        Invoke a Neo4j query.
+        :param content: The query to be sent to the Neo4j database.
+        :returns: A JSON version of the result of the query
+        """
         query_hash = md5(content.encode("utf-8")).hexdigest()
         logger.info(
             "invoking neo4j query with query hash {query_hash}",

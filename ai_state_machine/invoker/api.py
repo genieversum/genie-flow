@@ -82,7 +82,7 @@ class APIInvoker(GenieInvoker):
         connection_config = config["connection"]
         return cls(connection_config)
 
-    def invoke(self, content: str, dialogue: Optional[list[DialogueElement]]) -> str:
+    def invoke(self, content: str) -> str:
         """
         Conducts a request to an API using the provided content. The content is expected to be
         a JSON object where the keys and values are sent as query parameters.
@@ -90,8 +90,8 @@ class APIInvoker(GenieInvoker):
         We are assuming the call will return a JSON object, which is then returned in JSON
         as the result of the invocation.
 
-        :param content: The content of the invocation.
-        :param dialogue: A list of dialogue elements.
+        :param content: The content of the invocation. This content needs to be a JSON string
+        that contains all keys that will be passed as query parameters.
         :return: A JSON representation of the response from the API call.
         """
         logger.debug(f"invoking API with '{content}'")

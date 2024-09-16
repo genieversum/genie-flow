@@ -129,7 +129,7 @@ class WeaviateSimilaritySearchInvoker(GenieInvoker):
             int(query_config["limit"]),
         )
 
-    def invoke(self, content: str, dialogue: Optional[list[DialogueElement]]) -> str:
+    def invoke(self, content: str) -> str:
         """
         This invokes the similarity search, based on the configuration for `collection`, `distance`,
         and `limit'. Will return a JSON version of the documents retrieved, containing:
@@ -137,6 +137,9 @@ class WeaviateSimilaritySearchInvoker(GenieInvoker):
             `_id` - the document id as used by Weaviate,
             `distance` - the distance reported for the similarity search,
             all other properties that have been stored with the object
+
+        :param content: The text that this similarity search needs to be conducted on.
+        :returns: A JSON string containing the results of the similarity search
         """
         logger.debug(f"invoking weaviate near text search with '{content}'")
         with self.client_factory as client:

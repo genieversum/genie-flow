@@ -21,12 +21,14 @@ class GenieInvoker(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def invoke(self, content: str, dialogue: Optional[list[DialogueElement]]) -> str:
+    def invoke(self, content: str) -> str:
         """
         Invoke the underlying service with the supplied content and dialogue.
 
-        :param content: The text content to invoke the underlying service.
-        :param dialogue: The optional dialogue to invoke the underlying service.i
+        :param content: The text content to invoke the underlying service. The format of
+        this string is Invoker dependent. Some may simply expect a string, others may
+        need to get a structured document as string - for instance a JSON string - that
+        incorporates the values that one needs to pass.
         :return: The result string.
         """
         raise NotImplementedError()
