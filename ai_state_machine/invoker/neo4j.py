@@ -8,8 +8,7 @@ from neo4j.exceptions import ResultConsumedError
 from pydantic import BaseModel, Field
 
 from ai_state_machine.invoker import GenieInvoker
-from ai_state_machine.invoker.utils import get_config_value, ConfigReader
-from ai_state_machine.model.dialogue import DialogueElement
+from ai_state_machine.invoker.utils import ConfigReader
 
 
 _DRIVER: Optional[Driver] = None

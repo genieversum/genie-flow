@@ -1,7 +1,4 @@
-from typing import Optional
-
 from ai_state_machine.invoker import GenieInvoker
-from ai_state_machine.model.dialogue import DialogueElement
 
 
 class VerbatimInvoker(GenieInvoker):

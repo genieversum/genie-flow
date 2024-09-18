@@ -1,7 +1,4 @@
 from abc import ABC, abstractmethod
-from typing import Optional
-
-from ai_state_machine.model.dialogue import DialogueElement
 
 
 class GenieInvoker(ABC):

@@ -4,7 +4,6 @@ from typing import Optional
 from requests import Session, Response
 
 from ai_state_machine.invoker import GenieInvoker
-from ai_state_machine.model.dialogue import DialogueElement
 from loguru import logger
 
 

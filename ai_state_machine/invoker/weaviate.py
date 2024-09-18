@@ -8,7 +8,6 @@ from weaviate.collections.classes.grpc import MetadataQuery
 
 from ai_state_machine.invoker import GenieInvoker
 from ai_state_machine.invoker.utils import get_config_value
-from ai_state_machine.model.dialogue import DialogueElement
 
 
 class WeaviateClientFactory:
