@@ -46,6 +46,7 @@ def chat_completion_message(
 
     return chat_cls(role=role, content=content)
 
+
 class AbstractAzureOpenAIInvoker(GenieInvoker, ABC):
     """
     Abstract base class for Azure OpenAI clients. Invocations will be passed on to an
@@ -118,18 +119,20 @@ class AzureOpenAIChatInvoker(AbstractAzureOpenAIInvoker):
         Invoking the chat API of OpenAI involves sending a list of chat elements. The content
         passed to this should be a JSON list, as follows:
 
+        .. code-block:: json
+
         [
             {
                 "role": "<role name>",
                 "content": "<content>"
-            },
-            ...
+            }
         ]
 
         Here, `role` can be either "system", "assistant" or "user".
 
         :param content: JSON version of a list of all chat elements that need to be taken into
         account for the chat invocation.
+
         :returns: the JSON version of the returned response from the API
         """
         try:
