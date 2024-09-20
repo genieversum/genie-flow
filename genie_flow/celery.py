@@ -312,13 +312,7 @@ class CeleryManager:
             :param session_id: The session id for which this task is executed
             :returns: the result of the invocation
             """
-            dialogue_raw: list[dict] = getattr(render_data, "dialogue", list())
-            dialogue = [DialogueElement(**x) for x in dialogue_raw]
-            return self.genie_environment.invoke_template(
-                template_name,
-                render_data,
-                dialogue,
-            )
+            return self.genie_environment.invoke_template(template_name, render_data)
 
         return invoke_ai_event
 

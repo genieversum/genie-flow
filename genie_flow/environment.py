@@ -217,10 +217,9 @@ class GenieEnvironment:
         self,
         template_path: str,
         data_context: dict[str, Any],
-        dialogue: Optional[list[DialogueElement]] = None,
     ) -> str:
         rendered = self.render_template(template_path, data_context)
         prefix, _ = template_path.rsplit("/", 1)
         invokers_pool = self._template_directories[prefix]["invokers"]
         with invokers_pool as invoker:
-            return invoker.invoke(rendered, dialogue)
+            return invoker.invoke(rendered)
