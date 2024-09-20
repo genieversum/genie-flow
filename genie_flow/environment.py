@@ -13,7 +13,6 @@ from statemachine import State
 from genie_flow.genie import GenieModel, GenieStateMachine
 from genie_flow_invoker import InvokersPool
 from genie_flow_invoker.factory import InvokerFactory
-from genie_flow.model.dialogue import DialogueElement
 from genie_flow.model.types import ModelKeyRegistryType
 from genie_flow.model.template import CompositeTemplateType
 from genie_flow.store import StoreManager
