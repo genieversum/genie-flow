@@ -7,8 +7,8 @@ from pydantic_redis import Model
 from statemachine import StateMachine, State
 from statemachine.event_data import EventData
 
-from ai_state_machine.model.dialogue import DialogueElement, DialogueFormat
-from ai_state_machine.model.template import CompositeTemplateType
+from genie_flow.model.dialogue import DialogueElement, DialogueFormat
+from genie_flow.model.template import CompositeTemplateType
 
 
 class GenieTaskProgress(Model):

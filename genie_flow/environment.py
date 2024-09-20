@@ -10,12 +10,13 @@ from jinja2 import Environment, PrefixLoader, TemplateNotFound
 from pydantic_redis import Model
 from statemachine import State
 
-from ai_state_machine.genie import GenieModel, GenieStateMachine
-from ai_state_machine.invoker import InvokerFactory, InvokersPool
-from ai_state_machine.model.dialogue import DialogueElement
-from ai_state_machine.model.types import ModelKeyRegistryType
-from ai_state_machine.model.template import CompositeTemplateType
-from ai_state_machine.store import StoreManager
+from genie_flow.genie import GenieModel, GenieStateMachine
+from genie_flow_invoker import InvokersPool
+from genie_flow_invoker.factory import InvokerFactory
+from genie_flow.model.dialogue import DialogueElement
+from genie_flow.model.types import ModelKeyRegistryType
+from genie_flow.model.template import CompositeTemplateType
+from genie_flow.store import StoreManager
 
 _META_FILENAME: str = "meta.yaml"
 _T = TypeVar("_T")

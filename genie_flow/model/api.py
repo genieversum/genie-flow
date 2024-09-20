@@ -3,7 +3,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-from ai_state_machine.genie import GenieModel
+from genie_flow.genie import GenieModel
 
 
 class GenieMessage(BaseModel, ABC):

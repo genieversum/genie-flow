@@ -2,8 +2,8 @@ import pydantic_redis
 from dependency_injector import containers, providers
 from redis import Redis
 
-from ai_state_machine.session_lock import SessionLockManager
-from ai_state_machine.store import StoreManager
+from genie_flow.session_lock import SessionLockManager
+from genie_flow.store import StoreManager
 
 
 class PydanticRedisStoreWrapper(pydantic_redis.Store):

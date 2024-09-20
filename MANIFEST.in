@@ -1,0 +1,6 @@
+global-include *.py
+global-exclude *.py[cod]
+include README.md
+include LICENSE
+include genie_flow/*
+exclude tests/*

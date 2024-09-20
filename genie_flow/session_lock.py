@@ -3,7 +3,7 @@ from typing import Type, Optional
 import redis_lock
 from redis import Redis
 
-from ai_state_machine.genie import GenieModel
+from genie_flow.genie import GenieModel
 
 
 class LockedGenieModel:

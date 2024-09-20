@@ -1,3 +1,3 @@
-from ai_state_machine.genie import GenieModel
+from genie_flow.genie import GenieModel
 
 ModelKeyRegistryType = dict[str, type[GenieModel]]
