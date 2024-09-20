@@ -1,9 +1,9 @@
-import logging
 from os import PathLike
 from pathlib import Path
 from typing import TypedDict, Callable, Optional, TypeVar, Any, Type
 
 import jinja2
+from loguru import logger
 import yaml
 from celery import Task
 from jinja2 import Environment, PrefixLoader, TemplateNotFound
@@ -83,7 +83,7 @@ class GenieEnvironment:
                 parent_config.update(meta)
                 return parent_config
         except FileNotFoundError:
-            logging.debug(f"No meta file found in {directory}")
+            logger.debug(f"No meta file found in {directory}")
             return parent_config
 
     @property
@@ -221,5 +221,6 @@ class GenieEnvironment:
         rendered = self.render_template(template_path, data_context)
         prefix, _ = template_path.rsplit("/", 1)
         invokers_pool = self._template_directories[prefix]["invokers"]
+        logger.debug("rendered template into: {}", rendered)
         with invokers_pool as invoker:
             return invoker.invoke(rendered)

@@ -157,7 +157,7 @@ class GenieStateMachine(StateMachine):
                 "parsed_actor_input": parsed_json,
                 "state_id": self.current_state.id,
                 "state_name": self.current_state.name,
-                "chat_history": str(self.model.format_dialogue(DialogueFormat.CHAT)),
+                "chat_history": str(self.model.format_dialogue(DialogueFormat.YAML)),
             }
         )
         return render_data
