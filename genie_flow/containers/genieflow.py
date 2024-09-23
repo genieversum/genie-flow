@@ -3,12 +3,12 @@ from dependency_injector import containers, providers
 
 from genie_flow.app import create_fastapi_app
 from genie_flow.containers.core import GenieFlowCoreContainer
-from genie_flow_invoker.containers import GenieFlowInvokerContainer
 from genie_flow.containers.persistence import GenieFlowPersistenceContainer
 from genie_flow.celery import CeleryManager
 from genie_flow.environment import GenieEnvironment
 from genie_flow.model.types import ModelKeyRegistryType
 from genie_flow.session import SessionManager
+from genie_flow_invoker import InvokerFactory
 
 
 class GenieFlowContainer(containers.DeclarativeContainer):
@@ -22,8 +22,8 @@ class GenieFlowContainer(containers.DeclarativeContainer):
 
     model_key_registry = providers.Singleton(ModelKeyRegistryType)
 
-    invokers = providers.Container(
-        GenieFlowInvokerContainer,
+    invoker_factory = providers.Factory(
+        InvokerFactory,
         config=config.invokers,
     )
 
@@ -38,7 +38,7 @@ class GenieFlowContainer(containers.DeclarativeContainer):
         config.genie_environment.pool_size,
         storage.store_manager,
         model_key_registry,
-        invokers.invoker_factory,
+        invoker_factory,
     )
 
     celery_app = providers.Singleton(
