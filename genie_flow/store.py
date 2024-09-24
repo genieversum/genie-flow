@@ -2,9 +2,9 @@ from typing import Type
 
 from pydantic_redis import Model, Store
 
-from ai_state_machine.genie import GenieModel, GenieTaskProgress
-from ai_state_machine.model.dialogue import DialogueElement
-from ai_state_machine.utils import get_class_from_fully_qualified_name
+from genie_flow.genie import GenieModel, GenieTaskProgress
+from genie_flow.model.dialogue import DialogueElement
+from genie_flow.utils import get_class_from_fully_qualified_name
 
 
 class StoreManager:

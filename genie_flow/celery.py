@@ -11,13 +11,13 @@ from loguru import logger
 from statemachine import State
 from statemachine.event_data import EventData
 
-from ai_state_machine.containers.persistence import GenieFlowPersistenceContainer
-from ai_state_machine.environment import GenieEnvironment
-from ai_state_machine.genie import GenieModel, GenieStateMachine, GenieTaskProgress
-from ai_state_machine.model.template import CompositeTemplateType, CompositeContentType
-from ai_state_machine.model.dialogue import DialogueElement
-from ai_state_machine.session_lock import SessionLockManager
-from ai_state_machine.utils import get_class_from_fully_qualified_name, \
+from genie_flow.containers.persistence import GenieFlowPersistenceContainer
+from genie_flow.environment import GenieEnvironment
+from genie_flow.genie import GenieModel, GenieStateMachine, GenieTaskProgress
+from genie_flow.model.template import CompositeTemplateType, CompositeContentType
+from genie_flow.model.dialogue import DialogueElement
+from genie_flow.session_lock import SessionLockManager
+from genie_flow.utils import get_class_from_fully_qualified_name, \
     get_fully_qualified_name_from_class
 
 
@@ -305,7 +305,7 @@ class CeleryManager:
         ) -> str:
             """
             This Celery Task executes the actual Invocation. It is given the data that should be
-            used to render the template. It then recreates the Dialogue and invokes the template.
+            used to render the template. It then invokes the template.
 
             :param render_data: The data that should be used to render the template
             :param template_name: The name of the template that should be used to render

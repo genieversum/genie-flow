@@ -1,21 +1,21 @@
-import logging
 from os import PathLike
 from pathlib import Path
 from typing import TypedDict, Callable, Optional, TypeVar, Any, Type
 
 import jinja2
+from loguru import logger
 import yaml
 from celery import Task
 from jinja2 import Environment, PrefixLoader, TemplateNotFound
 from pydantic_redis import Model
 from statemachine import State
 
-from ai_state_machine.genie import GenieModel, GenieStateMachine
-from ai_state_machine.invoker import InvokerFactory, InvokersPool
-from ai_state_machine.model.dialogue import DialogueElement
-from ai_state_machine.model.types import ModelKeyRegistryType
-from ai_state_machine.model.template import CompositeTemplateType
-from ai_state_machine.store import StoreManager
+from genie_flow.genie import GenieModel, GenieStateMachine
+from genie_flow_invoker import InvokersPool
+from genie_flow_invoker.factory import InvokerFactory
+from genie_flow.model.types import ModelKeyRegistryType
+from genie_flow.model.template import CompositeTemplateType
+from genie_flow.store import StoreManager
 
 _META_FILENAME: str = "meta.yaml"
 _T = TypeVar("_T")
@@ -82,7 +82,7 @@ class GenieEnvironment:
                 parent_config.update(meta)
                 return parent_config
         except FileNotFoundError:
-            logging.debug(f"No meta file found in {directory}")
+            logger.debug(f"No meta file found in {directory}")
             return parent_config
 
     @property
@@ -220,5 +220,6 @@ class GenieEnvironment:
         rendered = self.render_template(template_path, data_context)
         prefix, _ = template_path.rsplit("/", 1)
         invokers_pool = self._template_directories[prefix]["invokers"]
+        logger.debug("rendered template into: {}", rendered)
         with invokers_pool as invoker:
             return invoker.invoke(rendered)

@@ -4,12 +4,12 @@ import uuid
 from celery.result import AsyncResult
 from statemachine.exceptions import TransitionNotAllowed
 
-from ai_state_machine.celery import CeleryManager
-from ai_state_machine.environment import GenieEnvironment
-from ai_state_machine.genie import GenieModel, GenieTaskProgress
-from ai_state_machine.model.types import ModelKeyRegistryType
-from ai_state_machine.model.api import AIResponse, EventInput, AIStatusResponse, AIProgressResponse
-from ai_state_machine.session_lock import SessionLockManager
+from genie_flow.celery import CeleryManager
+from genie_flow.environment import GenieEnvironment
+from genie_flow.genie import GenieModel, GenieTaskProgress
+from genie_flow.model.types import ModelKeyRegistryType
+from genie_flow.model.api import AIResponse, EventInput, AIStatusResponse, AIProgressResponse
+from genie_flow.session_lock import SessionLockManager
 
 
 class SessionManager:

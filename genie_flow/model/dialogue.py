@@ -31,10 +31,21 @@ class DialogueElement(Model):
             raise ValueError(f"unknown actor: '{value}'")
         return value
 
+    def as_chat(self) -> str:
+        return f"[{self.actor.upper()}]: {self.actor_text}\n"
+
+    def as_yaml(self) -> str:
+        lines = "\n".join(f"    {line}" for line in self.actor_text.splitlines())
+        return f"""- role: {self.actor}
+  content: >
+{lines}
+"""
+
 
 class DialogueFormat(Enum):
     PYTHON_REPR = "python_repr"
     JSON = "json"
+    YAML = "yaml"
     CHAT = "chat"
     QUESTION_ANSWER = "question_answer"
 
@@ -49,11 +60,11 @@ class DialogueFormat(Enum):
             case cls.PYTHON_REPR:
                 return repr(dialogue)
             case cls.JSON:
-                return json.dumps([e.model_dump() for e in dialogue])
+                return json.dumps([d.model_dump() for d in dialogue])
+            case cls.YAML:
+                return "\n".join(d.as_yaml() for d in dialogue)
             case cls.CHAT:
-                return "\n\n".join(
-                    f"[{e.actor.upper()}]: {e.actor_text}" for e in dialogue
-                )
+                return "\n".join(d.as_chat() for d in dialogue)
             case cls.QUESTION_ANSWER:
                 # TODO figure something out for question / answer
                 raise NotImplementedError()

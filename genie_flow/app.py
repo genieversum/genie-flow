@@ -5,8 +5,8 @@ from fastapi import status
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 
-from ai_state_machine.model.api import AIStatusResponse, AIResponse, EventInput
-from ai_state_machine.session import SessionManager
+from genie_flow.model.api import AIStatusResponse, AIResponse, EventInput
+from genie_flow.session import SessionManager
 
 
 def _unknown_state_machine_exception(state_machine_key: str) -> HTTPException:
