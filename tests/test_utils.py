@@ -8,7 +8,6 @@ from genie_flow.utils import get_fully_qualified_name_from_class, \
 
 def test_fqn():
     fqn = get_fully_qualified_name_from_class(collections.OrderedDict())
-    print(fqn)
     assert fqn == "collections.OrderedDict"
 
 
