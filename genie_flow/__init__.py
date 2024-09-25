@@ -3,8 +3,8 @@ from os import PathLike
 from celery import Celery
 from fastapi import FastAPI
 
-from ai_state_machine.containers.genieflow import GenieFlowContainer
-from ai_state_machine.environment import GenieEnvironment
+from genie_flow.containers.genieflow import GenieFlowContainer
+from genie_flow.environment import GenieEnvironment
 
 
 class GenieFlow:
@@ -16,8 +16,8 @@ class GenieFlow:
     def from_yaml(cls, config_file_path: str | PathLike) -> "GenieFlow":
         container = GenieFlowContainer()
         container.config.from_yaml(config_file_path, required=True)
-        container.wire(packages=["ai_state_machine"])
-        container.storage.container.wire(modules=["ai_state_machine.celery"])
+        container.wire(packages=["genie_flow"])
+        container.storage.container.wire(modules=["genie_flow.celery"])
         container.init_resources()
 
         return cls(container)

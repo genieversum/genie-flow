@@ -7,8 +7,8 @@ from pydantic_redis import Model
 from statemachine import StateMachine, State
 from statemachine.event_data import EventData
 
-from ai_state_machine.model.dialogue import DialogueElement, DialogueFormat
-from ai_state_machine.model.template import CompositeTemplateType
+from genie_flow.model.dialogue import DialogueElement, DialogueFormat
+from genie_flow.model.template import CompositeTemplateType
 
 
 class GenieTaskProgress(Model):
@@ -157,7 +157,7 @@ class GenieStateMachine(StateMachine):
                 "parsed_actor_input": parsed_json,
                 "state_id": self.current_state.id,
                 "state_name": self.current_state.name,
-                "chat_history": str(self.model.format_dialogue(DialogueFormat.CHAT)),
+                "chat_history": str(self.model.format_dialogue(DialogueFormat.YAML)),
             }
         )
         return render_data

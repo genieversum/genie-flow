@@ -113,8 +113,8 @@ When the developed has created a new `GenieModel`, that new model needs to be re
 make that model recognized to the Pydantic-Redis ORM framework. This registration is done as follows:
 
 ```python
-from ai_state_machine import GenieFlow
-from ai_state_machine.genie import GenieModel
+from genie_flow import GenieFlow
+from genie_flow.genie import GenieModel
 
 
 class MyNewModel(GenieModel):
@@ -266,7 +266,7 @@ The first, simple Question and Answer dialogue can be defined as follows:
 ```python
 from statemachine import State
 
-from ai_state_machine.genie import GenieModel, GenieStateMachine
+from genie_flow.genie import GenieModel, GenieStateMachine
 
 
 class QandAModel(GenieModel):
@@ -277,7 +277,6 @@ class QandAModel(GenieModel):
 
 
 class QandAMachine(GenieStateMachine):
-
     # STATES
     intro = State(initial=True, value=000)
     user_enters_query = State(value=100)
@@ -426,7 +425,7 @@ These conditions are plain Python methods that we defined on our state machine c
 ```python
 from statemachine.event_data import EventData
 
-from ai_state_machine.genie import GenieStateMachine
+from genie_flow.genie import GenieStateMachine
 
 
 class QandACondMachine(GenieStateMachine):
@@ -495,7 +494,7 @@ from typing import Optional
 
 from pydantic import Field
 
-from ai_state_machine.genie import GenieModel
+from genie_flow.genie import GenieModel
 
 
 class QandACaptureModel(GenieModel):
@@ -536,7 +535,7 @@ But the main meal here is the definition of a method that gets called when the L
 the username. This is done by the following method on our `QandACaptureMachine` class:
 
 ```python
-from ai_state_machine.genie import GenieStateMachine
+from genie_flow.genie import GenieStateMachine
 
 
 class QandACaptureMachine(GenieStateMachine):
@@ -555,7 +554,7 @@ not if the username has been extracted. That is determined by the condition. So 
 the value `UNDEFINED` to `model.user_name`. An alternative would be to create the following method:
 
 ```python
-from ai_state_machine.genie import GenieStateMachine
+from genie_flow.genie import GenieStateMachine
 
 
 class QandACaptureMachine(GenieStateMachine):
@@ -611,7 +610,7 @@ Some interesting parts from that code are:
 ```python
 from statemachine import State
 
-from ai_state_machine.genie import GenieStateMachine
+from genie_flow.genie import GenieStateMachine
 
 
 class ClaimsMachine(GenieStateMachine):
@@ -662,7 +661,7 @@ input for the next, is done by putting the two consecutive templates in a list. 
 [q_and_a_trans.py](../example_qa/q_and_a_trans.py) has the following templates defintions:
 
 ```python
-from ai_state_machine.genie import GenieStateMachine
+from genie_flow.genie import GenieStateMachine
 
 
 class QandATransMachine(GenieStateMachine):
@@ -704,7 +703,7 @@ branching is done by assigning a dictionary of prompts. This is done in the
 [Claims Genie example](../example_claims/claims.py) as in the following extract:
 
 ```python
-from ai_state_machine.genie import GenieStateMachine
+from genie_flow.genie import GenieStateMachine
 
 GenieStateMachine
 
@@ -816,7 +815,7 @@ The data model (which is closely coupled with your state machine) needs to be re
 the API broker. This is done at the same time that you register your model for persistance.
 
 ```python
-from ai_state_machine.containers import init_genie_flow
+from genie_flow.containers import init_genie_flow
 
 from example_claims.claims import ClaimsModel
 
@@ -833,8 +832,7 @@ logic and models simultaneously. One can register the different Q and A examples
 this documentation, at the same time:
 
 ```python
-from ai_state_machine.containers import init_genie_flow
-
+from genie_flow.containers import init_genie_flow
 
 from example_qa import (
     q_and_a,
@@ -842,7 +840,6 @@ from example_qa import (
     q_and_a_capture,
     q_and_a_trans,
 )
-
 
 genie_environment = init_genie_flow("config.yaml")
 
@@ -860,9 +857,8 @@ is also required to give a key and the actual path to the directory where to fin
 instance:
 
 ```python
-from ai_state_machine.containers import init_genie_flow
+from genie_flow.containers import init_genie_flow
 from example_claims.claims import ClaimsModel
-
 
 genie_environment = init_genie_flow("config.yaml")
 genie_environment.register_model("claims_genie", ClaimsModel)
