@@ -6,3 +6,4 @@ main.log
 dist/
 build/
 genie_flow.egg-info
+.env

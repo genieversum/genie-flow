@@ -1,0 +1,32 @@
+persistence:
+  model_store:
+    host: localhost
+    port: 6379
+    password: atestpassword
+    db: 1
+    life_span_in_seconds: 86400
+  lock_store:
+    host: localhost
+    password: atestpassword
+    port: 6379
+    db: 2
+celery:
+  broker: redis://:atestpassword@localhost:6379/3
+  backend: redis://:atestpassword@localhost:6379/0
+  redis_socket_timeout: 4.0
+  redis_socket_connect_timeout: 4.0
+api:
+  debug: true
+  root_path: /api/v1
+genie_environment:
+  template_root_path: .
+  pool_size: 1
+invokers:
+cors:
+  allow_origins:
+    - "*"
+  allow_credentials: true
+  allow_methods:
+    - "*"
+  allow_headers:
+    - "*"

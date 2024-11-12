@@ -9,12 +9,13 @@ from genie_flow.store import StoreManager
 class PydanticRedisStoreWrapper(pydantic_redis.Store):
 
     def __init__(
-        self, host: str, port: int, db: int, life_span_in_seconds: int = 86400
+        self, host: str, port: int, db: int, password: str, life_span_in_seconds: int = 86400
     ):
         redis_config = pydantic_redis.RedisConfig(
             host=host,
             port=port,
             db=db,
+            password=password
         )
         super().__init__(
             "genie flow store",
@@ -32,6 +33,7 @@ class GenieFlowPersistenceContainer(containers.DeclarativeContainer):
         host=config.model_store.host,
         port=config.model_store.port,
         db=config.model_store.db,
+        password=config.model_store.password,
         life_span_in_seconds=config.model_store.life_span_in_seconds,
     )
 
@@ -39,6 +41,7 @@ class GenieFlowPersistenceContainer(containers.DeclarativeContainer):
         Redis,
         host=config.lock_store.host,
         port=config.lock_store.port,
+        password=config.lock_store.password,
         db=config.lock_store.db,
     )
 
