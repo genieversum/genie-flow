@@ -11,3 +11,9 @@ This package aims to simplify and streamline the creation of dialogue flows that
 interact with an LLM.
 
 Documentation can be found [here](doc/index.md)
+
+## Contributing
+
+1. Setup your environment variables `cp .env.example .env` and set the values accordingly
+2. Load .env variables into terminal `export $(grep -v '^#' .env | xargs)` 
+3. Install package dependencies `pip install -e .`
