@@ -142,7 +142,8 @@ class _ProgressLoggingTask(Task):
         return task_progress_list[0]
 
     def on_success(self, retval, task_id, args, kwargs):
-        logger.info(f"Just finished task {task_id} successfully with return value {retval}")
+        logger.info(f"Just finished task {task_id} successfully.")
+        logger.debug(f"Task {task_id} has return value: {retval}")
         session_id: str = args[-1]
         with self.get_lock_for_session(session_id):
             task_progress = self._retrieve_progress(session_id)
