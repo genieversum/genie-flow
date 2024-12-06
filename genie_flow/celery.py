@@ -14,7 +14,7 @@ from statemachine.event_data import EventData
 from genie_flow.containers.persistence import GenieFlowPersistenceContainer
 from genie_flow.environment import GenieEnvironment
 from genie_flow.genie import GenieModel, GenieStateMachine, GenieTaskProgress
-from genie_flow.model.template import CompositeTemplateType, CompositeContentType
+from genie_flow.model.template import CompositeTemplateType, CompositeContentType, MapTaskTemplate
 from genie_flow.model.dialogue import DialogueElement
 from genie_flow.session_lock import SessionLockManager
 from genie_flow.utils import get_class_from_fully_qualified_name, \
@@ -46,6 +46,10 @@ class _TaskCompiler:
     @property
     def _invoke_task(self) -> Task:
         return self.celery_app.tasks["genie_flow.invoke_task"]
+
+    @property
+    def _map_task(self) -> Task:
+        return self.celery_app.tasks["genie_flow.map_task"]
 
     @property
     def _chained_template_task(self) -> Task:
@@ -95,6 +99,17 @@ class _TaskCompiler:
             return chord(
                 group(*[self._compile_task_graph(template[k]) for k in dict_keys]),
                 self._combine_group_to_dict_task.s(dict_keys, self.session_id),
+            )
+
+        if isinstance(template, MapTaskTemplate):
+            if not isinstance(template.template_name, str):
+                raise TypeError("Template name of a MapTaskTemplate should be a string")
+            return self._map_task.s(
+                template.list_attribute,
+                template.map_index_field,
+                template.map_value_field,
+                template.template_name,
+                self.session_id,
             )
 
         raise ValueError(
@@ -316,6 +331,37 @@ class CeleryManager:
             return self.genie_environment.invoke_template(template_name, render_data)
 
         return invoke_ai_event
+
+    def _add_map_task(self):
+
+        @self.celery_app.task(
+            bound=True,
+            base=_ProgressLoggingTask,
+            name="genie_flow.map_task",
+        )
+        def map_task(
+                task_instance: Task,
+                render_data: dict[str, Any],
+                list_attribute: str,
+                map_index_field: str,
+                map_value_field: str,
+                template_name: str,
+                session_id: str,
+        ):
+            list_values = render_data[list_attribute]
+            render_data_list = []
+            for map_index, map_value in enumerate(list_values):
+                updated_render_data = render_data.copy()
+                updated_render_data[map_index_field] = map_index
+                updated_render_data[map_value_field] = map_value
+                render_data_list.append(updated_render_data)
+
+            invoke_task = self.celery_app.tasks["genie_flow.invoke_task"]
+            tasks = [
+                invoke_task.s(updated_render_data, template_name, session_id)
+                for updated_render_data in render_data_list
+            ]
+            return task_instance.replace(group(*tasks))
 
     def _add_combine_group_to_dict(self):
 
