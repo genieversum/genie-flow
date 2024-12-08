@@ -29,6 +29,7 @@ dependencies=[
     "celery~=5.4.0",
     "redis~=5.0.8",
     "python-redis-lock~=4.0.0",
-    "dependency-injector~=4.42.0"
+    "dependency-injector~=4.42.0",
+    "jmespath~=1.0.1",
 ]
 dynamic = ["version"]
