@@ -16,7 +16,6 @@ from genie_flow.containers.persistence import GenieFlowPersistenceContainer
 from genie_flow.environment import GenieEnvironment
 from genie_flow.genie import GenieModel, GenieStateMachine, GenieTaskProgress
 from genie_flow.model.template import CompositeTemplateType, CompositeContentType, MapTaskTemplate
-from genie_flow.model.dialogue import DialogueElement
 from genie_flow.session_lock import SessionLockManager
 from genie_flow.utils import get_class_from_fully_qualified_name, \
     get_fully_qualified_name_from_class
@@ -221,7 +220,7 @@ class CeleryManager:
         self._add_invoke_task()
         self._add_map_task()
         self._add_combine_group_to_dict()
-        self._add_combine_chain_to_list()
+        self._add_combine_group_to_list()
         self._add_chained_template()
 
     def _process_model_event(
