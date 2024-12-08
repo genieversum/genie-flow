@@ -23,6 +23,9 @@ from genie_flow.utils import get_class_from_fully_qualified_name, \
 
 
 def parse_if_json(s: str) -> Any:
+    if not isinstance(s, str):
+        return s
+
     try:
         return json.loads(s)
     except (json.JSONDecodeError, UnicodeDecodeError):
