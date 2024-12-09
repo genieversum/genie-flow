@@ -1,3 +1,5 @@
+from genie_flow.genie import GenieStateMachine
+
 # Genie Flow
 The Genie Flow Framework is intended to make it easy to design and implement dialogues between a
 Human user and an LLM. Such dialogue is typically directed through a number of stages. Often they
@@ -754,6 +756,83 @@ templates as prompt to the LLM.
 Remember that the result of a previous LLM call in the chain will be available in the property
 `previous_result`. If the previous step in the chain was a branching template (a dictionary of
 templates), that property will contain the value of that dictionary.
+
+### Mapping and running in parallel
+The special template type `MapTaskTemplate` enables the user to map a template against a list
+of values in the `GenieModel`, and receive a list of values in return. The mapping is conducted
+at run-time, meaning that the values that exist in the model at the time of invokation, will
+all be mapped against the given template. All these template invokations will be run in parallel
+meaning that maximum process speed will be achieved. The speed being dependent on the number of
+Celery workers is available at the time.
+
+With the current release, only singular templates can be used to map against. It is foreseeable
+that more complex constructs such as lists and dicts will be supported.
+
+The way to express a map task template is as follows:
+
+```python
+from genie_flow.model.template import MapTaskTemplate
+from genie_flow.genie import GenieStateMachine
+from statemachine import State
+
+
+...
+
+class SomeGenieMachine(GenieStateMachine):
+    
+    # STATES
+    mapping_a_template = State(value=500)
+    
+    # TEMPLATES
+    templates = dict(
+        mapping_a_template=MapTaskTemplate(
+            "embed/chunk.jinja2",
+            "embedded_doc.chunks[*].content",
+        )
+    )
+
+```
+This would assign a mapping template to the state `mapping_a_template`. As can be seen, this
+would map the template `embed/chunk.jinja2` to all the values that will come out of applying
+the JMES Path expression `embedded_doc.chunks[*].content` to the model, at run time.
+
+The template could be something like:
+
+```jinja2
+{{ map_value }}
+```
+
+And with a `meta.yaml` such as:
+```yaml
+invoker:
+  type: genie_flow_invoker.invoker.docproc.embed.EmbedInvoker
+  text2vec_url: http://localhost:8080
+  pooling_strategy: masked_mean
+```
+
+This would, for each and every value, call the `EmbedInvoker` to create an embedding for that
+value. The result would be a list of embeddings.
+
+Here you can find more information on [JMES Path expressions](https://jmespath.org/) or follow
+[the Tutorial](https://jmespath.org/tutorial.html). The expression in the above example gives
+a list of all the `content` values of all the elements of the list of chunks in the embedded_doc.
+If the JMES Path expression does not render a list, a warning is created and the value is places
+in a one-element list.
+
+The following properties can be set on a `MapTaskTemplate`:
+
+`template_name` 
+: the qualified name of the template to map all values against. NB: currently only singular
+templates, no lists, dicts or other types are supported.
+
+`list_attribute`
+: the JMES Path expression that will be applied to create the list of values to map
+
+`map_index_field`
+: (default `map_index`) the name of the field that will contain the index for each of the mappings
+
+`map_value_field`
+: (default `map_value`) the name of the field that will contain the value of each of the mappings
 
 ### Your own Celery Task
 Rather than specifying a reference to a template, or a list or dictionary of some form, the

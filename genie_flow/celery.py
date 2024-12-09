@@ -366,6 +366,32 @@ class CeleryManager:
                 template_name: str,
                 session_id: str,
         ):
+            """
+            This task maps a template onto the different values in a list of model parameters.
+            Each of the invocations will be created as a separate Celery task. A final task
+            will be run, converting the output into a JSON list of results.
+
+            This mapping will be done at run-time, so all the values in the model's list
+            attribute will generate a separate invocation of the template.
+
+            When the template is invoked, it will be rendered with the complete render_data
+            object, with an addition of two attributes: the attribute identifying the index
+            of the value it is rendered for, and an attribute containing the value itself.
+
+            The names of these attributes are given by `map_index_field` and `map_value_field`
+            respectively.
+
+            At this time, only a simple rendered template can be used - no list, dict or
+            otherwise.
+
+            :param task_instance: a reference to the map task
+            :param render_data: the dict of template render data
+            :param list_attribute: the JMES Path into the attribute to map
+            :param map_index_field: the name of the attribute carrying the index
+            :param map_value_field: the name of the attribute carrying the value
+            :param template_name: the name of the template that should be used to render
+            :param session_id: the session id for which this task is executed
+            """
             list_values = jmespath.search(list_attribute, render_data)
             if not isinstance(list_values, list):
                 logger.warning(
