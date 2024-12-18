@@ -1,6 +1,7 @@
 import json
 from typing import Any, Optional
 
+import jmespath
 import redis_lock
 from celery import Celery, Task
 from celery.app.task import Context
@@ -14,11 +15,20 @@ from statemachine.event_data import EventData
 from genie_flow.containers.persistence import GenieFlowPersistenceContainer
 from genie_flow.environment import GenieEnvironment
 from genie_flow.genie import GenieModel, GenieStateMachine, GenieTaskProgress
-from genie_flow.model.template import CompositeTemplateType, CompositeContentType
-from genie_flow.model.dialogue import DialogueElement
+from genie_flow.model.template import CompositeTemplateType, CompositeContentType, MapTaskTemplate
 from genie_flow.session_lock import SessionLockManager
 from genie_flow.utils import get_class_from_fully_qualified_name, \
     get_fully_qualified_name_from_class
+
+
+def parse_if_json(s: str) -> Any:
+    if not isinstance(s, str):
+        return s
+
+    try:
+        return json.loads(s)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return s
 
 
 class _TaskCompiler:
@@ -48,12 +58,20 @@ class _TaskCompiler:
         return self.celery_app.tasks["genie_flow.invoke_task"]
 
     @property
+    def _map_task(self) -> Task:
+        return self.celery_app.tasks["genie_flow.map_task"]
+
+    @property
     def _chained_template_task(self) -> Task:
         return self.celery_app.tasks["genie_flow.chained_template"]
 
     @property
     def _combine_group_to_dict_task(self) -> Task:
         return self.celery_app.tasks["genie_flow.combine_group_to_dict"]
+
+    @property
+    def _combine_group_to_list_task(self) -> Task:
+        return self.celery_app.tasks["genie_flow.combine_group_to_list"]
 
     @property
     def _trigger_ai_event_task(self) -> Task:
@@ -95,6 +113,19 @@ class _TaskCompiler:
             return chord(
                 group(*[self._compile_task_graph(template[k]) for k in dict_keys]),
                 self._combine_group_to_dict_task.s(dict_keys, self.session_id),
+            )
+
+        if isinstance(template, MapTaskTemplate):
+            if not isinstance(template.template_name, str):
+                raise TypeError("Template name of a MapTaskTemplate should be a string")
+
+            self.nr_tasks += 1
+            return self._map_task.s(
+                template.list_attribute,
+                template.map_index_field,
+                template.map_value_field,
+                template.template_name,
+                self.session_id,
             )
 
         raise ValueError(
@@ -187,7 +218,9 @@ class CeleryManager:
         self._add_error_handler()
         self._add_trigger_ai_event_task()
         self._add_invoke_task()
+        self._add_map_task()
         self._add_combine_group_to_dict()
+        self._add_combine_group_to_list()
         self._add_chained_template()
 
     def _process_model_event(
@@ -317,6 +350,79 @@ class CeleryManager:
 
         return invoke_ai_event
 
+    def _add_map_task(self):
+
+        @self.celery_app.task(
+            bind=True,
+            base=_ProgressLoggingTask,
+            name="genie_flow.map_task",
+        )
+        def map_task(
+                task_instance: Task,
+                render_data: dict[str, Any],
+                list_attribute: str,
+                map_index_field: str,
+                map_value_field: str,
+                template_name: str,
+                session_id: str,
+        ):
+            """
+            This task maps a template onto the different values in a list of model parameters.
+            Each of the invocations will be created as a separate Celery task. A final task
+            will be run, converting the output into a JSON list of results.
+
+            This mapping will be done at run-time, so all the values in the model's list
+            attribute will generate a separate invocation of the template.
+
+            When the template is invoked, it will be rendered with the complete render_data
+            object, with an addition of two attributes: the attribute identifying the index
+            of the value it is rendered for, and an attribute containing the value itself.
+
+            The names of these attributes are given by `map_index_field` and `map_value_field`
+            respectively.
+
+            At this time, only a simple rendered template can be used - no list, dict or
+            otherwise.
+
+            :param task_instance: a reference to the map task
+            :param render_data: the dict of template render data
+            :param list_attribute: the JMES Path into the attribute to map
+            :param map_index_field: the name of the attribute carrying the index
+            :param map_value_field: the name of the attribute carrying the value
+            :param template_name: the name of the template that should be used to render
+            :param session_id: the session id for which this task is executed
+            """
+            list_values = jmespath.search(list_attribute, render_data)
+            if not isinstance(list_values, list):
+                logger.warning(
+                    "path to attribute returns type {} and not a list",
+                    type(list_values),
+                )
+                list_values = [list_values]
+
+            render_data_list = []
+            for map_index, map_value in enumerate(list_values):
+                updated_render_data = render_data.copy()
+                updated_render_data[map_index_field] = map_index
+                updated_render_data[map_value_field] = map_value
+                render_data_list.append(updated_render_data)
+
+            invoke_task = self.celery_app.tasks["genie_flow.invoke_task"]
+            mapped_tasks = [
+                invoke_task.s(updated_render_data, template_name, session_id)
+                for updated_render_data in render_data_list
+            ]
+
+            combine_task = self.celery_app.tasks["genie_flow.combine_group_to_list"]
+            return task_instance.replace(
+                chord(
+                    group(*mapped_tasks),
+                    combine_task.s(session_id),
+                )
+            )
+
+        return map_task
+
     def _add_combine_group_to_dict(self):
 
         @self.celery_app.task(
@@ -328,16 +434,25 @@ class CeleryManager:
                 keys: list[str],
                 session_id: str,
         ) -> CompositeContentType:
-            def parse_if_json(s: str) -> Any:
-                try:
-                    return json.loads(s)
-                except (json.JSONDecodeError, UnicodeDecodeError):
-                    return s
-
             parsed_results = [parse_if_json(s) for s in results]
             return json.dumps(dict(zip(keys, parsed_results)))
 
         return combine_group_to_dict
+
+    def _add_combine_group_to_list(self):
+
+        @self.celery_app.task(
+            base=_ProgressLoggingTask,
+            name="genie_flow.combine_group_to_list",
+        )
+        def combine_chain_to_list(
+                results: list[CompositeContentType],
+                session_id: str,
+        ):
+            parsed_results = [parse_if_json(s) for s in results]
+            return json.dumps(parsed_results)
+
+        return combine_chain_to_list
 
     def _add_chained_template(self):
 
