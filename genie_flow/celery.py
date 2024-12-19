@@ -524,6 +524,35 @@ class CeleryManager:
     def get_task_result(self, task_id) -> AsyncResult:
         return AsyncResult(task_id, app=self.celery_app)
 
+    def on_event(self, event_data: EventData):
+        logger.debug(
+            "on_event for session {session_id} and event {event}",
+            session_id=event_data.machine.model.session_id,
+            event=event_data.event,
+        )
+        target_template_path = event_data.machine.get_template_for_state(event_data.target)
+        if self.genie_environment.has_invoker(target_template_path):
+            logger.debug(
+                "Enqueueing task for template {target_template_path}",
+                target_template_path=target_template_path,
+            )
+            event_data.machine.model.actor = "user"
+            self._enqueue_task(
+                event_data.machine,
+                event_data.machine.model,
+                event_data.target,
+            )
+        else:
+            logger.debug(
+                "Rendering template {target_template_path}",
+                target_template_path=target_template_path,
+            )
+            event_data.machine.model.actor = "assistant"
+            event_data.machine.model.actor_input = self.genie_environment.render_template(
+                template_path=target_template_path,
+                data_context=event_data.machine.render_data,
+            )
+
     def on_user_input(self, event_data: EventData):
         logger.debug("User input received")
         event_data.machine.model.actor = "user"

@@ -1,6 +1,6 @@
 from os import PathLike
 from pathlib import Path
-from typing import TypedDict, Callable, Optional, TypeVar, Any, Type
+from typing import TypedDict, Callable, Optional, TypeVar, Any, Type, Union
 
 import jinja2
 from loguru import logger
@@ -21,11 +21,11 @@ _META_FILENAME: str = "meta.yaml"
 _T = TypeVar("_T")
 
 
-class _TemplateDirectory(TypedDict):
+class _RegisteredDirectory(TypedDict):
     directory: Path
-    config: dict
     jinja_loader: jinja2.FileSystemLoader
-    invokers: InvokersPool
+    config: dict
+    invokers: Optional[InvokersPool]
 
 
 class GenieEnvironment:
@@ -49,7 +49,7 @@ class GenieEnvironment:
         self.invoker_factory = invoker_factory
 
         self._jinja_env: Optional[Environment] = None
-        self._template_directories: dict[str, _TemplateDirectory] = {}
+        self._template_directories: dict[str, _RegisteredDirectory] = {}
 
     def _walk_directory_tree_upward(
         self, start_directory: Path, execute: Callable[[Path, Optional[dict]], _T]
@@ -99,8 +99,6 @@ class GenieEnvironment:
                 loader=PrefixLoader(self.jinja_loader_mapping)
             )
         return self._jinja_env
-
-
 
     def _non_existing_templates(self, template: CompositeTemplateType) -> list[CompositeTemplateType]:
         if isinstance(template, str):
@@ -193,22 +191,82 @@ class GenieEnvironment:
         self.store_manager.register_model(model_class)
         self.model_key_registry[model_key] = model_class
 
+    def _create_invoker_registration(
+            self,
+            directory_path: Path,
+            invoker_config: dict,
+    ) -> _RegisteredDirectory:
+        nr_invokers = (
+            self.pool_size
+            if "pool_size" not in invoker_config
+            else invoker_config["pool_size"]
+        )
+        return _RegisteredDirectory(
+            directory=directory_path,
+            config=invoker_config,
+            jinja_loader=jinja2.FileSystemLoader(directory_path),
+            invokers=self.invoker_factory.create_invoker_pool(
+                nr_invokers,
+                invoker_config,
+            ),
+        )
+
+    def _create_renderer_registration(
+            self,
+            directory_path: Path,
+            renderer_config: dict,
+    ) -> _RegisteredDirectory:
+        return _RegisteredDirectory(
+            directory=directory_path,
+            jinja_loader=jinja2.FileSystemLoader(directory_path),
+            config=renderer_config,
+            invokers=None,
+        )
+
     def register_template_directory(self, prefix: str, directory: str | PathLike):
         if prefix in self._template_directories:
             raise ValueError(f"Template prefix '{prefix}' already registered")
 
         directory_path = Path(directory).resolve()
         config = self._walk_directory_tree_upward(directory_path, self.read_meta)
-        nr_invokers = (
-            self.pool_size if "pool_size" not in config else config["pool_size"]
-        )
-        self._template_directories[prefix] = _TemplateDirectory(
-            directory=directory_path,
-            config=config,
-            jinja_loader=jinja2.FileSystemLoader(directory),
-            invokers=self.invoker_factory.create_invoker_pool(nr_invokers, config["invoker"]),
-        )
+
+        if all(key in config for key in ["invoker", "renderer"]):
+            logger.error(
+                "Compiled template directory {directory_path} configuration "
+                "contains both 'invoker' and 'renderer'",
+                directory=directory_path,
+            )
+            raise ValueError(
+                f"Compiled template directory {directory_path} configuration "
+                "contains both 'invoker' and 'renderer'"
+            )
+
+        if "invoker" in config:
+            self._template_directories[prefix] = self._create_invoker_registration(
+                directory_path,
+                config["invoker"],
+            )
+        elif "renderer" in config:
+            self._template_directories[prefix] = self._create_renderer_registration(
+                directory_path,
+                config["renderer"],
+            )
+        else:
+            logger.error(
+                "Compiled template directory {directory_path} configuration "
+                "does not contain 'invoker' or 'renderer'",
+                directory=directory_path,
+            )
+            raise ValueError(
+                f"Compiled template directory {directory_path} configuration "
+                "does not contain 'invoker' or 'renderer'"
+            )
+
         self._jinja_env = None  # clear the Environment
+
+    def has_invoker(self, template_path: str) -> bool:
+        prefix, _ = template_path.rsplit("/", 1)
+        return self._template_directories[prefix]["invokers"] is not None
 
     def get_template(self, template_path: str) -> jinja2.Template:
         return self.jinja_env.get_template(template_path)
