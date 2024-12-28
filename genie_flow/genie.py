@@ -1,5 +1,7 @@
+import enum
 import json
-from typing import Optional, Any
+from typing import Optional, Any, NamedTuple
+from unittest import case
 
 from loguru import logger
 from pydantic import Field
@@ -29,6 +31,34 @@ class GenieTaskProgress(Model):
     )
 
 
+class StateType(enum.IntEnum):
+    USER = 0
+    INVOKER = 1
+
+    @property
+    def as_actor(self) -> str:
+        match self:
+            case "INVOKER":
+                return "assistant"
+            case "USER":
+                return "user"
+
+
+TransitionType = NamedTuple(
+    "TransitionType",
+    [
+        ("source", StateType),
+        ("target", StateType),
+    ]
+)
+
+
+class DialoguePersistence(enum.IntEnum):
+    NONE = 0
+    RAW = 1
+    RENDERED = 2
+
+
 class GenieModel(Model):
     """
     The base model for all models that will carry data in the dialogue. Contains the attributes
@@ -53,6 +83,14 @@ class GenieModel(Model):
     )
     session_id: str = Field(
         description="The ID of the session this data model object belongs to."
+    )
+    transition_type: Optional[TransitionType] = Field(
+        default=None,
+        description="The transition type that describes the current transition",
+    )
+    dialogue_persistence: Optional[DialoguePersistence] = Field(
+        default=None,
+        description="Indicator to how to add most recent actor input to the dialogue",
     )
     dialogue: list[DialogueElement] = Field(
         default_factory=list,
@@ -109,8 +147,19 @@ class GenieModel(Model):
         return DialogueFormat.format(self.dialogue, target_format)
 
     def add_dialogue_element(self, actor: str, actor_text: str):
+        """
+        Add a given actor and actor text to the dialogue.
+        :param actor: the name of the actor
+        :param actor_text: the actor text
+        """
         element = DialogueElement(actor=actor, actor_text=actor_text)
         self.dialogue.append(element)
+
+    def record_dialogue_element(self):
+        """
+        Record the current `actor` and `actor_input` into the dialogue.
+       """
+        self.add_dialogue_element(self.actor, self.actor_input)
 
 
 class GenieStateMachine(StateMachine):
@@ -169,7 +218,7 @@ class GenieStateMachine(StateMachine):
 
         :param state: The state for which to retrieve the template for
         :return: The template for the given state
-        :raises AttributeError: If this object does not have an attribute that carries the templates
+        :raises AttributeError: If this ob`ject does not have an attribute that carries the templates
         :raises KeyError: If there is no template defined for the given state
         """
         try:
@@ -177,53 +226,6 @@ class GenieStateMachine(StateMachine):
         except KeyError:
             logger.error(f"No template for state {state.id}")
             raise
-
-    # EVENT HANDLERS
-    def before_transition(self, event_data: EventData):
-        """
-        Set the current actors input and the current rendering for the target state.
-        It is assumed that the event data that is provided to the event
-        that started this transition is the actor input.
-
-        Triggered when an event is received, right before the current state is exited.
-
-        This method takes the events first argument and places that in `self.actor_input`. This
-        makes it available for further processing.
-
-        It will also take the rendering of the target template and stores that into
-        `self.current_rendering` for further processing.
-
-        If the event data does not contain the actor input, the actor is reset to an empty
-        string.
-
-        :param event_data: the event data that was provided to start this transition
-        """
-        try:
-            self.model.actor_input = event_data.args[0]
-            logger.debug("setting the actor input to: {}", self.model.actor_input)
-        except (TypeError, IndexError):
-            logger.debug("Starting a transition without an actor input")
-            self.model.actor_input = ""
-
-        self.current_template = self.get_template_for_state(event_data.target)
-
-    def after_transition(self, state: State, **kwargs):
-        """
-        A generic hook that gets called after a transition has been completed. This is used
-        to add to the dialogue a new `DialogueElement` with the current actor and actor input.
-        """
-        logger.info(f"== concluding transition into state {state.name} ({state.id})")
-
-        if self.model.actor is not None:
-            logger.debug("Adding a dialogue element to the dialogue")
-            self.model.dialogue.append(
-                DialogueElement(
-                    actor=self.model.actor,
-                    actor_text=self.model.actor_input,
-                )
-            )
-            self.model.actor = None
-            self.model.actor_input = None
 
     # VALIDATIONS AND CONDITIONS
     def is_valid_response(self, event_data: EventData):

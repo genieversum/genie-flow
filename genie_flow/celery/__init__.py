@@ -1,21 +1,21 @@
 import json
-from typing import Any, Optional
+from typing import Any
 
 import jmespath
-import redis_lock
 from celery import Celery, Task
 from celery.app.task import Context
-from celery.canvas import Signature, chord, group
+from celery.canvas import chord, group
 from celery.result import AsyncResult
-from dependency_injector.wiring import inject, Provide
 from loguru import logger
 from statemachine import State
-from statemachine.event_data import EventData
 
-from genie_flow.containers.persistence import GenieFlowPersistenceContainer
+from genie_flow.celery.compiler import TaskCompiler
+from genie_flow.celery.progress import ProgressLoggingTask
+from genie_flow.celery.transition import TransitionManager
+
 from genie_flow.environment import GenieEnvironment
 from genie_flow.genie import GenieModel, GenieStateMachine, GenieTaskProgress
-from genie_flow.model.template import CompositeTemplateType, CompositeContentType, MapTaskTemplate
+from genie_flow.model.template import CompositeContentType
 from genie_flow.session_lock import SessionLockManager
 from genie_flow.utils import get_class_from_fully_qualified_name, \
     get_fully_qualified_name_from_class
@@ -29,175 +29,6 @@ def parse_if_json(s: str) -> Any:
         return json.loads(s)
     except (json.JSONDecodeError, UnicodeDecodeError):
         return s
-
-
-class _TaskCompiler:
-
-    def __init__(
-            self,
-            celery_app: Celery,
-            template: CompositeTemplateType,
-            session_id: str,
-            render_data: dict[str, Any],
-            model_fqn: str,
-            event_to_send_after: str,
-    ):
-        self.celery_app = celery_app
-        self.session_id = session_id
-        self.render_data = render_data
-        self.model_fqn = model_fqn
-        self.event_to_send_after = event_to_send_after
-
-        self.nr_tasks = 0
-        self.task: Optional[Signature] = None
-
-        self._compile_task(template)
-
-    @property
-    def _invoke_task(self) -> Task:
-        return self.celery_app.tasks["genie_flow.invoke_task"]
-
-    @property
-    def _map_task(self) -> Task:
-        return self.celery_app.tasks["genie_flow.map_task"]
-
-    @property
-    def _chained_template_task(self) -> Task:
-        return self.celery_app.tasks["genie_flow.chained_template"]
-
-    @property
-    def _combine_group_to_dict_task(self) -> Task:
-        return self.celery_app.tasks["genie_flow.combine_group_to_dict"]
-
-    @property
-    def _combine_group_to_list_task(self) -> Task:
-        return self.celery_app.tasks["genie_flow.combine_group_to_list"]
-
-    @property
-    def _trigger_ai_event_task(self) -> Task:
-        return self.celery_app.tasks["genie_flow.trigger_ai_event"]
-
-    @property
-    def error_handler(self) -> Task:
-        return self.celery_app.tasks["genie_flow.error_handler"]
-
-    def _compile_task_graph(
-            self,
-            template: CompositeTemplateType,
-    ) -> Signature:
-        """
-        Compiles a Celery task that follows the structure of the composite template.
-        """
-        if isinstance(template, str):
-            self.nr_tasks += 1
-            return self._invoke_task.s(template, self.session_id)
-
-        if isinstance(template, Task):
-            self.nr_tasks += 1
-            return template.s(self.render_data, self.session_id)
-
-        if isinstance(template, list):
-            chained = None
-            for t in template:
-                if chained is None:
-                    chained = self._compile_task_graph(t)
-                else:
-                    chained |= self._chained_template_task.s(self.render_data, self.session_id)
-                    chained |= self._compile_task_graph(t)
-            self.nr_tasks += len(template) - 1
-            return chained
-
-        if isinstance(template, dict):
-            dict_keys = list(template.keys())  # make sure to go through keys in fixed order
-            self.nr_tasks += 1
-            return chord(
-                group(*[self._compile_task_graph(template[k]) for k in dict_keys]),
-                self._combine_group_to_dict_task.s(dict_keys, self.session_id),
-            )
-
-        if isinstance(template, MapTaskTemplate):
-            if not isinstance(template.template_name, str):
-                raise TypeError("Template name of a MapTaskTemplate should be a string")
-
-            self.nr_tasks += 1
-            return self._map_task.s(
-                template.list_attribute,
-                template.map_index_field,
-                template.map_value_field,
-                template.template_name,
-                self.session_id,
-            )
-
-        raise ValueError(
-            f"cannot compile a task for a render of type '{type(template)}'"
-        )
-
-    def _compile_task(self, template):
-        template_task_graph = self._compile_task_graph(template)
-        self.task = (
-            template_task_graph |
-            self._trigger_ai_event_task.s(
-                self.model_fqn,
-                self.event_to_send_after,
-                self.session_id,
-            )
-        )
-        self.nr_tasks += 1
-
-
-class _ProgressLoggingTask(Task):
-
-    @inject
-    def get_lock_for_session(
-            self,
-            session_id: str,
-            lock_manager: SessionLockManager = (
-                    Provide[GenieFlowPersistenceContainer.session_lock_manager]
-            ),
-    ) -> redis_lock.Lock:
-        return lock_manager.get_lock_for_session(session_id)
-
-    @staticmethod
-    def _retrieve_progress(session_id) -> Optional[GenieTaskProgress]:
-        task_progress_list = GenieTaskProgress.select(ids=[session_id])
-        if task_progress_list is None or len(task_progress_list) == 0:
-            logger.warning("No progress record for session {}", session_id)
-            return None
-
-        if len(task_progress_list) > 1:
-            logger.error(
-                f"Found too many tasks progress records for session {session_id};"
-                f" should be exactly one"
-            )
-
-        return task_progress_list[0]
-
-    def on_success(self, retval, task_id, args, kwargs):
-        logger.info(f"Just finished task {task_id} successfully.")
-        logger.debug(f"Task {task_id} has return value: {retval}")
-        session_id: str = args[-1]
-        with self.get_lock_for_session(session_id):
-            task_progress = self._retrieve_progress(session_id)
-            if task_progress is None:
-                return
-
-            task_progress.nr_subtasks_executed += 1
-            GenieTaskProgress.update(
-                session_id,
-                {"nr_subtasks_executed": task_progress.nr_subtasks_executed},
-            )
-            logger.debug(
-                "session {} has now done {} tasks",
-                session_id,
-                task_progress.nr_subtasks_executed,
-            )
-
-    def on_failure(self, exc, task_id, args, kwargs, einfo):
-        logger.error(f"Task {task_id} failed with {exc}")
-        session_id: str = args[-1]
-        with self.get_lock_for_session(session_id):
-            self._retrieve_progress(session_id)
-            GenieTaskProgress.delete(session_id)
 
 
 class CeleryManager:
@@ -231,7 +62,7 @@ class CeleryManager:
             event_name: str,
     ):
         state_machine = model.get_state_machine_class()(model)
-        state_machine.add_observer(self)
+        state_machine.add_listener(TransitionManager(self))
 
         logger.debug(f"sending {event_name} to model for session {session_id}")
         state_machine.send(event_name, event_argument)
@@ -285,7 +116,7 @@ class CeleryManager:
 
         @self.celery_app.task(
             bind=True,
-            base=_ProgressLoggingTask,
+            base=ProgressLoggingTask,
             name='genie_flow.trigger_ai_event'
         )
         def trigger_ai_event(
@@ -296,7 +127,7 @@ class CeleryManager:
                 session_id: str,
         ):
             """
-            This Celery Task is executed at the end of an AI transition and all the relevant
+            This Celery Task is executed at the end of a Celery DAG and all the relevant
             Invokers have run. It takes the output of the previous task, pulls up the model
             form the store, creates the state machine for it and sends that state machine
             the event that was given.
@@ -318,7 +149,7 @@ class CeleryManager:
                 GenieTaskProgress.delete(ids=[session_id])
 
                 state_machine = model.get_state_machine_class()(model)
-                state_machine.add_observer(self)
+                state_machine.add_listener(TransitionManager(self))
 
                 logger.debug(f"sending {event_name} to model for session {session_id}")
                 state_machine.send(event_name, response)
@@ -329,7 +160,7 @@ class CeleryManager:
     def _add_invoke_task(self):
 
         @self.celery_app.task(
-            base=_ProgressLoggingTask,
+            base=ProgressLoggingTask,
             name="genie_flow.invoke_task",
         )
         def invoke_ai_event(
@@ -354,7 +185,7 @@ class CeleryManager:
 
         @self.celery_app.task(
             bind=True,
-            base=_ProgressLoggingTask,
+            base=ProgressLoggingTask,
             name="genie_flow.map_task",
         )
         def map_task(
@@ -395,8 +226,8 @@ class CeleryManager:
             list_values = jmespath.search(list_attribute, render_data)
             if not isinstance(list_values, list):
                 logger.warning(
-                    "path to attribute returns type {} and not a list",
-                    type(list_values),
+                    "path to attribute returns type {path_type} and not a list",
+                    path_type=type(list_values),
                 )
                 list_values = [list_values]
 
@@ -426,7 +257,7 @@ class CeleryManager:
     def _add_combine_group_to_dict(self):
 
         @self.celery_app.task(
-            base=_ProgressLoggingTask,
+            base=ProgressLoggingTask,
             name="genie_flow.combine_group_to_dict",
         )
         def combine_group_to_dict(
@@ -442,7 +273,7 @@ class CeleryManager:
     def _add_combine_group_to_list(self):
 
         @self.celery_app.task(
-            base=_ProgressLoggingTask,
+            base=ProgressLoggingTask,
             name="genie_flow.combine_group_to_list",
         )
         def combine_chain_to_list(
@@ -457,7 +288,7 @@ class CeleryManager:
     def _add_chained_template(self):
 
         @self.celery_app.task(
-            base=_ProgressLoggingTask,
+            base=ProgressLoggingTask,
             name="genie_flow.chained_template",
         )
         def chained_template(
@@ -494,9 +325,23 @@ class CeleryManager:
             model: GenieModel,
             target_state: State,
     ):
+        """
+        Create a new Celery DAG and place it on the Celery queue.
+
+        The DAG is compiled using the `TaskCompiler`, the error handler gets assigned,
+        the DAG is enqueued and a new `GenieTaskProgress` object is persisted.
+
+        This is also the point in time where the `render_data` is created (by using the
+        `render_data` property of the machine) and therefore frozen. That then becomes
+        the `render_data` that is used inside the DAG.
+
+        :param state_machine: the active state machine to use
+        :param model: the data model
+        :param target_state: the state we will transition into
+        """
         model_fqn = get_fully_qualified_name_from_class(model)
         event_to_send_after = target_state.transitions.unique_events[0]
-        task_compiler = _TaskCompiler(
+        task_compiler = TaskCompiler(
             self.celery_app,
             state_machine.get_template_for_state(target_state),
             model.session_id,
@@ -523,58 +368,3 @@ class CeleryManager:
 
     def get_task_result(self, task_id) -> AsyncResult:
         return AsyncResult(task_id, app=self.celery_app)
-
-    def on_event(self, event_data: EventData):
-        logger.debug(
-            "on_event for session {session_id} and event {event}",
-            session_id=event_data.machine.model.session_id,
-            event=event_data.event,
-        )
-        target_template_path = event_data.machine.get_template_for_state(event_data.target)
-        if self.genie_environment.has_invoker(target_template_path):
-            logger.debug(
-                "Enqueueing task for template {target_template_path}",
-                target_template_path=target_template_path,
-            )
-            event_data.machine.model.actor = "user"
-            self._enqueue_task(
-                event_data.machine,
-                event_data.machine.model,
-                event_data.target,
-            )
-        else:
-            logger.debug(
-                "Rendering template {target_template_path}",
-                target_template_path=target_template_path,
-            )
-            event_data.machine.model.actor = "assistant"
-            event_data.machine.model.actor_input = self.genie_environment.render_template(
-                template_path=target_template_path,
-                data_context=event_data.machine.render_data,
-            )
-
-    def on_user_input(self, event_data: EventData):
-        logger.debug("User input received")
-        event_data.machine.model.actor = "user"
-        self._enqueue_task(
-            event_data.machine,
-            event_data.machine.model,
-            event_data.target,
-        )
-
-    def on_ai_extraction(self, event_data: EventData):
-        logger.debug("AI extraction event received")
-        event_data.machine.model.actor = "assistant"
-        event_data.machine.model.actor_input = self.genie_environment.render_template(
-            template_path=event_data.machine.get_template_for_state(event_data.target),
-            data_context=event_data.machine.render_data,
-        )
-
-    def on_advance(self, event_data: EventData):
-        logger.debug("Advance event received")
-        event_data.machine.model.actor = "assistant"
-        self._enqueue_task(
-            event_data.machine,
-            event_data.machine.model,
-            event_data.target,
-        )
