@@ -54,7 +54,7 @@ class TransitionManager:
             "to state {state_id} with event {event_id}",
             session_id=event_data.machine.model.session_id,
             state_id=event_data.target.id,
-            event=event_data.event,
+            event_id=event_data.event,
         )
 
         transition_type = self._determine_transition_type(event_data)
@@ -106,27 +106,27 @@ class TransitionManager:
         """
         logger.debug(
             "on transition for session {session_id}, "
-            "to state {state_id} with event {event}",
+            "to state {state_id} with event {event_id}",
             session_id=event_data.machine.model.session_id,
             state_id=event_data.target.id,
-            event=event_data.event,
+            event_id=event_data.event,
         )
         if event_data.machine.model.transition_type.target != StateType.INVOKER:
             logger.debug(
                 "no need to enqueue task for session {session_id}, "
-                "to state {state_id} with event {event}",
+                "to state {state_id} with event {event_id}",
                 session_id=event_data.machine.model.session_id,
                 state_id=event_data.target.id,
-                event=event_data.event,
+                event_id=event_data.event,
             )
             return
 
         logger.info(
             "enqueueing task for session {session_id}, "
-            "to state {state_id} with event {event}",
+            "to state {state_id} with event {event_id}",
             session_id=event_data.machine.model.session_id,
             state_id=event_data.target.id,
-            event=event_data.event,
+            event_id=event_data.event,
         )
         self._enqueue_task(
             event_data.machine,
@@ -137,31 +137,31 @@ class TransitionManager:
     def after_transition(self, event_data: EventData):
         logger.debug(
             "after transition for session {session_id}, "
-            "to state {state_id} with event {event} "
+            "to state {state_id} with event {event_id} "
             "and dialogue persistence: {dialogue_persistence}",
             session_id=event_data.machine.model.session_id,
             state_id=event_data.target.id,
-            event=event_data.event,
+            event_id=event_data.event,
             dialogue_persistence=event_data.machine.model.dialogue_persistence,
         )
 
         if event_data.machine.model.dialogue_persistence == DialoguePersistence.NONE:
             logger.info(
                 "not recording dialogue for session {session_id}, "
-                "to state {state_id} with event {event}",
+                "to state {state_id} with event {event_id}",
                 session_id=event_data.machine.model.session_id,
                 state_id=event_data.target.id,
-                event=event_data.event,
+                event_id=event_data.event,
             )
             return
 
         if event_data.machine.model.dialogue_persistence == DialoguePersistence.RENDERED:
             logger.info(
                 "rendering template for session {session_id}, "
-                "to state {state_id} with event {event}",
+                "to state {state_id} with event {event_id}",
                 session_id=event_data.machine.model.session_id,
                 state_id=event_data.target.id,
-                event=event_data.event,
+                event_id=event_data.event,
             )
             target_template_path = event_data.machine.model.get_template_for_state(
                 event_data.machine.current_state,
@@ -172,11 +172,11 @@ class TransitionManager:
             )
             logger.debug(
                 "recording rendered output for session {session_id}, "
-                "to state {state_id} with event {event} "
+                "to state {state_id} with event {event_id} "
                 "as: '{actor_input}'",
                 session_id=event_data.machine.model.session_id,
                 state_id=event_data.target.id,
-                event=event_data.event,
+                event_id=event_data.event,
                 actor_input=(
                     f"{actor_input[:50]}..."
                     if len(actor_input) > 50 else actor_input
@@ -186,11 +186,11 @@ class TransitionManager:
         else:
             logger.debug(
                 "recording raw output for session {session_id}, "
-                "to state {state_id} with event {event} "
+                "to state {state_id} with event {event_id} "
                 "as: '{actor_input}'",
                 session_id=event_data.machine.model.session_id,
                 state_id=event_data.target.id,
-                event=event_data.event,
+                event_id=event_data.event,
                 actor_input=(
                     f"{event_data.machine.model.actor_input[:50]}..."
                     if len(event_data.machine.model.actor_input) > 50
@@ -199,10 +199,10 @@ class TransitionManager:
             )
             logger.info(
                 "adding raw actor input to dialogue for session {session_id}, "
-                "to state {state_id} with event {event}",
+                "to state {state_id} with event {event_id}",
                 session_id=event_data.machine.model.session_id,
                 state_id=event_data.target.id,
-                event=event_data.event,
+                event_id=event_data.event,
             )
 
         event_data.machine.model.record_dialogue_element()
