@@ -322,7 +322,7 @@ class CeleryManager:
 
         return chained_template
 
-    def _enqueue_task(
+    def enqueue_task(
             self,
             state_machine: GenieStateMachine,
             model: GenieModel,

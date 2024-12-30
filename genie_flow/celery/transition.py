@@ -128,7 +128,7 @@ class TransitionManager:
             state_id=event_data.target.id,
             event_id=event_data.event,
         )
-        self._enqueue_task(
+        self.celery_manager.enqueue_task(
             event_data.machine,
             event_data.machine.model,
             event_data.target,
@@ -142,7 +142,7 @@ class TransitionManager:
             session_id=event_data.machine.model.session_id,
             state_id=event_data.target.id,
             event_id=event_data.event,
-            dialogue_persistence=event_data.machine.model.dialogue_persistence,
+            dialogue_persistence=event_data.machine.model.dialogue_persistence.name,
         )
 
         if event_data.machine.model.dialogue_persistence == DialoguePersistence.NONE:
