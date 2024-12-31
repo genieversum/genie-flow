@@ -38,19 +38,10 @@ class StateType(enum.IntEnum):
     @property
     def as_actor(self) -> str:
         match self:
-            case "INVOKER":
+            case StateType.INVOKER:
                 return "assistant"
-            case "USER":
+            case StateType.USER:
                 return "user"
-
-
-TransitionType = NamedTuple(
-    "TransitionType",
-    [
-        ("source", StateType),
-        ("target", StateType),
-    ]
-)
 
 
 class DialoguePersistence(enum.IntEnum):
@@ -84,9 +75,13 @@ class GenieModel(Model):
     session_id: str = Field(
         description="The ID of the session this data model object belongs to."
     )
-    transition_type: Optional[TransitionType] = Field(
+    source_type: Optional[StateType] = Field(
         default=None,
-        description="The transition type that describes the current transition",
+        description="The type of state that the most recent transition is from",
+    )
+    target_type: Optional[StateType] = Field(
+        default=None,
+        description="The type of state that the most recent transition is to",
     )
     dialogue_persistence: Optional[DialoguePersistence] = Field(
         default=None,

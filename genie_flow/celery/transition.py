@@ -1,10 +1,15 @@
+import hashlib
+import typing
+
 from loguru import logger
 from statemachine import State
 from statemachine.event_data import EventData
 
-from genie_flow.celery import CeleryManager
-from genie_flow.genie import StateType, TransitionType, DialoguePersistence
+from genie_flow.genie import StateType, DialoguePersistence
 from genie_flow.model.template import CompositeTemplateType
+
+if typing.TYPE_CHECKING:
+    from genie_flow.celery import CeleryManager
 
 
 _DIALOGUE_PERSISTENCE_MAP: dict[StateType, dict[StateType, DialoguePersistence]] = {
@@ -20,11 +25,11 @@ _DIALOGUE_PERSISTENCE_MAP: dict[StateType, dict[StateType, DialoguePersistence]]
 
 class TransitionManager:
 
-    def __init__(self, celery_manager: CeleryManager):
+    def __init__(self, celery_manager: "CeleryManager"):
         self.celery_manager = celery_manager
 
-    def _determine_transition_type(self, event_data: EventData):
-        def determine_type(state: State) -> StateType:
+    def _determine_transition_type(self, event_data: EventData) -> tuple[StateType, StateType]:
+        def determine(state: State) -> StateType:
             state_template: CompositeTemplateType = event_data.machine.get_template_for_state(state)
             return (
                 StateType.INVOKER
@@ -32,10 +37,7 @@ class TransitionManager:
                 else StateType.USER
             )
 
-        return TransitionType(
-            determine_type(event_data.source),
-            determine_type(event_data.target),
-        )
+        return determine(event_data.source), determine(event_data.target)
 
     def before_transition(self, event_data: EventData):
         """
@@ -57,22 +59,24 @@ class TransitionManager:
             event_id=event_data.event,
         )
 
-        transition_type = self._determine_transition_type(event_data)
-        event_data.machine.model.transition_type = transition_type
-        event_data.machine.model.actor = transition_type.target.as_actor
+        source_type, target_type = self._determine_transition_type(event_data)
+        event_data.machine.model.source_type = source_type
+        event_data.machine.model.target_type = target_type
+        event_data.machine.model.actor = target_type.as_actor
         logger.debug(
             "determined transition type for session {session_id}, "
             "to state {state_id} with event {event_id} "
-            "to be {transition_type} with actor {actor}",
+            "to be from {source_type} to {target_type}, with actor {actor}",
             session_id=event_data.machine.model.session_id,
             state_id=event_data.target.id,
             event_id=event_data.event,
-            transition_type=transition_type,
+            source_type=source_type,
+            target_type=target_type,
             actor=event_data.machine.model.actor,
         )
 
         dialogue_persistence = (
-            _DIALOGUE_PERSISTENCE_MAP[transition_type.source][transition_type.target]
+            _DIALOGUE_PERSISTENCE_MAP[source_type][target_type]
         )
         event_data.machine.model.dialogue_persistence = dialogue_persistence
         logger.debug(
@@ -82,18 +86,22 @@ class TransitionManager:
             session_id=event_data.machine.model.session_id,
             state_id=event_data.target.id,
             event_id=event_data.event,
-            dialogue_persistence=dialogue_persistence,
+            dialogue_persistence=dialogue_persistence.name,
         )
 
-        actor_input = (
+        actor_input : str = (
             event_data.args[0]
             if event_data.args is not None and len(event_data.args) > 0
             else None
         )
-        logger.debug("set actor input to {actor_input}", actor_input=actor_input)
+        logger.debug("set actor input to '{actor_input}'", actor_input=actor_input)
         logger.info(
-            "set actor input to string of size {actor_input_size}",
-            actor_input_size=len(actor_input) if actor_input is not None else None,
+            "set actor input to string of md5 hash {actor_input_hash}",
+            actor_input_hash=(
+                hashlib.md5(actor_input.encode("utf-8")).hexdigest()
+                if actor_input is not None
+                else None
+            ),
         )
         event_data.machine.model.actor_input = actor_input
 
@@ -111,7 +119,7 @@ class TransitionManager:
             state_id=event_data.target.id,
             event_id=event_data.event,
         )
-        if event_data.machine.model.transition_type.target != StateType.INVOKER:
+        if event_data.machine.model.target_type != StateType.INVOKER:
             logger.debug(
                 "no need to enqueue task for session {session_id}, "
                 "to state {state_id} with event {event_id}",

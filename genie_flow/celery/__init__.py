@@ -1,5 +1,4 @@
 import json
-import typing
 from typing import Any
 
 import jmespath
@@ -12,7 +11,7 @@ from statemachine import State
 
 from genie_flow.celery.compiler import TaskCompiler
 from genie_flow.celery.progress import ProgressLoggingTask
-
+from genie_flow.celery.transition import TransitionManager
 from genie_flow.environment import GenieEnvironment
 from genie_flow.genie import GenieModel, GenieStateMachine, GenieTaskProgress
 from genie_flow.model.template import CompositeContentType
@@ -20,8 +19,6 @@ from genie_flow.session_lock import SessionLockManager
 from genie_flow.utils import get_class_from_fully_qualified_name, \
     get_fully_qualified_name_from_class
 
-if typing.TYPE_CHECKING:
-    from genie_flow.celery.transition import TransitionManager
 
 
 def parse_if_json(s: str) -> Any:
