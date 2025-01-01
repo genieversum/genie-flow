@@ -62,7 +62,7 @@ class TransitionManager:
         source_type, target_type = self._determine_transition_type(event_data)
         event_data.machine.model.source_type = source_type
         event_data.machine.model.target_type = target_type
-        event_data.machine.model.actor = target_type.as_actor
+        event_data.machine.model.actor = source_type.as_actor
         logger.debug(
             "determined transition type for session {session_id}, "
             "to state {state_id} with event {event_id} "
@@ -171,7 +171,7 @@ class TransitionManager:
                 state_id=event_data.target.id,
                 event_id=event_data.event,
             )
-            target_template_path = event_data.machine.model.get_template_for_state(
+            target_template_path = event_data.machine.get_template_for_state(
                 event_data.machine.current_state,
             )
             actor_input = self.celery_manager.genie_environment.render_template(
