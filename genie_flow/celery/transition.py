@@ -14,7 +14,7 @@ if typing.TYPE_CHECKING:
 
 _DIALOGUE_PERSISTENCE_MAP: dict[StateType, dict[StateType, DialoguePersistence]] = {
     StateType.USER: {
-        StateType.USER: DialoguePersistence.RAW,
+        StateType.USER: DialoguePersistence.RENDERED,
         StateType.INVOKER: DialoguePersistence.RAW,
     },
     StateType.INVOKER: {
@@ -70,8 +70,8 @@ class TransitionManager:
             session_id=event_data.machine.model.session_id,
             state_id=event_data.target.id,
             event_id=event_data.event,
-            source_type=source_type,
-            target_type=target_type,
+            source_type=source_type.name,
+            target_type=target_type.name,
             actor=event_data.machine.model.actor,
         )
 

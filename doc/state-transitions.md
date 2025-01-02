@@ -120,7 +120,7 @@ the order of calling is not defined (and could be in parallel)**.
 |------------|---------------------------------------------|---------------|
 | Validators | `validators()`                              | `source`      |
 | Conditions | `cond()`, `unless()`                        | `source`      |
-| Before     | `before_transition()`, `before_<event>()`   | `source`      |
+| Before     | `before_transition()`,  `before_<event>()`  | `source`      |
 | Exit       | `on_exit_state()`, `on_exit_<state.id>()`   | `source`      |
 | On         | `on_transition()`, `on_<event>()`           | `source`      |
 |            | **STATE UPDATE**                            |               |
@@ -153,7 +153,7 @@ The following standard behaviour drives how Genie Flow conducts it's logic:
 
 | `transition_type`  | `dialogue_persistence` | Celery DAG |
 |--------------------|------------------------|------------|
-| user -> user       | RAW                    | no         |
+| user -> user       | RENDERED               | no         |
 | user -> invoker    | RAW                    | yes        |
 | invoker -> user    | RENDERED               | no         |
 | invoker -> invoker | NONE                   | yes        |
