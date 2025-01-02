@@ -38,22 +38,24 @@ When user sends an event (including the "poll" event) to the API, the API will r
   next actions (events) that can be sent.
 
 ## Task Progress 
-### spurious task-finish indication
-At this point, whether a session has a running task is determined by checking if there exists 
-a `GenieTaskProgress` object. If it does then there must be a running task for this session. As
-soon as an invoker starts (a Celery DAG is started), a new `GenieTaskProgress` object is
-created and persisted. When the final task of a DAG sends the next event (this is the 
-"genie_flow.trigger_ai_event" task), this `GenieTaskProgress` object is removed.
+Next possible actions will only be "poll" when there is an active Celery DAG running for the
+session. This is done internally by checking if a progress object exists for that session.
 
-This indicates to the API that a task is done. So when the user comes along with a "poll" event,
-they will get sent the most recent uttering on the dialogue and the list of events they can send.
+This progress object contains the total number of tasks as well as the total number of executed
+tasks. This information could be used by a user interface to indicate task progress.
 
-So, when we do a transition from Invoker to Invoker, there is a short period where there is no
-`GenieTaskProgress` object (the previous invoker has finished) but the next `GenieTaskProgress`
-object is not yet recorded. This might trigger the API into thinking that it needs to respond
-to the user and send them the most recent uttering and the list of events...
+### task-finish indication
+When a Celery task is finished (the invoker DAG has concluded), the progress object is removed.
+When we do an Invoker to Invoker transition, a new task DAG will be created for the second
+Invoker, and consequently a new progress object is created. This meas that there is a short
+period in time where there is no progress object for a session, but there is also nothing
+else that the user needs to do, other than "poll".
 
-> Of course, this needs to be prevented. The user should not have to do anything and just poll.
+Since the removal of the old progress object and the creation of the new one is done within
+the same model object lock, the API will not be able to see that intermediate state and falsely
+conclude that there is no active task. When the API comes along for a "poll" it will wait till
+all the activity is done (wait for the lock to be released) after which it will conclude that
+there is an active task and suggest another "poll" event.
 
 ### false update of percentage done
 This situation will also impact the "total nr of tasks" and "total nr executed tasks" reporting
@@ -120,7 +122,7 @@ the order of calling is not defined (and could be in parallel)**.
 |------------|---------------------------------------------|---------------|
 | Validators | `validators()`                              | `source`      |
 | Conditions | `cond()`, `unless()`                        | `source`      |
-| Before     | `before_transition()`,  `before_<event>()`  | `source`      |
+| Before     | `before_transition()`, `before_<event>()`   | `source`      |
 | Exit       | `on_exit_state()`, `on_exit_<state.id>()`   | `source`      |
 | On         | `on_transition()`, `on_<event>()`           | `source`      |
 |            | **STATE UPDATE**                            |               |
