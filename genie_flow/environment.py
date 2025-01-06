@@ -230,11 +230,11 @@ class GenieEnvironment:
         directory_path = Path(directory).resolve()
         config = self._walk_directory_tree_upward(directory_path, self.read_meta)
 
-        if all(key in config for key in ["invoker", "renderer"]):
+        if "invoker" in config and "renderer" in config:
             logger.error(
                 "Compiled template directory {directory_path} configuration "
                 "contains both 'invoker' and 'renderer'",
-                directory=directory_path,
+                directory_path=directory_path,
             )
             raise ValueError(
                 f"Compiled template directory {directory_path} configuration "
@@ -255,7 +255,7 @@ class GenieEnvironment:
             logger.error(
                 "Compiled template directory {directory_path} configuration "
                 "does not contain 'invoker' or 'renderer'",
-                directory=directory_path,
+                directory_path=directory_path,
             )
             raise ValueError(
                 f"Compiled template directory {directory_path} configuration "
@@ -264,8 +264,11 @@ class GenieEnvironment:
 
         self._jinja_env = None  # clear the Environment
 
-    def has_invoker(self, template_path: str) -> bool:
-        prefix, _ = template_path.rsplit("/", 1)
+    def has_invoker(self, template: CompositeTemplateType) -> bool:
+        if not isinstance(template, str):
+            return True
+
+        prefix, _ = template.rsplit("/", 1)
         return self._template_directories[prefix]["invokers"] is not None
 
     def get_template(self, template_path: str) -> jinja2.Template:
@@ -273,7 +276,13 @@ class GenieEnvironment:
 
     def render_template(self, template_path: str, data_context: dict[str, Any]) -> str:
         template = self.jinja_env.get_template(template_path)
-        return template.render(data_context)
+        rendered =  template.render(data_context)
+        logger.debug(
+            "rendered template {template_path} into {rendered}",
+            template_path=template_path,
+            rendered=rendered,
+        )
+        return rendered
 
     def invoke_template(
         self,
@@ -281,8 +290,15 @@ class GenieEnvironment:
         data_context: dict[str, Any],
     ) -> str:
         rendered = self.render_template(template_path, data_context)
+
         prefix, _ = template_path.rsplit("/", 1)
         invokers_pool = self._template_directories[prefix]["invokers"]
-        logger.debug("rendered template into: {}", rendered)
+        if invokers_pool is None:
+            logger.error(
+                "no invokers registered for template {template_path}",
+                template_path=template_path,
+            )
+            raise ValueError(f"no invokers registered for template {template_path}")
+
         with invokers_pool as invoker:
             return invoker.invoke(rendered)
