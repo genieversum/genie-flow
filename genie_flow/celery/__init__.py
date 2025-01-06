@@ -145,15 +145,33 @@ class CeleryManager:
                     raise ValueError(f"Could not find task progress for session {session_id}")
                 task_progress = task_progress_list[0]
                 if task_progress.nr_subtasks_executed - task_progress.total_nr_subtasks > 1:
-                    logger.warning(f"Not all subtasks for session {session_id} have been executed")
+                    logger.warning(
+                        "Not all subtasks for session {session_id} have been executed",
+                        session_id=session_id,
+                    )
                 GenieTaskProgress.delete(ids=[session_id])
 
                 state_machine = model.get_state_machine_class()(model)
                 state_machine.add_listener(TransitionManager(self))
 
-                logger.debug(f"sending {event_name} to model for session {session_id}")
+                logger.debug(
+                    "sending {event_name} to state machine for session {session_id}",
+                    event_name=event_name,
+                    session_id=session_id,
+                )
                 state_machine.send(event_name, response)
-                logger.debug(f"actor input is now {model.actor_input}")
+
+                if model.actor_input is None:
+                    logger.debug("actor input is None")
+                else:
+                    logger.debug(
+                        "actor input is now '{actor_input}'",
+                        actor_input=(
+                            model.actor_input
+                            if len(model.actor_input) < 50
+                            else model.actor_input[:50] + "..."
+                        ),
+                    )
 
         return trigger_ai_event
 
