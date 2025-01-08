@@ -118,16 +118,16 @@ the original documentation](https://python-statemachine.readthedocs.io/en/latest
 The following groups of methods are called in sequence (if they exist). **Note: Within the group
 the order of calling is not defined (and could be in parallel)**.
 
-| Group      | Hook                                        | Current state |
-|------------|---------------------------------------------|---------------|
-| Validators | `validators()`                              | `source`      |
-| Conditions | `cond()`, `unless()`                        | `source`      |
-| Before     | `before_transition()`, `before_<event>()`   | `source`      |
-| Exit       | `on_exit_state()`, `on_exit_<state.id>()`   | `source`      |
-| On         | `on_transition()`, `on_<event>()`           | `source`      |
-|            | **STATE UPDATE**                            |               |
-| Enter      | `on_enter_state()`, `on_enter_<state.id>()` | `destination` |
-| After      | `after_<event>()`, `after_transition()`     | `destination` |
+| Group               | Hooks used by Genie   | Event Hooks          | State Hooks                                      | Current state |
+|---------------------|-----------------------|----------------------|--------------------------------------------------|---------------|
+| Validators          |                       | `validators()`       |                                                  | `source`      |
+| Conditions          |                       | `cond()`, `unless()` |                                                  | `source`      |
+| Before              | `before_transition()` | `before_<event>()`   |                                                  | `source`      |
+| Exit                |                       |                      | `on_exit_state()`,<br/> `on_exit_<state.id>()`   | `source`      |
+| On                  | `on_transition()`     | `on_<event>()`       |                                                  | `source`      |
+| **STATE UPDATE**    |                       |                      |                                                  |               |
+| Enter               |                       |                      | `on_enter_state()`,<br/> `on_enter_<state.id>()` | `destination` |
+| After               | `after_transition()`  | `after_<event>()`    |                                                  | `destination` |
 
 The state machine package makes the machine go through each of these groups and checks if there
 exist any of these hooks and calls them.
@@ -140,25 +140,27 @@ In order to manage the Genie internals, the following hooks are implemented:
 `transition_type` to a tuple containing the source type and the destination type. A type can
 be either "invoker" or "user". So, for example, the tuple `("invoker", "user")` means that
 the source state was an invoker state and the target a user state.
-This hook also determines if and how the event argument should be stored as part of the
-dialogue. The property `dialogue_persistance` is set to "NONE", "RAW" or "RENDERED".
+This hook also sets the `actor`, based on the type of the source state. The actor is either
+"assistant" (source state was invoker type) or "user" (source state was user type).
+And, finally, this hook determines if and how the event argument should be stored as part of
+the dialogue. The property `dialogue_persistance` is set to "NONE", "RAW" or "RENDERED".
 
 `on_transition()`
 : this hook is used to trigger the Celery task, if the target state is an "invoker" state.
 
 `after_transition()`
 : this hook checks the `dialogue_persistence` property and determines if and what gets added
-to the dialogue.
+to the dialogue. The 
 
 #### Genie Flow standard behaviour
 The following standard behaviour drives how Genie Flow conducts it's logic:
 
-| `transition_type`  | `dialogue_persistence` | Celery DAG |
-|--------------------|------------------------|------------|
-| user -> user       | RENDERED               | no         |
-| user -> invoker    | RAW                    | yes        |
-| invoker -> user    | RENDERED               | no         |
-| invoker -> invoker | NONE                   | yes        |
+| `transition_type`  | `agent`   | `dialogue_persistence` | Celery DAG |
+|--------------------|-----------|------------------------|------------|
+| user -> user       | user      | RENDERED               | no         |
+| user -> invoker    | user      | RAW                    | yes        |
+| invoker -> user    | assistant | RENDERED               | no         |
+| invoker -> invoker | assistant | NONE                   | yes        |
 
 #### deviating from the default
 Although the general rules are sensible, and should cater to most of the use cases, one might
