@@ -118,16 +118,16 @@ the original documentation](https://python-statemachine.readthedocs.io/en/latest
 The following groups of methods are called in sequence (if they exist). **Note: Within the group
 the order of calling is not defined (and could be in parallel)**.
 
-| Group               | Hooks used by Genie   | Event Hooks          | State Hooks                                      | Current state |
-|---------------------|-----------------------|----------------------|--------------------------------------------------|---------------|
-| Validators          |                       | `validators()`       |                                                  | `source`      |
-| Conditions          |                       | `cond()`, `unless()` |                                                  | `source`      |
-| Before              | `before_transition()` | `before_<event>()`   |                                                  | `source`      |
-| Exit                |                       |                      | `on_exit_state()`,<br/> `on_exit_<state.id>()`   | `source`      |
-| On                  | `on_transition()`     | `on_<event>()`       |                                                  | `source`      |
-| **STATE UPDATE**    |                       |                      |                                                  |               |
-| Enter               |                       |                      | `on_enter_state()`,<br/> `on_enter_<state.id>()` | `destination` |
-| After               | `after_transition()`  | `after_<event>()`    |                                                  | `destination` |
+| Group               | Hooks used by Genie   | Transition Hooks  | Event Hooks          | State Hooks                                      | Current state |
+|---------------------|-----------------------|-------------------|----------------------|--------------------------------------------------|---------------|
+| Validators          |                       |                   | `validators()`       |                                                  | `source`      |
+| Conditions          |                       |                   | `cond()`, `unless()` |                                                  | `source`      |
+| Before              | `before_transition()` |                   | `before_<event>()`   |                                                  | `source`      |
+| Exit                |                       |                   |                      | `on_exit_state()`,<br/> `on_exit_<state.id>()`   | `source`      |
+| On                  |                       | `on_transition()` | `on_<event>()`       |                                                  | `source`      |
+| **STATE UPDATE**    |                       |                   |                      |                                                  |               |
+| Enter               |                       |                   |                      | `on_enter_state()`,<br/> `on_enter_<state.id>()` | `destination` |
+| After               | `after_transition()`  |                   | `after_<event>()`    |                                                  | `destination` |
 
 The state machine package makes the machine go through each of these groups and checks if there
 exist any of these hooks and calls them.
@@ -145,12 +145,10 @@ This hook also sets the `actor`, based on the type of the source state. The acto
 And, finally, this hook determines if and how the event argument should be stored as part of
 the dialogue. The property `dialogue_persistance` is set to "NONE", "RAW" or "RENDERED".
 
-`on_transition()`
-: this hook is used to trigger the Celery task, if the target state is an "invoker" state.
-
 `after_transition()`
-: this hook checks the `dialogue_persistence` property and determines if and what gets added
-to the dialogue. The 
+: this hook is used to trigger the Celery task, if the target state is an "invoker" state.
+This hook also checks the `dialogue_persistence` property and determines if and what gets added
+to the dialogue.
 
 #### Genie Flow standard behaviour
 The following standard behaviour drives how Genie Flow conducts it's logic:

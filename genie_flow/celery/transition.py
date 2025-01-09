@@ -105,43 +105,6 @@ class TransitionManager:
         )
         event_data.machine.model.actor_input = actor_input
 
-    def on_transition(self, event_data: EventData):
-        """
-        this hook is used to trigger the Celery task, if the target state is
-        an "invoker" state.
-
-        :param event_data: The event data object provided by the state machine
-        """
-        logger.debug(
-            "on transition for session {session_id}, "
-            "to state {state_id} with event {event_id}",
-            session_id=event_data.machine.model.session_id,
-            state_id=event_data.target.id,
-            event_id=event_data.event,
-        )
-        if event_data.machine.model.target_type != StateType.INVOKER:
-            logger.debug(
-                "no need to enqueue task for session {session_id}, "
-                "to state {state_id} with event {event_id}",
-                session_id=event_data.machine.model.session_id,
-                state_id=event_data.target.id,
-                event_id=event_data.event,
-            )
-            return
-
-        logger.info(
-            "enqueueing task for session {session_id}, "
-            "to state {state_id} with event {event_id}",
-            session_id=event_data.machine.model.session_id,
-            state_id=event_data.target.id,
-            event_id=event_data.event,
-        )
-        self.celery_manager.enqueue_task(
-            event_data.machine,
-            event_data.machine.model,
-            event_data.target,
-        )
-
     def after_transition(self, event_data: EventData):
         logger.debug(
             "after transition for session {session_id}, "
@@ -152,6 +115,20 @@ class TransitionManager:
             event_id=event_data.event,
             dialogue_persistence=event_data.machine.model.dialogue_persistence.name,
         )
+
+        if event_data.machine.model.target_type == StateType.INVOKER:
+            logger.info(
+                "enqueueing task for session {session_id}, "
+                "to state {state_id} with event {event_id}",
+                session_id=event_data.machine.model.session_id,
+                state_id=event_data.target.id,
+                event_id=event_data.event,
+            )
+            self.celery_manager.enqueue_task(
+                event_data.machine,
+                event_data.machine.model,
+                event_data.target,
+            )
 
         if event_data.machine.model.dialogue_persistence == DialoguePersistence.NONE:
             logger.info(
