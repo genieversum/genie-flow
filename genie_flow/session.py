@@ -1,10 +1,10 @@
 import json
 import uuid
 
-from celery.result import AsyncResult
 from statemachine.exceptions import TransitionNotAllowed
 
 from genie_flow.celery import CeleryManager
+from genie_flow.celery.transition import TransitionManager
 from genie_flow.environment import GenieEnvironment
 from genie_flow.genie import GenieModel, GenieTaskProgress
 from genie_flow.model.types import ModelKeyRegistryType
@@ -131,7 +131,7 @@ class SessionManager:
         :return: an instance of `AIResponse` with the appropriate values
         """
         state_machine = model.get_state_machine_class()(model)
-        state_machine.add_observer(self.celery_manager)
+        state_machine.add_listener(TransitionManager(self.celery_manager))
         state_machine.send(event.event, event.event_input)
 
         if model.has_running_tasks:

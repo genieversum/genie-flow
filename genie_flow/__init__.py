@@ -17,7 +17,7 @@ class GenieFlow:
         container = GenieFlowContainer()
         container.config.from_yaml(config_file_path, required=True)
         container.wire(packages=["genie_flow"])
-        container.storage.container.wire(modules=["genie_flow.celery"])
+        container.storage.container.wire(packages=["genie_flow.celery"])
         container.init_resources()
 
         return cls(container)
