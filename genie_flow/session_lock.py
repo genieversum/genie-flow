@@ -4,6 +4,7 @@ import redis_lock
 from redis import Redis
 
 from genie_flow.genie import GenieModel
+from genie_flow.utils import get_class_from_fully_qualified_name
 
 
 class LockedGenieModel:
@@ -92,8 +93,10 @@ class SessionLockManager:
     def get_locked_model(
             self,
             session_id: str,
-            model_class: Type[GenieModel],
+            model_class: str | Type[GenieModel],
     ) -> LockedGenieModel:
+        if isinstance(model_class, str):
+            model_class = get_class_from_fully_qualified_name(model_class)
         return LockedGenieModel(
             session_id,
             model_class,

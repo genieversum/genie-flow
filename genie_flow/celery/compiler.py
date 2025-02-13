@@ -13,13 +13,11 @@ class TaskCompiler:
             celery_app: Celery,
             template: CompositeTemplateType,
             session_id: str,
-            render_data: dict[str, Any],
             model_fqn: str,
             event_to_send_after: str,
     ):
         self.celery_app = celery_app
         self.session_id = session_id
-        self.render_data = render_data
         self.model_fqn = model_fqn
         self.event_to_send_after = event_to_send_after
 
@@ -65,11 +63,18 @@ class TaskCompiler:
         """
         if isinstance(template, str):
             self.nr_tasks += 1
-            return self._invoke_task.s(template, self.session_id)
+            return self._invoke_task.s(
+                template,
+                self.session_id,
+                self.model_fqn,
+            )
 
         if isinstance(template, Task):
             self.nr_tasks += 1
-            return template.s(self.render_data, self.session_id)
+            return template.s(
+                self.session_id,
+                self.model_fqn,
+            )
 
         if isinstance(template, list):
             chained = None
@@ -77,7 +82,7 @@ class TaskCompiler:
                 if chained is None:
                     chained = self._compile_task_graph(t)
                 else:
-                    chained |= self._chained_template_task.s(self.render_data, self.session_id)
+                    chained |= self._chained_template_task.s(self.session_id, self.model_fqn)
                     chained |= self._compile_task_graph(t)
             self.nr_tasks += len(template) - 1
             return chained
@@ -87,7 +92,11 @@ class TaskCompiler:
             self.nr_tasks += 1
             return chord(
                 group(*[self._compile_task_graph(template[k]) for k in dict_keys]),
-                self._combine_group_to_dict_task.s(dict_keys, self.session_id),
+                self._combine_group_to_dict_task.s(
+                    dict_keys,
+                    self.session_id,
+                    self.model_fqn,
+                ),
             )
 
         if isinstance(template, MapTaskTemplate):
@@ -101,6 +110,7 @@ class TaskCompiler:
                 template.map_value_field,
                 template.template_name,
                 self.session_id,
+                self.model_fqn,
             )
 
         raise ValueError(
@@ -112,9 +122,9 @@ class TaskCompiler:
         self.task = (
             template_task_graph |
             self._trigger_ai_event_task.s(
-                self.model_fqn,
                 self.event_to_send_after,
                 self.session_id,
+                self.model_fqn,
             )
         )
         self.nr_tasks += 1
