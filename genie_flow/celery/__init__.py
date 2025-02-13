@@ -349,27 +349,16 @@ class CeleryManager:
                 model_fqn: str,
         ) -> CompositeContentType:
 
-            def parse_result(result: CompositeContentType) -> CompositeContentType:
-                if isinstance(result, str):
-                    try:
-                        return json.loads(result)
-                    except json.JSONDecodeError:
-                        return result
+            parsed_previous_result = None
+            try:
+                parsed_previous_result = json.loads(result_of_previous_call)
+            except json.decoder.JSONDecodeError:
+                pass
 
-                if isinstance(result, list):
-                    return [parse_result(e) for e in result]
-
-                if isinstance(result, dict):
-                    return {k: parse_result(result[k]) for k in result.keys()}
-
-                return result
-
-            drag_net = dict(
+            return dict(
                 previous_result=result_of_previous_call,
-                parsed_previous_result=parse_result(result_of_previous_call),
+                parsed_previous_result=parsed_previous_result,
             )
-
-            return drag_net
 
         return chained_template
 
