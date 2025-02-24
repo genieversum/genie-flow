@@ -1,5 +1,5 @@
 import json
-from typing import Any
+from typing import Any, Optional
 
 import jmespath
 from celery import Celery, Task
@@ -16,9 +16,7 @@ from genie_flow.environment import GenieEnvironment
 from genie_flow.genie import GenieModel, GenieStateMachine, GenieTaskProgress
 from genie_flow.model.template import CompositeContentType
 from genie_flow.session_lock import SessionLockManager
-from genie_flow.utils import get_class_from_fully_qualified_name, \
-    get_fully_qualified_name_from_class
-
+from genie_flow.utils import get_fully_qualified_name_from_class
 
 
 def parse_if_json(s: str) -> Any:
@@ -54,6 +52,38 @@ class CeleryManager:
         self._add_combine_group_to_list()
         self._add_chained_template()
 
+    def _retrieve_render_data(
+            self,
+            drag_net: Optional[dict],
+            session_id: str,
+            model_fqn: str,
+    ) -> dict:
+        """
+        Retrieve the render data for a given session id and model. A task may have run before
+        this and created a drag net dictionary of attributes that need to be added to the
+        `render_data`.
+
+        :param drag_net: an optional dict of values that need to be merged into the `render_data`
+        :param session_id: the session id
+        :param model_fqn: the model fully-qualified name
+        :return: a dict with render data
+        """
+        logger.debug(
+            "Retrieving render data for session {session_id}",
+            session_id=session_id,
+        )
+        with self.session_lock_manager.get_locked_model(session_id, model_fqn) as model:
+            state_machine = model.get_state_machine_class()(model)
+            render_data = state_machine.render_data
+
+        if drag_net is not None:
+            logger.debug(
+                "Merging drag net values {drag_net} with render data",
+                drag_net=drag_net,
+            )
+            render_data.update(drag_net)
+        return render_data
+
     def _process_model_event(
             self,
             event_argument: str,
@@ -87,11 +117,7 @@ class CeleryManager:
             logger.error(f"Task {request.id} raised an error: {exc}")
             logger.exception(traceback)
 
-            model_class = get_class_from_fully_qualified_name(cls_fqn)
-            with self.session_lock_manager.get_locked_model(
-                    session_id,
-                    model_class,
-            ) as model:
+            with self.session_lock_manager.get_locked_model(session_id, cls_fqn) as model:
                 self._process_model_event(
                     event_argument="",
                     model=model,
@@ -122,9 +148,9 @@ class CeleryManager:
         def trigger_ai_event(
                 task_instance,
                 response: str,
-                cls_fqn: str,
                 event_name: str,
                 session_id: str,
+                model_fqn: str,
         ):
             """
             This Celery Task is executed at the end of a Celery DAG and all the relevant
@@ -134,12 +160,11 @@ class CeleryManager:
 
             :param task_instance: Celery Task instance - a reference to this task itself (bound)
             :param response: The response from the previous task
-            :param cls_fqn: The fully qualified name of the class of the model
             :param event_name: The name of the event that needs to be sent to the state machine
             :param session_id: The session id for which this task is executed
+            :param model_fqn: The fully qualified name of the class of the model
             """
-            model_class = get_class_from_fully_qualified_name(cls_fqn)
-            with self.session_lock_manager.get_locked_model(session_id, model_class) as model:
+            with self.session_lock_manager.get_locked_model(session_id, model_fqn) as model:
                 task_progress_list = GenieTaskProgress.select(ids=[session_id])
                 if len(task_progress_list) == 0:
                     raise ValueError(f"Could not find task progress for session {session_id}")
@@ -182,19 +207,22 @@ class CeleryManager:
             name="genie_flow.invoke_task",
         )
         def invoke_ai_event(
-                render_data: dict[str, Any],
+                drag_net: Optional[dict],
                 template_name: str,
                 session_id: str,
+                model_fqn: str,
         ) -> str:
             """
             This Celery Task executes the actual Invocation. It is given the data that should be
             used to render the template. It then invokes the template.
 
-            :param render_data: The data that should be used to render the template
+            :param drag_net: potential dict of values that need to be merged into the `render_data`
             :param template_name: The name of the template that should be used to render
             :param session_id: The session id for which this task is executed
+            :param model_fqn: The fully qualified name of the model
             :returns: the result of the invocation
             """
+            render_data = self._retrieve_render_data(drag_net, session_id, model_fqn)
             return self.genie_environment.invoke_template(template_name, render_data)
 
         return invoke_ai_event
@@ -208,12 +236,13 @@ class CeleryManager:
         )
         def map_task(
                 task_instance: Task,
-                render_data: dict[str, Any],
+                drag_net: Optional[dict],
                 list_attribute: str,
                 map_index_field: str,
                 map_value_field: str,
                 template_name: str,
                 session_id: str,
+                model_fqn: str,
         ):
             """
             This task maps a template onto the different values in a list of model parameters.
@@ -233,14 +262,16 @@ class CeleryManager:
             At this time, only a simple rendered template can be used - no list, dict or
             otherwise.
 
-            :param task_instance: a reference to the map task
-            :param render_data: the dict of template render data
+            :param task_instance: a reference to the map task itself
+            :param drag_net: potential dict of values that need to be merged into the `render_data`
             :param list_attribute: the JMES Path into the attribute to map
             :param map_index_field: the name of the attribute carrying the index
             :param map_value_field: the name of the attribute carrying the value
             :param template_name: the name of the template that should be used to render
             :param session_id: the session id for which this task is executed
+            :param model_fqn: the fully qualified name of the model
             """
+            render_data = self._retrieve_render_data(drag_net, session_id, model_fqn)
             list_values = jmespath.search(list_attribute, render_data)
             if not isinstance(list_values, list):
                 logger.warning(
@@ -249,24 +280,25 @@ class CeleryManager:
                 )
                 list_values = [list_values]
 
-            render_data_list = []
-            for map_index, map_value in enumerate(list_values):
-                updated_render_data = render_data.copy()
-                updated_render_data[map_index_field] = map_index
-                updated_render_data[map_value_field] = map_value
-                render_data_list.append(updated_render_data)
-
             invoke_task = self.celery_app.tasks["genie_flow.invoke_task"]
             mapped_tasks = [
-                invoke_task.s(updated_render_data, template_name, session_id)
-                for updated_render_data in render_data_list
+                invoke_task.s(
+                    {
+                        map_index_field: map_index,
+                        map_value_field: map_value,
+                    },
+                    template_name,
+                    session_id,
+                    model_fqn,
+                )
+                for map_index, map_value in enumerate(list_values)
             ]
 
             combine_task = self.celery_app.tasks["genie_flow.combine_group_to_list"]
             return task_instance.replace(
                 chord(
                     group(*mapped_tasks),
-                    combine_task.s(session_id),
+                    combine_task.s(session_id, model_fqn),
                 )
             )
 
@@ -282,6 +314,7 @@ class CeleryManager:
                 results: list[CompositeContentType],
                 keys: list[str],
                 session_id: str,
+                model_fqn: str,
         ) -> CompositeContentType:
             parsed_results = [parse_if_json(s) for s in results]
             return json.dumps(dict(zip(keys, parsed_results)))
@@ -297,6 +330,7 @@ class CeleryManager:
         def combine_chain_to_list(
                 results: list[CompositeContentType],
                 session_id: str,
+                model_fqn: str,
         ):
             parsed_results = [parse_if_json(s) for s in results]
             return json.dumps(parsed_results)
@@ -311,29 +345,20 @@ class CeleryManager:
         )
         def chained_template(
                 result_of_previous_call: CompositeContentType,
-                render_data: dict[str, str],
                 session_id: str,
+                model_fqn: str,
         ) -> CompositeContentType:
 
-            def parse_result(result: CompositeContentType) -> CompositeContentType:
-                if isinstance(result, str):
-                    try:
-                        return json.loads(result)
-                    except json.JSONDecodeError:
-                        return result
+            parsed_previous_result = None
+            try:
+                parsed_previous_result = json.loads(result_of_previous_call)
+            except json.decoder.JSONDecodeError:
+                pass
 
-                if isinstance(result, list):
-                    return [parse_result(e) for e in result]
-
-                if isinstance(result, dict):
-                    return {k: parse_result(result[k]) for k in result.keys()}
-
-                return result
-
-            render_data["previous_result"] = result_of_previous_call
-            render_data["parsed_previous_result"] = parse_result(result_of_previous_call)
-
-            return render_data
+            return dict(
+                previous_result=result_of_previous_call,
+                parsed_previous_result=parsed_previous_result,
+            )
 
         return chained_template
 
@@ -363,7 +388,6 @@ class CeleryManager:
             self.celery_app,
             state_machine.get_template_for_state(target_state),
             model.session_id,
-            state_machine.render_data,
             model_fqn,
             event_to_send_after,
         )
@@ -375,7 +399,9 @@ class CeleryManager:
             )
         )
 
-        task = task_compiler.task.apply_async((state_machine.render_data,))
+        # enqueuing the compiled task with an empty drag_net dictionary
+        task = task_compiler.task.apply_async((None,))
+
         GenieTaskProgress.insert(
             GenieTaskProgress(
                 session_id=model.session_id,
