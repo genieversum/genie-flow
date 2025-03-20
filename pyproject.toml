@@ -22,7 +22,7 @@ dependencies=[
     "genie-flow-invoker~=0.6.0",
     "loguru~=0.7.2",
     "python-statemachine~=2.3.6",
-    "pydantic~=2.9.2",
+    "pydantic~=2.10.6",
     "pydantic-redis==0.5.0",
     "jinja2~=3.1.4",
     "fastapi~=0.111.0",
