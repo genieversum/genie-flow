@@ -1,4 +1,4 @@
-from typing import Type, Optional, overload, LiteralString
+from typing import Type, Optional, overload, Literal
 
 import redis_lock
 from loguru import logger
@@ -9,7 +9,7 @@ from genie_flow.genie import GenieModel
 from genie_flow.utils import get_class_from_fully_qualified_name
 
 
-StoreType = LiteralString["object", "lock", "progress"]
+StoreType = Literal["object", "lock", "progress"]
 
 
 class SessionLockManager:
