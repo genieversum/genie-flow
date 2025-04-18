@@ -20,7 +20,7 @@ class ProgressLoggingTask(Task):
                     Provide[GenieFlowPersistenceContainer.session_lock_manager]
             ),
     ) -> redis_lock.Lock:
-        return lock_manager.get_lock_for_session(session_id)
+        return lock_manager._create_lock_for_session(session_id)
 
     @staticmethod
     def _retrieve_progress(session_id) -> Optional[GenieTaskProgress]:

@@ -1,4 +1,3 @@
-import pydantic_redis
 from dependency_injector import containers, providers
 from redis import Redis
 
@@ -28,8 +27,8 @@ class GenieFlowPersistenceContainer(containers.DeclarativeContainer):
 
     config = providers.Configuration()
 
-    pydantic_redis_store = providers.Singleton(
-        PydanticRedisStoreWrapper,
+    redis_object_store = providers.Singleton(
+        Redis,
         host=config.model_store.host,
         port=config.model_store.port,
         db=config.model_store.db,
@@ -45,13 +44,11 @@ class GenieFlowPersistenceContainer(containers.DeclarativeContainer):
         db=config.lock_store.db,
     )
 
-    store_manager = providers.Singleton(
-        StoreManager,
-        store=pydantic_redis_store,
-    )
-
     session_lock_manager = providers.Singleton(
         SessionLockManager,
+        redis_object_store=redis_object_store,
         redis_lock_store=redis_lock_store,
         lock_expiration_seconds=config.lock_store.lock_expiration_seconds() or 120,
+        compression=config.object_compression() or True,
+        application_prefix=config.application_prefix() or 'genie-flow'
     )

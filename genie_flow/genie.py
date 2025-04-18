@@ -4,8 +4,7 @@ from typing import Optional, Any, NamedTuple
 from unittest import case
 
 from loguru import logger
-from pydantic import Field
-from pydantic_redis import Model
+from pydantic import Field, BaseModel
 from statemachine import StateMachine, State
 from statemachine.event_data import EventData
 
@@ -13,9 +12,7 @@ from genie_flow.model.dialogue import DialogueElement, DialogueFormat
 from genie_flow.model.template import CompositeTemplateType
 
 
-class GenieTaskProgress(Model):
-    _primary_key_field = "session_id"
-
+class GenieTaskProgress(BaseModel):
     session_id: str = Field(
         description="The session id for which a task is running",
     )
@@ -42,6 +39,8 @@ class StateType(enum.IntEnum):
                 return "assistant"
             case StateType.USER:
                 return "user"
+            case _:
+                raise ValueError("Unknown State Type")
 
 
 class DialoguePersistence(enum.IntEnum):
@@ -50,7 +49,7 @@ class DialoguePersistence(enum.IntEnum):
     RENDERED = 2
 
 
-class GenieModel(Model):
+class GenieModel(BaseModel):
     """
     The base model for all models that will carry data in the dialogue. Contains the attributes
     that are required and expected by the `GenieStateMachine` such as `state` and `session_id`/
@@ -65,8 +64,6 @@ class GenieModel(Model):
     persist the values into Reids and retrieve it again by its primary key. The attribute
     `_primary_key_field` is used to determine the name of the primary key.
     """
-
-    _primary_key_field: str = "session_id"
 
     state: str | int | None = Field(
         None,
