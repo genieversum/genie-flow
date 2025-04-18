@@ -20,16 +20,16 @@ classifiers=[
 ]
 dependencies=[
     "genie-flow-invoker~=0.6.0",
-    "loguru~=0.7.2",
+    "loguru~=0.7.3",
     "python-statemachine~=2.3.6",
-    "pydantic~=2.10.6",
-    "pydantic-redis==0.5.0",
-    "jinja2~=3.1.4",
-    "fastapi~=0.111.0",
-    "celery~=5.4.0",
-    "redis~=5.0.8",
+    "pydantic~=2.11.3",
+    "jinja2~=3.1.6",
+    "fastapi~=0.115.12",
+    "celery~=5.5.1",
+    "redis~=5.2.1",
     "python-redis-lock~=4.0.0",
     "dependency-injector~=4.42.0",
     "jmespath~=1.0.1",
+    "python-snappy~=0.7.3",
 ]
 dynamic = ["version"]
