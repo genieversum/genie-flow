@@ -11,11 +11,10 @@ from pydantic import BaseModel
 from statemachine import State
 
 from genie_flow.genie import GenieModel, GenieStateMachine
-from genie_flow_invoker import InvokersPool
+from genie_flow_invoker.pool import InvokersPool
 from genie_flow_invoker.factory import InvokerFactory
 from genie_flow.model.types import ModelKeyRegistryType
 from genie_flow.model.template import CompositeTemplateType, MapTaskTemplate
-from genie_flow.store import StoreManager
 
 _META_FILENAME: str = "meta.yaml"
 _T = TypeVar("_T")

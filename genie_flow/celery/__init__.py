@@ -13,7 +13,7 @@ from genie_flow.celery.compiler import TaskCompiler
 from genie_flow.celery.progress import ProgressLoggingTask
 from genie_flow.celery.transition import TransitionManager
 from genie_flow.environment import GenieEnvironment
-from genie_flow.genie import GenieModel, GenieStateMachine, GenieTaskProgress
+from genie_flow.genie import GenieModel, GenieStateMachine
 from genie_flow.model.template import CompositeContentType
 from genie_flow.session_lock import SessionLockManager
 from genie_flow.utils import get_fully_qualified_name_from_class
@@ -165,16 +165,19 @@ class CeleryManager:
             :param model_fqn: The fully qualified name of the class of the model
             """
             with self.session_lock_manager.get_locked_model(session_id, model_fqn) as model:
-                task_progress_list = GenieTaskProgress.select(ids=[session_id])
-                if len(task_progress_list) == 0:
-                    raise ValueError(f"Could not find task progress for session {session_id}")
-                task_progress = task_progress_list[0]
-                if task_progress.nr_subtasks_executed - task_progress.total_nr_subtasks > 1:
+                try:
+                    nr_remaining = self.session_lock_manager.progress_update_done(session_id)
+                except KeyError as e:
+                    raise ValueError(
+                        f"Could not find task progress for session {session_id}"
+                    ) from e
+
+                if nr_remaining > 1:
                     logger.warning(
                         "Not all subtasks for session {session_id} have been executed",
                         session_id=session_id,
                     )
-                GenieTaskProgress.delete(ids=[session_id])
+                self.session_lock_manager.progress_done(session_id)
 
                 state_machine = model.get_state_machine_class()(model)
                 state_machine.add_listener(TransitionManager(self))
@@ -293,8 +296,12 @@ class CeleryManager:
                 )
                 for map_index, map_value in enumerate(list_values)
             ]
-
             combine_task = self.celery_app.tasks["genie_flow.combine_group_to_list"]
+
+            self.session_lock_manager.progress_update_todo(
+                session_id,
+                len(list_values) + 1,
+            )
             return task_instance.replace(
                 chord(
                     group(*mapped_tasks),
@@ -402,12 +409,10 @@ class CeleryManager:
         # enqueuing the compiled task with an empty drag_net dictionary
         task = task_compiler.task.apply_async((None,))
 
-        GenieTaskProgress.insert(
-            GenieTaskProgress(
-                session_id=model.session_id,
-                task_id=task.id,
-                total_nr_subtasks=task_compiler.nr_tasks,
-            )
+        self.session_lock_manager.progress_start(
+            session_id=model.session_id,
+            task_id=task.id,
+            total_nr_subtasks=task.total_nr_subtasks,
         )
 
     def get_task_result(self, task_id) -> AsyncResult:

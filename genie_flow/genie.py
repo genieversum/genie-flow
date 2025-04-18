@@ -1,31 +1,15 @@
 import enum
 import json
-from typing import Optional, Any, NamedTuple
-from unittest import case
+from functools import cached_property, cache
+from typing import Optional, Any
 
 from loguru import logger
-from pydantic import Field, BaseModel
+from pydantic import Field, BaseModel, ConfigDict
 from statemachine import StateMachine, State
 from statemachine.event_data import EventData
 
 from genie_flow.model.dialogue import DialogueElement, DialogueFormat
 from genie_flow.model.template import CompositeTemplateType
-
-
-class GenieTaskProgress(BaseModel):
-    session_id: str = Field(
-        description="The session id for which a task is running",
-    )
-    task_id: str = Field(
-        description="The ID of the running root task for the session",
-    )
-    total_nr_subtasks: int = Field(
-        description="the total number of subtasks that need to be executed by the running task",
-    )
-    nr_subtasks_executed: int = Field(
-        default=0,
-        description="the number of subtasks that have been executed by the running task",
-    )
 
 
 class StateType(enum.IntEnum):
@@ -101,17 +85,15 @@ class GenieModel(BaseModel):
         description="the most recent received input from the actor",
     )
 
+    model_config = ConfigDict(
+        json_schema_extra={"schema_version": 0}
+    )
+
+    @classmethod
     @property
-    def has_running_tasks(self) -> bool:
-        task_progress_list = GenieTaskProgress.select(
-            ids=[self.session_id],
-            columns=["task_id"],
-        )
-        if task_progress_list is None or len(task_progress_list) == 0:
-            return False
-        if len(task_progress_list) > 1:
-            logger.error("Too many task progress records for session {}", self.session_id)
-        return True
+    @cache
+    def schema_version(cls) -> int:
+        return int(cls.model_json_schema()["schema_version"])
 
     @property
     def has_errors(self) -> bool:

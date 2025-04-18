@@ -6,7 +6,7 @@ from statemachine.exceptions import TransitionNotAllowed
 from genie_flow.celery import CeleryManager
 from genie_flow.celery.transition import TransitionManager
 from genie_flow.environment import GenieEnvironment
-from genie_flow.genie import GenieModel, GenieTaskProgress
+from genie_flow.genie import GenieModel
 from genie_flow.model.types import ModelKeyRegistryType
 from genie_flow.model.api import AIResponse, EventInput, AIStatusResponse, AIProgressResponse
 from genie_flow.session_lock import SessionLockManager
@@ -59,7 +59,7 @@ class SessionManager:
             state_machine.render_data,
         )
         model.add_dialogue_element("assistant", initial_prompt)
-        model.__class__.insert(model)
+        self.session_lock_manager.store_model(model)
 
         response = model.current_response.actor_text
 
@@ -82,19 +82,14 @@ class SessionManager:
         :param model: the model that needs to be polled
         :return: an instance of `AIResponse` with the appropriate values
         """
-        if model.has_running_tasks:
-            task_progress_list = GenieTaskProgress.select(ids=[model.session_id])
-            if len(task_progress_list) != 1:
-                raise ValueError(
-                    f"progress for session {model.session_id} "
-                    f"should not have {len(task_progress_list)} progress records")
-            task_progress: GenieTaskProgress = task_progress_list[0]
+        if self.session_lock_manager.progress_exists(model.session_id):
+            todo, done = self.session_lock_manager.progress_status(model.session_id)
             return AIResponse(
                 session_id=model.session_id,
                 next_actions=["poll"],
                 progress=AIProgressResponse(
-                    total_number_of_subtasks=task_progress.total_nr_subtasks,
-                    number_of_subtasks_executed=task_progress.nr_subtasks_executed,
+                    total_number_of_subtasks=todo,
+                    number_of_subtasks_executed=done,
                 )
             )
 
@@ -134,8 +129,9 @@ class SessionManager:
         state_machine.add_listener(TransitionManager(self.celery_manager))
         state_machine.send(event.event, event.event_input)
 
-        if model.has_running_tasks:
+        if self.session_lock_manager.progress_exists(model.session_id):
             return AIResponse(session_id=event.session_id, next_actions=["poll"])
+
         return AIResponse(
             session_id=event.session_id,
             response=state_machine.model.current_response.actor_text,
@@ -193,7 +189,7 @@ class SessionManager:
         model_class = self.model_key_registry[model_key]
         model = self.session_lock_manager.get_model(session_id, model_class)
 
-        if model.has_running_tasks:
+        if self.session_lock_manager.progress_exists(model.session_id):
             return AIStatusResponse(
                 session_id=session_id,
                 ready=False,
