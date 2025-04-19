@@ -31,5 +31,6 @@ dependencies=[
     "dependency-injector~=4.42.0",
     "jmespath~=1.0.1",
     "python-snappy~=0.7.3",
+    "pyaml~=25.1.0",
 ]
 dynamic = ["version"]
