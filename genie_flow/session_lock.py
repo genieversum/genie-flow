@@ -151,14 +151,14 @@ class SessionLockManager:
         if isinstance(model_cls, str):
             model_cls: GenieModel = get_class_from_fully_qualified_name(model_cls)
 
-        persisted_version, compression, payload = payload.split(b":", maxsplit=3)
+        persisted_version, compression, payload = payload.split(b":", maxsplit=2)
         if int(persisted_version) != model_cls.schema_version:
             logger.error(
-                "Trying to deserialize a model with schema version {persisted_version} "
+                "Cannot deserialize a model with schema version {persisted_version} "
                 "into a model with schema version {current_version} "
                 "for model class {model_class}",
-                persisted_version=persisted_version,
-                model_version=model_cls.schema_version,
+                persisted_version=int(persisted_version),
+                current_version=model_cls.schema_version,
                 model_class=model_cls.__name__,
             )
             raise ValueError(
