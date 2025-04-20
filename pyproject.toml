@@ -34,3 +34,9 @@ dependencies=[
     "pyaml~=25.1.0",
 ]
 dynamic = ["version"]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "pytest-docker",
+]
