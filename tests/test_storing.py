@@ -191,7 +191,7 @@ def test_progress_done(session_manager_connected):
 
     assert session_manager_connected.progress_exists(session_id)
 
-    session_manager_connected.progress_done(session_id)
+    session_manager_connected.progress_finished(session_id)
     assert not session_manager_connected.progress_exists(session_id)
 
 

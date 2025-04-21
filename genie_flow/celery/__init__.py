@@ -165,19 +165,7 @@ class CeleryManager:
             :param model_fqn: The fully qualified name of the class of the model
             """
             with self.session_lock_manager.get_locked_model(session_id, model_fqn) as model:
-                try:
-                    nr_remaining = self.session_lock_manager.progress_update_done(session_id)
-                except KeyError as e:
-                    raise ValueError(
-                        f"Could not find task progress for session {session_id}"
-                    ) from e
-
-                if nr_remaining > 1:
-                    logger.warning(
-                        "Not all subtasks for session {session_id} have been executed",
-                        session_id=session_id,
-                    )
-                self.session_lock_manager.progress_done(session_id)
+                self.session_lock_manager.progress_tombstone(session_id)
 
                 state_machine = model.get_state_machine_class()(model)
                 state_machine.add_listener(TransitionManager(self))
@@ -412,7 +400,7 @@ class CeleryManager:
         self.session_lock_manager.progress_start(
             session_id=model.session_id,
             task_id=task.id,
-            total_nr_subtasks=task_compiler.nr_tasks,
+            nr_tasks_todo=task_compiler.nr_tasks,
         )
 
     def get_task_result(self, task_id) -> AsyncResult:

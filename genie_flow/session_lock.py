@@ -226,37 +226,35 @@ class SessionLockManager:
             self,
             session_id: str,
             task_id: str,
-            total_nr_subtasks: int,
+            nr_tasks_todo: int,
     ):
         progress_key = self._create_key("progress", None, session_id)
+        if self.redis_progress_store.exists(progress_key):
+            logger.error(
+                "Progress record for session {session_id} already exists",
+                session_id=session_id,
+            )
+            raise ValueError("Progress record already exists for session")
+
         logger.info(
             "Starting progress record for session {session_id} with {nr_todo} tasks",
             session_id=session_id,
-            nr_todo=total_nr_subtasks,
+            nr_todo=nr_tasks_todo,
         )
         self.redis_progress_store.hset(
             progress_key,
             mapping={
                 "task_id": task_id,
-                "total_nr_subtasks": total_nr_subtasks,
-                "nr_subtasks_executed": 0,
+                "todo": nr_tasks_todo,
+                "done": 0,
+                "tombstone": "f",
             },
-
         )
 
     def progress_exists(self, session_id: str) -> bool:
         progress_key = self._create_key("progress", None, session_id)
         nr_exists = self.redis_progress_store.exists(progress_key)
-        if nr_exists == 0:
-            return False
-        if nr_exists == 1:
-            return True
-        logger.error(
-            "Found that {nr_exists} progress records exist for session {session_id}",
-            nr_exists=nr_exists,
-            session_id=session_id,
-        )
-        return True
+        return nr_exists == 1
 
     def progress_update_todo(
             self,
@@ -264,16 +262,29 @@ class SessionLockManager:
             nr_increase: int,
     ) -> int:
         progress_key = self._create_key("progress", None, session_id)
+        if not self.redis_progress_store.exists(progress_key):
+            logger.error(
+                "Updating number of tasks to do but no progress record for session {session_id}",
+                session_id=session_id,
+            )
+            raise KeyError("No progress record for session")
+
         logger.info(
             "Adding {nr_increase} tasks to do for session {session_id}",
             nr_increase=nr_increase,
             session_id=session_id,
         )
-        return self.redis_progress_store.hincrby(
+        new_todo = self.redis_progress_store.hincrby(
             progress_key,
-            "total_nr_subtasks",
+            "todo",
             nr_increase,
         )
+        logger.debug(
+            "New: {new_todo} tasks to do for session {session_id}",
+            new_todo=new_todo,
+            session_id=session_id,
+        )
+        return new_todo
 
     def progress_update_done(
             self,
@@ -281,37 +292,80 @@ class SessionLockManager:
             nr_done: int = 1,
     ) -> int:
         progress_key = self._create_key("progress", None, session_id)
+        if not self.redis_progress_store.exists(progress_key):
+            logger.error(
+                "Updating number of tasks done but no progress record for session {session_id}",
+                session_id=session_id,
+            )
+            raise KeyError("No progress record for session")
+
         logger.info(
             "Adding {nr_done} tasks done for session {session_id}",
             nr_done=nr_done,
             session_id=session_id,
         )
-        return self.redis_progress_store.hincrby(
+        new_done = self.redis_progress_store.hincrby(
             progress_key,
-            "nr_subtasks_executed",
+            "done",
             nr_done,
         )
-
-    def progress_done(self, session_id: str):
-        progress_key = self._create_key("progress", None, session_id)
-        logger.info(
-            "Removing progress record for session {session_id}",
+        logger.debug(
+            "New: {new_done} tasks done for session {session_id}",
+            new_done=new_done,
             session_id=session_id,
         )
-        self.redis_progress_store.delete(progress_key)
+        todo = int(self.redis_progress_store.hget(progress_key, "todo"))
+        if new_done >= todo:
+            logger.debug(
+                "Progress record for session {session_id} indicates finish: "
+                "{new_done} done and {todo} to do,"
+                "checking to remove",
+                session_id=session_id,
+                new_done=new_done,
+                todo=todo,
+            )
+            tombstone = self.redis_progress_store.hget(progress_key, "tombstone")
+            logger.debug(
+                "Progress record for session {session_id} has tombstone: {tombstone}",
+                session_id=session_id,
+                tombstone=tombstone,
+            )
+            if tombstone == b"t":
+                logger.debug(
+                    "Progress record for session {session_id} is tombstoned, removing",
+                    session_id=session_id,
+                )
+                self.redis_progress_store.delete(progress_key)
+        return todo - new_done
+
+    def progress_tombstone(self, session_id: str):
+        progress_key = self._create_key("progress", None, session_id)
+        if not self.redis_progress_store.exists(progress_key):
+            logger.error(
+                "Tombstoning progress record but no progress record for session {session_id}",
+                session_id=session_id,
+            )
+            raise KeyError("No progress record for session")
+        logger.info(
+            "Tombstoning progress record for session {session_id}",
+            session_id=session_id,
+        )
+        self.redis_progress_store.hset(progress_key, "tombstone", "t")
 
     def progress_status(self, session_id: str) -> tuple[int, int]:
         progress_key = self._create_key("progress", None, session_id)
         todo_str, done_str = self.redis_progress_store.hmget(
             progress_key,
-            ["total_nr_subtasks", "nr_subtasks_executed"],
+            ["todo", "done"],
         )
         if todo_str is None or done_str is None:
             raise KeyError(f"No progress for session id {session_id}")
 
         todo, done = int(todo_str), int(done_str)
         logger.debug(
-            "Found there are {nr_left} tasks left to do for session {session_id}",
+            "Found there are {todo} - {done} = {nr_left} tasks left to do for session {session_id}",
+            todo=todo,
+            done=done,
             nr_left=todo - done,
             session_id=session_id,
         )
