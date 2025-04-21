@@ -412,7 +412,7 @@ class CeleryManager:
         self.session_lock_manager.progress_start(
             session_id=model.session_id,
             task_id=task.id,
-            total_nr_subtasks=task.total_nr_subtasks,
+            total_nr_subtasks=task_compiler.nr_tasks,
         )
 
     def get_task_result(self, task_id) -> AsyncResult:

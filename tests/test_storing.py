@@ -2,12 +2,12 @@ import time
 import uuid
 from ctypes import c_bool
 from multiprocessing import Process, Value
-from typing import Optional
 
 import pytest
 from snappy import snappy
 
 from genie_flow.genie import GenieModel
+from genie_flow.model.dialogue import DialogueElement
 
 
 def test_serialize(session_manager_unconnected):
@@ -151,6 +151,25 @@ def test_locked_model(session_manager_connected, genie_model):
 
     p.join()
 
+
+def test_auto_save(session_manager_connected, genie_model):
+    session_manager_connected.store_model(genie_model)
+    with session_manager_connected.get_locked_model(
+            genie_model.session_id,
+            genie_model.__class__
+    ) as mm:
+        mm.dialogue.append(
+            DialogueElement(
+                actor="assistant",
+                actor_text="test"
+            )
+        )
+        mm.actor = "test-actor"
+
+    m = session_manager_connected.get_model(genie_model.session_id, genie_model.__class__)
+    assert len(m.dialogue) == len(genie_model.dialogue) + 1
+    assert m.dialogue[-1].actor == "assistant"
+    assert m.actor == "test-actor"
 
 def test_progress_start(session_manager_connected):
     session_id = uuid.uuid4().hex
