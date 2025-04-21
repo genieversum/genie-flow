@@ -35,7 +35,7 @@ class SessionLockManager:
 
         def __enter__(self) -> GenieModel:
             self.lock.acquire()
-            self.model = self.lock_manager.get_model(self.session_id, self.model_class)
+            self.model = self.lock_manager._retrieve_model(self.session_id, self.model_class)
             return self.model
 
         def __exit__(self, exc_type, exc_val, exc_tb):
@@ -172,6 +172,21 @@ class SessionLockManager:
 
         return model_cls.model_validate_json(model_json)
 
+    def _retrieve_model(self, session_id: str, model_class: Type[GenieModel]) -> GenieModel:
+        """
+        Retrieve the GenieModel for the object for the given `session_id`. This retrieval is
+        not protected by a lock, and the user should ensure that no other process is accessing
+        the model at the same time.
+        :param session_id: the session id that the object in question belongs to
+        :param model_class: the GenieModel class to retrieve
+        :return: a retrieved GenieModel object for the given `session_id`
+        """
+        model_key = self._create_key("object", model_class, session_id)
+        payload = self.redis_object_store.get(model_key)
+        if payload is None:
+            raise KeyError(f"No model with id {session_id}")
+        return self._deserialize(payload, model_class)
+
     def get_model(self, session_id: str, model_class: Type[GenieModel]) -> GenieModel:
         """
         Retrieve the GenieModel for the object for the given `session_id`. This retrieval is
@@ -183,11 +198,7 @@ class SessionLockManager:
         :return: The GenieModel object for the given `session_id`
         """
         with self._create_lock_for_session(session_id):
-            model_key = self._create_key("object", model_class, session_id)
-            payload = self.redis_object_store.get(model_key)
-            if payload is None:
-                raise KeyError(f"No model with id {session_id}")
-            return self._deserialize(payload, model_class)
+            return self._retrieve_model(session_id, model_class)
 
     def store_model(self, model: GenieModel):
         """

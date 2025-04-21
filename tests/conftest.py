@@ -64,7 +64,7 @@ def redis_server_details(docker_services) -> Optional[dict[str, str | int]]:
         "db": db,
     }
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def genie_model():
     return GenieModel(
         session_id=uuid.uuid4().hex,
@@ -93,9 +93,9 @@ def session_manager_unconnected():
         None,
         None,
         None,
-        120,
-        120,
-        120,
+        600,
+        600,
+        600,
         False,
         "genie-flow-test",
     )

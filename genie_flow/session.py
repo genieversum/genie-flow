@@ -186,15 +186,14 @@ class SessionManager:
         :return: an instance of `AIStatusResponse`, indicating if the task is ready and what
         possible next actions can be sent in the current state of the model.
         """
-        model_class = self.model_key_registry[model_key]
-        model = self.session_lock_manager.get_model(session_id, model_class)
-
-        if self.session_lock_manager.progress_exists(model.session_id):
+        if self.session_lock_manager.progress_exists(session_id):
             return AIStatusResponse(
                 session_id=session_id,
                 ready=False,
             )
 
+        model_class = self.model_key_registry[model_key]
+        model = self.session_lock_manager.get_model(session_id, model_class)
         state_machine = model.get_state_machine_class()(model=model)
         return AIStatusResponse(
             session_id=session_id,

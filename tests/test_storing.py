@@ -1,5 +1,8 @@
+import time
 import uuid
-from multiprocessing import Process
+from ctypes import c_bool
+from multiprocessing import Process, Value
+from typing import Optional
 
 import pytest
 from snappy import snappy
@@ -114,20 +117,20 @@ def test_store_retrieve_model_compressed(session_manager_connected, genie_model)
 
 def test_locked_model(session_manager_connected, genie_model):
 
-    waiting_for_lock = True
-
-    def parallel_lock_getter():
+    def parallel_lock_getter(wait_indicator: Value):
+        wait_indicator.value = True
         with session_manager_connected.get_locked_model(
             genie_model.session_id,
             genie_model.__class__
         ) as mm_p:
-            nonlocal waiting_for_lock
-            waiting_for_lock = False
+            wait_indicator.value = False
 
             assert isinstance(mm_p, GenieModel)
             assert mm_p.session_id == genie_model.session_id
 
     session_manager_connected.store_model(genie_model)
+
+    waiting_for_lock = Value(c_bool, False)
     with session_manager_connected.get_locked_model(
             genie_model.session_id,
             genie_model.__class__
@@ -135,11 +138,50 @@ def test_locked_model(session_manager_connected, genie_model):
         assert isinstance(mm, GenieModel)
         assert mm.session_id == genie_model.session_id
 
-        p = Process(target=parallel_lock_getter)
+        p = Process(target=parallel_lock_getter, args=(waiting_for_lock,))
         p.start()
 
-        assert waiting_for_lock == True
+        time.sleep(0.1)
+        # the parallel process should be waiting for the lock
+        assert waiting_for_lock.value == True
 
-    assert waiting_for_lock == False
+    time.sleep(0.1)
+    # the parallel process should have the lock now
+    assert waiting_for_lock.value == False
 
     p.join()
+
+
+def test_progress_start(session_manager_connected):
+    session_id = uuid.uuid4().hex
+    session_manager_connected.progress_start(session_id, "test-task", 8)
+
+    key = session_manager_connected._create_key("progress", None, session_id)
+    progress_store = session_manager_connected.redis_progress_store
+    assert progress_store.exists(key)
+    assert progress_store.hget(key, "total_nr_subtasks") == b"8"
+    assert progress_store.hget(key, "nr_subtasks_executed") == b"0"
+
+    assert session_manager_connected.progress_exists(session_id)
+    assert session_manager_connected.progress_status(session_id) == (8, 0)
+
+
+def test_progress_done(session_manager_connected):
+    session_id = uuid.uuid4().hex
+    session_manager_connected.progress_start(session_id, "test-task", 8)
+
+    assert session_manager_connected.progress_exists(session_id)
+
+    session_manager_connected.progress_done(session_id)
+    assert not session_manager_connected.progress_exists(session_id)
+
+
+def test_progress_update(session_manager_connected):
+    session_id = uuid.uuid4().hex
+    session_manager_connected.progress_start(session_id, "test-task", 8)
+
+    session_manager_connected.progress_update_done(session_id)
+    assert session_manager_connected.progress_status(session_id) == (8, 1)
+
+    session_manager_connected.progress_update_todo(session_id, 8)
+    assert session_manager_connected.progress_status(session_id) == (16, 1)
