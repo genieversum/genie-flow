@@ -90,7 +90,6 @@ def test_store_model(session_manager_connected, genie_model):
     key = "genie-flow-test:object:GenieModel:"+genie_model.session_id
 
     assert session_manager_connected.redis_object_store.exists(key)
-    print(session_manager_connected.redis_object_store.get(key))
 
 
 def test_store_retrieve_model(session_manager_connected, genie_model):

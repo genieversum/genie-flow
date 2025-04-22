@@ -1,8 +1,10 @@
 persistence:
+  application_prefix: genie-flow-app
   object_store:
     host: redis
     port: 6379
     db: 1
+    object_compression: true
     expiration_seconds: 86400
   lock_store:
     host: redis
