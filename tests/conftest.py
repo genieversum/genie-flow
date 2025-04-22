@@ -15,7 +15,7 @@ from genie_flow.session_lock import SessionLockManager
 
 @pytest.fixture(scope="session")
 def docker_compose_file():
-    return "resources/docker-compose.yaml"
+    return "tests/resources/docker-compose.yaml"
 
 
 @pytest.fixture(scope="session")
