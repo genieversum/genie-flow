@@ -26,6 +26,13 @@ def docker_setup(docker_setup):
 
 
 @pytest.fixture(scope="session")
+def docker_cleanup(docker_cleanup):
+    if "REDIS_SERVER" in os.environ:
+        return False
+    return docker_cleanup
+
+
+@pytest.fixture(scope="session")
 def redis_server_details(docker_services) -> Optional[dict[str, str | int]]:
 
     def redis_server_is_responsive(host, port, db):
