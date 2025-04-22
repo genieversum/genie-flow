@@ -44,6 +44,13 @@ def redis_server_details(docker_services) -> Optional[dict[str, str | int]]:
             os.environ.get("REDIS_SERVER_PORT"),
             os.environ.get("REDIS_SERVER_DB"),
         )
+        logger.info(
+            "We are using an existing redis server at {redis_server}, "
+            "port {redis_server_port} and redis database {redis_server_db}",
+            redis_server=host,
+            redis_server_port=port,
+            redis_server_db=db,
+        )
         for _ in range(900):
             if redis_server_is_responsive():
                 break
@@ -54,6 +61,7 @@ def redis_server_details(docker_services) -> Optional[dict[str, str | int]]:
 
     else:
         host, port, db = ("localhost", 6379, 0)
+        logger.info("We are using a local docker container for redis")
         docker_services.wait_until_responsive(
             timeout=90.0, pause=0.1, check=redis_server_is_responsive
         )
