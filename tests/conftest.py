@@ -37,13 +37,13 @@ def redis_server_details(docker_services) -> Optional[dict[str, str | int]]:
                 db=db,
             )
             connection = redis.Redis(host=host, port=port, db=db)
-            pong = connection.ping()
+            connection.ping()
         except redis.exceptions.ConnectionError as e:
             logger.exception("failed to reach Redis", e)
             return False
 
         connection.close()
-        return pong
+        return True
 
     if "REDIS_SERVER" in os.environ:
         host, port, db = (
