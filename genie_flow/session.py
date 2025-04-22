@@ -1,6 +1,7 @@
 import json
 import uuid
 
+from loguru import logger
 from statemachine.exceptions import TransitionNotAllowed
 
 from genie_flow.celery import CeleryManager
@@ -100,9 +101,17 @@ class SessionManager:
                 error=model.task_error,
                 next_actions=state_machine.current_state.transitions.unique_events,
             )
+        try:
+            actor_response = state_machine.model.current_response.actor_text
+        except AttributeError:
+            logger.warning(
+                "There is no recorded actor response for session {session_id}",
+            )
+            actor_response = ""
+
         return AIResponse(
             session_id=model.session_id,
-            response=state_machine.model.current_response.actor_text,
+            response=actor_response,
             next_actions=state_machine.current_state.transitions.unique_events,
         )
 

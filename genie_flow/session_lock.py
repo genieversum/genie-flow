@@ -85,7 +85,7 @@ class SessionLockManager:
         """
         lock = redis_lock.Lock(
             self.redis_lock_store,
-            name=f"lock-{session_id}",
+            name=session_id,
             expire=self.lock_expiration_seconds,
             auto_renewal=True,
         )
@@ -138,7 +138,7 @@ class SessionLockManager:
         :param model: the GenieModel to serialize
         :return: a bytes with the serialized version of the model object
         """
-        model_dump = model.model_dump_json(exclude_defaults=True, exclude_unset=True)
+        model_dump = model.model_dump_json()
         if self.compression:
             payload = snappy.compress(model_dump, encoding="utf-8")
         else:
