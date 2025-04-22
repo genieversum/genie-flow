@@ -170,7 +170,7 @@ class SessionLockManager:
         else:
             model_json = payload.decode("utf-8")
 
-        return model_cls.model_validate_json(model_json, by_alias=True)
+        return model_cls.model_validate_json(model_json, by_alias=True, by_name=True)
 
     def _retrieve_model(self, session_id: str, model_class: Type[GenieModel]) -> GenieModel:
         """
