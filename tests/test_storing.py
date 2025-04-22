@@ -14,7 +14,9 @@ def test_serialize(session_manager_unconnected):
     m = GenieModel(session_id=uuid.uuid4().hex)
     s = session_manager_unconnected._serialize(m)
 
-    assert s == b"0:0:{\"session_id\":\""+m.session_id.encode("utf-8")+b"\"}"
+    model_dump_json = m.model_dump_json()
+
+    assert s == b"0:0:"+model_dump_json.encode("utf-8")
 
 def test_serialize_compressed(session_manager_unconnected):
     session_manager_unconnected.compression = True
@@ -22,7 +24,7 @@ def test_serialize_compressed(session_manager_unconnected):
     m = GenieModel(session_id=uuid.uuid4().hex)
     s = session_manager_unconnected._serialize(m)
 
-    json_dump = "{\"session_id\":\""+m.session_id+"\"}"
+    json_dump = m.model_dump_json()
     json_compressed = snappy.compress(json_dump)
 
     assert s == b"0:1:"+json_compressed
@@ -178,8 +180,9 @@ def test_progress_start(session_manager_connected):
     key = session_manager_connected._create_key("progress", None, session_id)
     progress_store = session_manager_connected.redis_progress_store
     assert progress_store.exists(key)
-    assert progress_store.hget(key, "total_nr_subtasks") == b"8"
-    assert progress_store.hget(key, "nr_subtasks_executed") == b"0"
+    assert progress_store.hget(key, "todo") == b"8"
+    assert progress_store.hget(key, "done") == b"0"
+    assert progress_store.hget(key, "tombstone") == b"f"
 
     assert session_manager_connected.progress_exists(session_id)
     assert session_manager_connected.progress_status(session_id) == (8, 0)
@@ -191,7 +194,9 @@ def test_progress_done(session_manager_connected):
 
     assert session_manager_connected.progress_exists(session_id)
 
-    session_manager_connected.progress_finished(session_id)
+    session_manager_connected.progress_tombstone(session_id)
+    for _ in range(8):
+        session_manager_connected.progress_update_done(session_id)
     assert not session_manager_connected.progress_exists(session_id)
 
 
