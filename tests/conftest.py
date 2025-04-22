@@ -20,7 +20,7 @@ def docker_compose_file():
 
 @pytest.fixture(scope="session")
 def docker_setup(docker_setup):
-    if "MS_SQL_SERVER" in os.environ:
+    if "REDIS_SERVER" in os.environ:
         return False
     return docker_setup
 
