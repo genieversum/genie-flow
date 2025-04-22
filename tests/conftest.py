@@ -30,9 +30,16 @@ def redis_server_details(docker_services) -> Optional[dict[str, str | int]]:
 
     def redis_server_is_responsive():
         try:
+            logger.info(
+                "trying to reach Redis at host {host}, port {port} and database {db}",
+                host=host,
+                port=port,
+                db=db,
+            )
             connection = redis.Redis(host=host, port=port, db=db)
             pong = connection.ping()
-        except redis.exceptions.ConnectionError:
+        except redis.exceptions.ConnectionError as e:
+            logger.exception("failed to reach Redis", e)
             return False
 
         connection.close()
@@ -56,7 +63,7 @@ def redis_server_details(docker_services) -> Optional[dict[str, str | int]]:
                 break
             time.sleep(0.1)
 
-        logger.critical("failed to reach SQL Server in time -- giving up")
+        logger.critical("failed to reach Redis Server in time -- giving up")
         return None
 
     else:
