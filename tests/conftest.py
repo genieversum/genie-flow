@@ -28,7 +28,7 @@ def docker_setup(docker_setup):
 @pytest.fixture(scope="session")
 def redis_server_details(docker_services) -> Optional[dict[str, str | int]]:
 
-    def redis_server_is_responsive():
+    def redis_server_is_responsive(host, port, db):
         try:
             logger.info(
                 "trying to reach Redis at host {host}, port {port} and database {db}",
@@ -45,7 +45,7 @@ def redis_server_details(docker_services) -> Optional[dict[str, str | int]]:
         connection.close()
         return True
 
-    if "REDIS_SERVER" in os.environ:
+    def get_existing():
         host, port, db = (
             os.environ.get("REDIS_SERVER"),
             os.environ.get("REDIS_SERVER_PORT"),
@@ -58,19 +58,24 @@ def redis_server_details(docker_services) -> Optional[dict[str, str | int]]:
             redis_server_port=port,
             redis_server_db=db,
         )
+
         for _ in range(900):
-            if redis_server_is_responsive():
-                break
+            if redis_server_is_responsive(host, port, db):
+                return host, port, db
             time.sleep(0.1)
 
         logger.critical("failed to reach Redis Server in time -- giving up")
-        return None
+        raise ValueError("Failed to reach existing Redis server")
 
+    if "REDIS_SERVER" in os.environ:
+        host, port, db = get_existing()
     else:
         host, port, db = ("localhost", 6379, 0)
         logger.info("We are using a local docker container for redis")
         docker_services.wait_until_responsive(
-            timeout=90.0, pause=0.1, check=redis_server_is_responsive
+            timeout=90.0,
+            pause=0.1,
+            check=lambda: redis_server_is_responsive(host, port, db)
         )
 
     return {
