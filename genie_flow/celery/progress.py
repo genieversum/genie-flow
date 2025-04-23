@@ -34,7 +34,7 @@ class ProgressLoggingTask(Task):
             task_id=task_id,
             retval=retval,
         )
-        self.update_progress(session_id)
+        self.update_progress(session_id=session_id)
 
     def on_failure(self, exc, task_id, args, kwargs, einfo):
         session_id: str = args[-2]
@@ -44,4 +44,4 @@ class ProgressLoggingTask(Task):
             session_id=session_id,
             exc=exc,
         )
-        self.update_progress(session_id)
+        self.update_progress(session_id=session_id)
