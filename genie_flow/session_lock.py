@@ -1,3 +1,4 @@
+from lib2to3.fixes.fix_operator import invocation
 from typing import Type, Optional, overload, Literal
 
 import redis_lock
@@ -91,43 +92,20 @@ class SessionLockManager:
         )
         return lock
 
-    @overload
-    def _create_key(
-            self,
-            store: StoreType,
-            model: None,
-            session_id: str
-    ) -> str: ...
-
-    @overload
-    def _create_key(
-            self,
-            store: StoreType,
-            model: type[GenieModel],
-            session_id: str
-    ) -> str: ...
-
-    @overload
-    def _create_key(
-            self,
-            store: StoreType,
-            model: GenieModel,
-            session_id: Optional[str]=None
-    ) -> str:...
-
     def _create_key(
             self,
             store: StoreType,
             model: GenieModel | type[GenieModel] | None,
-            session_id: Optional[str]=None
+            *args: str,
     ) -> str:
+        key = f"{self.application_prefix}:{store}"
         if model is None:
-            return f"{self.application_prefix}:{store}::{session_id}"
-
-        if isinstance(model, GenieModel):
-            return f"{self.application_prefix}:{store}:{model.__class__.__name__}:{model.session_id}"
-
-        return f"{self.application_prefix}:{store}:{model.__name__}:{session_id}"
+            model_indicator = ""
+        elif isinstance(model, GenieModel):
+            model_indicator = model.__class__.__name__
+        else:
+            model_indicator = model.__name__
+        return key + f":{model_indicator}:" + ":".join([arg for arg in args if arg is not None])
 
     def _serialize(self, model: GenieModel) -> bytes:
         """
@@ -225,54 +203,76 @@ class SessionLockManager:
     def progress_start(
             self,
             session_id: str,
-            task_id: str,
+            invocation_id: str,
             nr_tasks_todo: int,
     ):
-        progress_key = self._create_key("progress", None, session_id)
+        progress_key = self._create_key(
+            "progress",
+            None,
+            session_id,
+            invocation_id,
+        )
         if self.redis_progress_store.exists(progress_key):
             logger.error(
-                "Progress record for session {session_id} already exists",
+                "Progress record for session {session_id} and invocation {invocation_id} already exists",
                 session_id=session_id,
+                invocation_id=invocation_id,
             )
-            raise ValueError("Progress record already exists for session")
+            raise ValueError("Progress record already exists for task")
 
         logger.info(
-            "Starting progress record for session {session_id} with {nr_todo} tasks",
+            "Starting progress record for session {session_id} and invocation {invocation_id}, "
+            "with {nr_todo} tasks",
             session_id=session_id,
+            invocation_id=invocation_id,
             nr_todo=nr_tasks_todo,
         )
         self.redis_progress_store.hset(
             progress_key,
             mapping={
-                "task_id": task_id,
                 "todo": nr_tasks_todo,
                 "done": 0,
                 "tombstone": "f",
             },
         )
 
-    def progress_exists(self, session_id: str) -> bool:
-        progress_key = self._create_key("progress", None, session_id)
+    def progress_exists(self, session_id: str, invocation_id: str) -> bool:
+        progress_key = self._create_key(
+            "progress",
+            None,
+            session_id,
+            invocation_id,
+        )
         nr_exists = self.redis_progress_store.exists(progress_key)
         return nr_exists == 1
 
     def progress_update_todo(
             self,
             session_id: str,
+            invocation_id: str,
             nr_increase: int,
     ) -> int:
-        progress_key = self._create_key("progress", None, session_id)
+        progress_key = self._create_key(
+            "progress",
+            None,
+            session_id,
+            invocation_id,
+        )
         if not self.redis_progress_store.exists(progress_key):
             logger.error(
-                "Updating number of tasks to do but no progress record for session {session_id}",
+                "Updating number of tasks to do but no progress record for "
+                "session {session_id} and invocation {invocation_id}",
                 session_id=session_id,
+                invocation_id=invocation_id,
             )
             raise KeyError("No progress record for session")
 
         logger.info(
-            "Adding {nr_increase} tasks to do for session {session_id}",
+            "Adding {nr_increase} tasks to do for session {session_id}, "
+            "invocation {invocation_id}",
             nr_increase=nr_increase,
             session_id=session_id,
+            invocation_id=invocation_id,
         )
         new_todo = self.redis_progress_store.hincrby(
             progress_key,
@@ -280,29 +280,39 @@ class SessionLockManager:
             nr_increase,
         )
         logger.debug(
-            "New: {new_todo} tasks to do for session {session_id}",
+            "New: {new_todo} tasks to do for session {session_id}, invocation {invocation_id}",
             new_todo=new_todo,
             session_id=session_id,
+            invocation_id=invocation_id,
         )
         return new_todo
 
     def progress_update_done(
             self,
             session_id: str,
+            invocation_id: str,
             nr_done: int = 1,
     ) -> int:
-        progress_key = self._create_key("progress", None, session_id)
+        progress_key = self._create_key(
+            "progress",
+            None,
+            session_id,
+            invocation_id,
+        )
         if not self.redis_progress_store.exists(progress_key):
             logger.error(
-                "Updating number of tasks done but no progress record for session {session_id}",
+                "Updating number of tasks done but no progress record for "
+                "session {session_id} and invocation {invocation_id}",
                 session_id=session_id,
+                invocation_id=invocation_id,
             )
             raise KeyError("No progress record for session")
 
         logger.info(
-            "Adding {nr_done} tasks done for session {session_id}",
+            "Adding {nr_done} tasks done for session {session_id}, invocation {invocation_id}",
             nr_done=nr_done,
             session_id=session_id,
+            invocation_id=invocation_id,
         )
         new_done = self.redis_progress_store.hincrby(
             progress_key,
@@ -310,32 +320,42 @@ class SessionLockManager:
             nr_done,
         )
         logger.debug(
-            "New: {new_done} tasks done for session {session_id}",
+            "New: {new_done} tasks done for session {session_id}, invocation {invocation_id}",
             new_done=new_done,
             session_id=session_id,
+            invocation_id=invocation_id,
         )
-        todo = int(self.redis_progress_store.hget(progress_key, "todo"))
-        if new_done >= todo:
+        tombstone, todo_str = self.redis_progress_store.hmget(
+            progress_key,
+            ["tombstone", "todo"],
+        )
+        todo = int(todo_str)
+        
+        if tombstone == b"t":
+            if todo > new_done:
+                logger.warning(
+                    "Got an update for session {session_id} and invocation {invocation_id} "
+                    "with a tombstoned progress record, with tasks to do {todo} > done {done}",
+                    session_id=session_id,
+                    invocation_id=invocation_id,
+                    todo=todo,
+                    done=new_done,
+                )
             logger.debug(
-                "Progress record for session {session_id} indicates finish: "
-                "{new_done} done and {todo} to do,"
-                "checking to remove",
+                "Removing progress record for session {session_id} and invocation {invocation_id}",
                 session_id=session_id,
-                new_done=new_done,
+                invocation_id=invocation_id,
+            )
+            self.redis_progress_store.delete(progress_key)
+        elif new_done >= todo:
+            logger.warning(
+                "Progress record for session {session_id} and invocation {invocation_id} "
+                "indicates done {done} tasks >= {todo} tasks to do",
+                session_id=session_id,
+                invocation_id=invocation_id,
+                done=new_done,
                 todo=todo,
             )
-            tombstone = self.redis_progress_store.hget(progress_key, "tombstone")
-            logger.debug(
-                "Progress record for session {session_id} has tombstone: {tombstone}",
-                session_id=session_id,
-                tombstone=tombstone,
-            )
-            if tombstone == b"t":
-                logger.debug(
-                    "Progress record for session {session_id} is tombstoned, removing",
-                    session_id=session_id,
-                )
-                self.redis_progress_store.delete(progress_key)
         return todo - new_done
 
     def progress_tombstone(self, session_id: str):
@@ -352,21 +372,33 @@ class SessionLockManager:
         )
         self.redis_progress_store.hset(progress_key, "tombstone", "t")
 
-    def progress_status(self, session_id: str) -> tuple[int, int]:
-        progress_key = self._create_key("progress", None, session_id)
+    def progress_status(self, session_id: str, invocation_id: str) -> tuple[int, int]:
+        progress_key = self._create_key(
+            "progress",
+            None,
+            session_id,
+            invocation_id,
+        )
         todo_str, done_str = self.redis_progress_store.hmget(
             progress_key,
             ["todo", "done"],
         )
         if todo_str is None or done_str is None:
-            raise KeyError(f"No progress for session id {session_id}")
+            logger.error(
+                "No progress for session id {session_id} invocation id {invocation_id}",
+                session_id=session_id,
+                invocation_id=invocation_id,
+            )
+            raise KeyError(f"No progress for session")
 
         todo, done = int(todo_str), int(done_str)
         logger.debug(
-            "Found there are {todo} - {done} = {nr_left} tasks left to do for session {session_id}",
+            "Found there are {todo} - {done} = {nr_left} tasks left to do for "
+            "session {session_id} invocation {invocation_id}",
             todo=todo,
             done=done,
             nr_left=todo - done,
             session_id=session_id,
+            invocation_id=invocation_id,
         )
         return todo, done

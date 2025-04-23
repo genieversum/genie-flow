@@ -151,6 +151,7 @@ class CeleryManager:
                 event_name: str,
                 session_id: str,
                 model_fqn: str,
+                invocation_id: str,
         ):
             """
             This Celery Task is executed at the end of a Celery DAG and all the relevant
@@ -165,7 +166,7 @@ class CeleryManager:
             :param model_fqn: The fully qualified name of the class of the model
             """
             with self.session_lock_manager.get_locked_model(session_id, model_fqn) as model:
-                self.session_lock_manager.progress_tombstone(session_id)
+                self.session_lock_manager.progress_tombstone(session_id, invocation_id)
 
                 state_machine = model.get_state_machine_class()(model)
                 state_machine.add_listener(TransitionManager(self))
@@ -202,6 +203,7 @@ class CeleryManager:
                 template_name: str,
                 session_id: str,
                 model_fqn: str,
+                invocation_id: str,
         ) -> str:
             """
             This Celery Task executes the actual Invocation. It is given the data that should be
@@ -234,6 +236,7 @@ class CeleryManager:
                 template_name: str,
                 session_id: str,
                 model_fqn: str,
+                invocation_id: str,
         ):
             """
             This task maps a template onto the different values in a list of model parameters.
@@ -281,6 +284,7 @@ class CeleryManager:
                     template_name,
                     session_id,
                     model_fqn,
+                    invocation_id,
                 )
                 for map_index, map_value in enumerate(list_values)
             ]
@@ -289,11 +293,15 @@ class CeleryManager:
             # increase the number of tasks To Do by the number of values mapped,
             # plus one for the combine task, minus one because we are replacing
             # this MapTaskTemplate task that was already counted
-            self.session_lock_manager.progress_update_todo(session_id, len(list_values))
+            self.session_lock_manager.progress_update_todo(
+                session_id,
+                invocation_id,
+                len(list_values),
+            )
             return task_instance.replace(
                 chord(
                     group(*mapped_tasks),
-                    combine_task.s(session_id, model_fqn),
+                    combine_task.s(session_id, model_fqn, invocation_id),
                 )
             )
 
@@ -310,6 +318,7 @@ class CeleryManager:
                 keys: list[str],
                 session_id: str,
                 model_fqn: str,
+                invocation_id: str,
         ) -> CompositeContentType:
             parsed_results = [parse_if_json(s) for s in results]
             return json.dumps(dict(zip(keys, parsed_results)))
@@ -326,6 +335,7 @@ class CeleryManager:
                 results: list[CompositeContentType],
                 session_id: str,
                 model_fqn: str,
+                invocation_id: str,
         ):
             parsed_results = [parse_if_json(s) for s in results]
             return json.dumps(parsed_results)
@@ -342,6 +352,7 @@ class CeleryManager:
                 result_of_previous_call: CompositeContentType,
                 session_id: str,
                 model_fqn: str,
+                invocation_id: str,
         ) -> CompositeContentType:
 
             parsed_previous_result = None
@@ -384,12 +395,14 @@ class CeleryManager:
             state_machine.get_template_for_state(target_state),
             model.session_id,
             model_fqn,
+            target_state.name,
             event_to_send_after,
         )
         task_compiler.task.on_error(
             task_compiler.error_handler.s(
                 model_fqn,
                 model.session_id,
+                task_compiler.invocation_id,
                 event_to_send_after,
             )
         )
@@ -399,7 +412,7 @@ class CeleryManager:
 
         self.session_lock_manager.progress_start(
             session_id=model.session_id,
-            task_id=task.id,
+            invocation_id=task_compiler.invocation_id,
             nr_tasks_todo=task_compiler.nr_tasks,
         )
 
