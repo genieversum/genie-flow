@@ -4,6 +4,7 @@ from ctypes import c_bool
 from multiprocessing import Process, Value
 
 import pytest
+import ulid
 from snappy import snappy
 
 from genie_flow.genie import GenieModel
@@ -174,37 +175,46 @@ def test_auto_save(session_manager_connected, genie_model):
 
 def test_progress_start(session_manager_connected):
     session_id = uuid.uuid4().hex
-    session_manager_connected.progress_start(session_id, "test-task", 8)
+    invocation_id = "some-task-" + ulid.new().str
+    session_manager_connected.progress_start(session_id, invocation_id, 8)
 
-    key = session_manager_connected._create_key("progress", None, session_id)
+    key = session_manager_connected._create_key(
+        "progress",
+        None,
+        session_id,
+        invocation_id,
+    )
     progress_store = session_manager_connected.redis_progress_store
     assert progress_store.exists(key)
     assert progress_store.hget(key, "todo") == b"8"
     assert progress_store.hget(key, "done") == b"0"
     assert progress_store.hget(key, "tombstone") == b"f"
 
-    assert session_manager_connected.progress_exists(session_id)
-    assert session_manager_connected.progress_status(session_id) == (8, 0)
+    assert session_manager_connected.progress_exists(session_id, invocation_id)
+    assert session_manager_connected.progress_status(session_id, invocation_id) == (8, 0)
 
 
 def test_progress_done(session_manager_connected):
     session_id = uuid.uuid4().hex
-    session_manager_connected.progress_start(session_id, "test-task", 8)
+    invocation_id = "some-task-" + ulid.new().str
+    session_manager_connected.progress_start(session_id, invocation_id, 8)
 
-    assert session_manager_connected.progress_exists(session_id)
+    assert session_manager_connected.progress_exists(session_id, invocation_id)
 
-    session_manager_connected.progress_tombstone(session_id)
-    for _ in range(8):
-        session_manager_connected.progress_update_done(session_id)
-    assert not session_manager_connected.progress_exists(session_id)
+    for i in range(8):
+        if i == 7:
+            session_manager_connected.progress_tombstone(session_id, invocation_id)
+        session_manager_connected.progress_update_done(session_id, invocation_id)
+    assert not session_manager_connected.progress_exists(session_id, invocation_id)
 
 
 def test_progress_update(session_manager_connected):
     session_id = uuid.uuid4().hex
-    session_manager_connected.progress_start(session_id, "test-task", 8)
+    invocation_id = "some-task-" + ulid.new().str
+    session_manager_connected.progress_start(session_id, invocation_id, 8)
 
-    session_manager_connected.progress_update_done(session_id)
-    assert session_manager_connected.progress_status(session_id) == (8, 1)
+    session_manager_connected.progress_update_done(session_id, invocation_id)
+    assert session_manager_connected.progress_status(session_id, invocation_id) == (8, 1)
 
-    session_manager_connected.progress_update_todo(session_id, 8)
-    assert session_manager_connected.progress_status(session_id) == (16, 1)
+    session_manager_connected.progress_update_todo(session_id, invocation_id, 8)
+    assert session_manager_connected.progress_status(session_id, invocation_id) == (16, 1)

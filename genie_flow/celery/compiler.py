@@ -1,4 +1,3 @@
-import uuid
 from typing import Any, Optional
 
 import ulid
@@ -6,7 +5,6 @@ from celery import Celery, Task, chord, group
 from celery.canvas import Signature
 
 from genie_flow.model.template import CompositeTemplateType, MapTaskTemplate
-from genie_flow.utils import new_ulid
 
 
 class TaskCompiler:

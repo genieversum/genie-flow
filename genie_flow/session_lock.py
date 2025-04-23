@@ -184,7 +184,11 @@ class SessionLockManager:
 
         :param model: the object to store
         """
-        model_key = self._create_key("object", model)
+        model_key = self._create_key("object", model, model.session_id)
+        logger.debug(
+            "Storing model for session {session_id} in object store",
+            session_id=model.session_id,
+        )
         self.redis_object_store.set(
             model_key,
             self._serialize(model),
@@ -358,17 +362,25 @@ class SessionLockManager:
             )
         return todo - new_done
 
-    def progress_tombstone(self, session_id: str):
-        progress_key = self._create_key("progress", None, session_id)
+    def progress_tombstone(self, session_id: str, invocation_id: str):
+        progress_key = self._create_key(
+            "progress",
+            None,
+            session_id,
+            invocation_id,
+        )
         if not self.redis_progress_store.exists(progress_key):
             logger.error(
-                "Tombstoning progress record but no progress record for session {session_id}",
+                "Tombstoning progress record but no progress record "
+                "for session {session_id} invocation {invocation_id}",
                 session_id=session_id,
+                invocation_id=invocation_id,
             )
             raise KeyError("No progress record for session")
         logger.info(
-            "Tombstoning progress record for session {session_id}",
+            "Tombstoning progress record for session {session_id} invocation {invocation_id}",
             session_id=session_id,
+            invocation_id=invocation_id,
         )
         self.redis_progress_store.hset(progress_key, "tombstone", "t")
 
