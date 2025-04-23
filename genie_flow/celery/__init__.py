@@ -286,10 +286,10 @@ class CeleryManager:
             ]
             combine_task = self.celery_app.tasks["genie_flow.combine_group_to_list"]
 
-            self.session_lock_manager.progress_update_todo(
-                session_id,
-                len(list_values) + 1,
-            )
+            # increase the number of tasks To Do by the number of values mapped,
+            # plus one for the combine task, minus one because we are replacing
+            # this MapTaskTemplate task that was already counted
+            self.session_lock_manager.progress_update_todo(session_id, len(list_values))
             return task_instance.replace(
                 chord(
                     group(*mapped_tasks),
