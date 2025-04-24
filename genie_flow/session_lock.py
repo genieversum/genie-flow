@@ -409,17 +409,17 @@ class SessionLockManager:
         invocations_to_ignore = set()
         field_values = self.redis_progress_store.hgetall(progress_key)
         for field_name, value in field_values.items():
-            if field_name.endswith("tombstone") and value == b"t":
+            if field_name.endswith(b"tombstone") and value == b"t":
                 invocations_to_ignore.add(field_name.split(":")[0])
 
         todo, done = 0, 0
         for field_name, value in field_values.items():
-            invocation_id, field = field_name.split(":")
+            invocation_id, field = field_name.split(b":")
             if invocation_id in invocations_to_ignore:
                 continue
-            if field == "todo":
+            if field == b"todo":
                 todo += int(value)
-            elif field == "done":
+            elif field == b"done":
                 done += int(value)
 
         logger.debug(

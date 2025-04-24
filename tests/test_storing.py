@@ -173,6 +173,7 @@ def test_auto_save(session_manager_connected, genie_model):
     assert m.dialogue[-1].actor == "assistant"
     assert m.actor == "test-actor"
 
+
 def test_progress_start(session_manager_connected):
     session_id = uuid.uuid4().hex
     invocation_id = "some-task-" + ulid.new().str
@@ -182,16 +183,17 @@ def test_progress_start(session_manager_connected):
         "progress",
         None,
         session_id,
-        invocation_id,
     )
     progress_store = session_manager_connected.redis_progress_store
     assert progress_store.exists(key)
-    assert progress_store.hget(key, "todo") == b"8"
-    assert progress_store.hget(key, "done") == b"0"
-    assert progress_store.hget(key, "tombstone") == b"f"
+    assert progress_store.hget(key, f"{invocation_id}:todo") == b"8"
+    assert progress_store.hget(key, f"{invocation_id}:done") == b"0"
+    assert progress_store.hget(key, f"{invocation_id}:tombstone") == b"f"
 
+    assert session_manager_connected.progress_exists(session_id)
     assert session_manager_connected.progress_exists(session_id, invocation_id)
-    assert session_manager_connected.progress_status(session_id, invocation_id) == (8, 0)
+    assert not session_manager_connected.progress_exists(session_id, "some other")
+    assert session_manager_connected.progress_status(session_id) == (8, 0)
 
 
 def test_progress_done(session_manager_connected):
@@ -214,7 +216,7 @@ def test_progress_update(session_manager_connected):
     session_manager_connected.progress_start(session_id, invocation_id, 8)
 
     session_manager_connected.progress_update_done(session_id, invocation_id)
-    assert session_manager_connected.progress_status(session_id, invocation_id) == (8, 1)
+    assert session_manager_connected.progress_status(session_id) == (8, 1)
 
     session_manager_connected.progress_update_todo(session_id, invocation_id, 8)
-    assert session_manager_connected.progress_status(session_id, invocation_id) == (16, 1)
+    assert session_manager_connected.progress_status(session_id) == (16, 1)
