@@ -31,21 +31,25 @@ class User(BaseModel):
         default=None,
         description="the profile picture of the current user"
     )
-    job_title: Printable = Field(
+    job_title: Optional[Printable] = Field(
+        default=None,
         description="the job tite of the current user"
     )
-    department: Printable = Field(
+    department: Optional[Printable] = Field(
+        default=None,
         description="the department of the current user"
     )
-    gtm: Printable = Field(
+    gtm: Optional[Printable] = Field(
+        default=None,
         description="the GTM of the current user"
     )
-    location: Printable = Field(
+    location: Optional[Printable] = Field(
+        default=None,
         description="the base location of the current user"
     )
 
 
-
+    @property
     def name(self) -> str:
         return f"{self.firstname} {self.lastname}"
     
