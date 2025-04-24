@@ -59,7 +59,7 @@ class GenieFlowRouterBuilder:
         except KeyError:
             raise _unknown_state_machine_exception(state_machine_key)
         except ValueError:
-            print(f"Invalid User detail, {User}")
+            print(f"Invalid User detail, {user_info}")
 
     def start_event(self, state_machine_key: str, event: EventInput) -> AIResponse:
         try:
