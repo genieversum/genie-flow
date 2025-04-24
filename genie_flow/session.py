@@ -1,5 +1,6 @@
 import json
 import uuid
+from typing import Optional
 
 from statemachine.exceptions import TransitionNotAllowed
 
@@ -10,7 +11,7 @@ from genie_flow.genie import GenieModel, GenieTaskProgress
 from genie_flow.model.types import ModelKeyRegistryType
 from genie_flow.model.api import AIResponse, EventInput, AIStatusResponse, AIProgressResponse
 from genie_flow.session_lock import SessionLockManager
-
+from genie_flow.model.user import User
 
 class SessionManager:
     """
@@ -31,7 +32,7 @@ class SessionManager:
         self.genie_environment = genie_environment
         self.celery_manager = celery_manager
 
-    def create_new_session(self, model_key: str) -> AIResponse:
+    def create_new_session(self, model_key: str, user_info: Optional[User]=None) -> AIResponse:
         """
         Create a new session. This method creates a new session id (UUID4), creates a model
         instance of the given model class, initiates a state machine for that model instance
@@ -50,7 +51,10 @@ class SessionManager:
         session_id = str(str(uuid.uuid4()))
 
         model_class = self.model_key_registry[model_key]
-        model = model_class(session_id=session_id)
+        model = model_class(
+            session_id=session_id,
+            user_info=user_info
+        )
 
         state_machine = model.get_state_machine_class()(model)
 

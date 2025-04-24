@@ -11,6 +11,7 @@ from statemachine.event_data import EventData
 
 from genie_flow.model.dialogue import DialogueElement, DialogueFormat
 from genie_flow.model.template import CompositeTemplateType
+from genie_flow.model.user import User
 
 
 class GenieTaskProgress(Model):
@@ -103,38 +104,11 @@ class GenieModel(Model):
         "",
         description="the most recent received input from the actor",
     )
-    user_email: Optional[str] = Field(
+    user_info: Optional[User] = Field(
         default=None,
-        description="the email address of the current user"
+        description="The model that represents the user information received from the front end"
     )
-    user_firstname: Optional[str] = Field(
-        default=None,
-        description="the first name of the current user"
-    )
-    user_lastname: Optional[str] = Field(
-        default=None,
-        description="the last name of the current user"
-    )
-    user_picture: Optional[bytes] = Field( # may just be a string - need to confirm what is returned in JWT from EntraID
-        default=None,
-        description="the profile picture of the current user"
-    )
-    user_job_title: Optional[str] = Field(
-        default=None,
-        description="the job tite of the current user"
-    )
-    user_department: Optional[str] = Field(
-        default=None,
-        description="the department of the current user"
-    )
-    user_gtm: Optional[str] = Field(
-        default=None,
-        description="the GTM of the current user"
-    )
-    user_location: Optional[str] = Field(
-        default=None,
-        description="the base location of the current user"
-    )
+
 
     @property
     def has_running_tasks(self) -> bool:
