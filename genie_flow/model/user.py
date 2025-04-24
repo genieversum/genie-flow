@@ -6,7 +6,7 @@ from typing import Optional, Annotated
 
 def is_printable(value: str) -> str:
     if not value.isprintable():
-        raise ValueError(f"{value} contains characters that are not in the alphabet", )
+        raise ValueError(f"{value} contains characters that are not printable")
     return value
 
 def is_email(value: str) -> str:
