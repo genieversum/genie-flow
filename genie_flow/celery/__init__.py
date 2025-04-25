@@ -404,7 +404,7 @@ class CeleryManager:
             state_machine.get_template_for_state(target_state),
             model.session_id,
             model_fqn,
-            target_state.name,
+            target_state.id,
             event_to_send_after,
         )
         task_compiler.task.on_error(
