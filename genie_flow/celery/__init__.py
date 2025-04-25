@@ -107,6 +107,7 @@ class CeleryManager:
                 traceback,
                 cls_fqn: str,
                 session_id: str,
+                invocation_id: str,
                 event_name: str,
         ):
             """
@@ -114,7 +115,14 @@ class CeleryManager:
             task_error property. The final event is (still) being sent to the state machine. But the
             actor's input is an empty string.
             """
-            logger.error(f"Task {request.id} raised an error: {exc}")
+            logger.error(
+                "Task {request.id}, for session {session_id}, invocation {invocation_id} "
+                "raised an error: {exc}",
+                request=request,
+                session_id=session_id,
+                invocation_id=invocation_id,
+                exc=exc,
+            )
             logger.exception(traceback)
 
             with self.session_lock_manager.get_locked_model(session_id, cls_fqn) as model:
@@ -130,6 +138,7 @@ class CeleryManager:
                 model.task_error += json.dumps(
                     dict(
                         session_id=session_id,
+                        invocation_id=invocation_id,
                         task_id=request.id,
                         task_name=request.id,
                         exception=str(exc),
