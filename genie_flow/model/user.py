@@ -1,6 +1,6 @@
 import re
 
-from pydantic import BaseModel, Field, AfterValidator
+from pydantic import BaseModel, Field, AfterValidator, computed_field
 from typing import Optional, Annotated
 
 
@@ -27,28 +27,12 @@ class User(BaseModel):
     lastname: Printable = Field(
         description="the last name of the current user"
     )
-    picture: Optional[bytes] = Field(
+    custom_properties: Optional[dict[Printable,Printable]] = Field(
         default=None,
-        description="the profile picture of the current user"
-    )
-    job_title: Optional[Printable] = Field(
-        default=None,
-        description="the job tite of the current user"
-    )
-    department: Optional[Printable] = Field(
-        default=None,
-        description="the department of the current user"
-    )
-    gtm: Optional[Printable] = Field(
-        default=None,
-        description="the GTM of the current user"
-    )
-    location: Optional[Printable] = Field(
-        default=None,
-        description="the base location of the current user"
+        description="dict of custom properties specific to the agent"
     )
 
-
+    @computed_field
     @property
     def name(self) -> str:
         return f"{self.firstname} {self.lastname}"
