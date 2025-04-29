@@ -9,8 +9,10 @@ from statemachine import StateMachine, State
 from statemachine.event_data import EventData
 
 from genie_flow.model.dialogue import DialogueElement, DialogueFormat
+from genie_flow.model.secondary_store import SecondaryStore
 from genie_flow.model.template import CompositeTemplateType
 from genie_flow.model.user import User
+from genie_flow.model.versioned import VersionedModel
 
 
 class StateType(enum.IntEnum):
@@ -34,7 +36,7 @@ class DialoguePersistence(enum.IntEnum):
     RENDERED = 2
 
 
-class GenieModel(BaseModel):
+class GenieModel(VersionedModel):
     """
     The base model for all models that will carry data in the dialogue. Contains the attributes
     that are required and expected by the `GenieStateMachine` such as `state` and `session_id`/
@@ -85,21 +87,10 @@ class GenieModel(BaseModel):
         "",
         description="the most recent received input from the actor",
     )
-    user_info: Optional[User] = Field(
-        default=None,
-        description="The model that represents the user information received from the front end"
+    secondary_storage: SecondaryStore = Field(
+        default_factory=SecondaryStore,
+        description="A dictionary that can be used to store secondary information about the session",
     )
-
-
-    model_config = ConfigDict(
-        json_schema_extra={"schema_version": 0}
-    )
-
-    @classmethod
-    @property
-    @cache
-    def schema_version(cls) -> int:
-        return int(cls.model_json_schema()["schema_version"])
 
     @property
     def has_errors(self) -> bool:

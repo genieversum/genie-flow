@@ -2,14 +2,16 @@ from typing import Type, Optional, Literal
 
 import redis_lock
 from loguru import logger
+from pydantic import BaseModel
 from redis import Redis
 from snappy import snappy
 
 from genie_flow.genie import GenieModel
+from genie_flow.model.versioned import VersionedModel
 from genie_flow.utils import get_class_from_fully_qualified_name
 
 
-StoreType = Literal["object", "lock", "progress"]
+StoreType = Literal["object", "secondary", "lock", "progress"]
 
 
 class SessionLockManager:
@@ -106,49 +108,6 @@ class SessionLockManager:
             model_indicator = model.__name__
         return key + f":{model_indicator}:" + ":".join([arg for arg in args if arg is not None])
 
-    def _serialize(self, model: GenieModel) -> bytes:
-        """
-        Creates a serialization of the given model object. Serialization results in a
-        bytes object, containing the schema version number, a compression indicator and
-        the serialized version of the model object. All separated by a ':' character.
-
-        :param model: the GenieModel to serialize
-        :return: a bytes with the serialized version of the model object
-        """
-        model_dump = model.model_dump_json()
-        if self.compression:
-            payload = snappy.compress(model_dump, encoding="utf-8")
-        else:
-            payload = model_dump.encode("utf-8")
-        compression = b"1" if self.compression else b"0"
-
-        return b":".join([str(model.schema_version).encode("utf-8"), compression, payload])
-
-    def _deserialize(self, payload: bytes, model_cls: str | Type[GenieModel]) -> GenieModel:
-        if isinstance(model_cls, str):
-            model_cls: GenieModel = get_class_from_fully_qualified_name(model_cls)
-
-        persisted_version, compression, payload = payload.split(b":", maxsplit=2)
-        if int(persisted_version) != model_cls.schema_version:
-            logger.error(
-                "Cannot deserialize a model with schema version {persisted_version} "
-                "into a model with schema version {current_version} "
-                "for model class {model_class}",
-                persisted_version=int(persisted_version),
-                current_version=model_cls.schema_version,
-                model_class=model_cls.__name__,
-            )
-            raise ValueError(
-                f"Schema mis-match when deserializing a {model_cls.__name__} model"
-            )
-
-        if compression == b"1":
-            model_json = snappy.decompress(payload, decoding="utf-8")
-        else:
-            model_json = payload.decode("utf-8")
-
-        return model_cls.model_validate_json(model_json, by_alias=True, by_name=True)
-
     def _retrieve_model(self, session_id: str, model_class: Type[GenieModel]) -> GenieModel:
         """
         Retrieve the GenieModel for the object for the given `session_id`. This retrieval is
@@ -166,7 +125,9 @@ class SessionLockManager:
                 session_id=session_id,
             )
             raise KeyError(f"No model with id {session_id}")
-        return self._deserialize(payload, model_class)
+
+        model = model_class.deserialize(payload)
+        return model
 
     def get_model(self, session_id: str, model_class: Type[GenieModel]) -> GenieModel:
         """
@@ -192,11 +153,23 @@ class SessionLockManager:
             "Storing model for session {session_id} in object store",
             session_id=model.session_id,
         )
+
+        if model.secondary_storage.has_unpersisted_values:
+            secondary_key = self._create_key("secondary", model, model.session_id)
+            unpersisted_serialized = model.secondary_storage.unpersisted_serialized(self.compression)
+            self.redis_object_store.hset(secondary_key, mapping=unpersisted_serialized)
+            model.secondary_storage.mark_persisted(unpersisted_serialized.keys())
+
         self.redis_object_store.set(
             model_key,
-            self._serialize(model),
+            model.serialize(self.compression),
             ex=self.object_expiration_seconds,
         )
+
+    def get_secondary_storage(self, session_id: str, model_fqn: str) -> dict[str, VersionedModel]:
+        model_cls = get_class_from_fully_qualified_name(model_fqn)
+        secondary_key = self._create_key("secondary", model_cls, session_id)
+        serialized_values = self.redis_object_store.hgetall(secondary_key)
 
     def get_locked_model(
             self,
