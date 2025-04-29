@@ -13,7 +13,7 @@ from genie_flow.celery.compiler import TaskCompiler
 from genie_flow.celery.progress import ProgressLoggingTask
 from genie_flow.celery.transition import TransitionManager
 from genie_flow.environment import GenieEnvironment
-from genie_flow.genie import GenieModel, GenieStateMachine, GenieTaskProgress
+from genie_flow.genie import GenieModel, GenieStateMachine
 from genie_flow.model.template import CompositeContentType
 from genie_flow.session_lock import SessionLockManager
 from genie_flow.utils import get_fully_qualified_name_from_class
@@ -107,6 +107,7 @@ class CeleryManager:
                 traceback,
                 cls_fqn: str,
                 session_id: str,
+                invocation_id: str,
                 event_name: str,
         ):
             """
@@ -114,7 +115,14 @@ class CeleryManager:
             task_error property. The final event is (still) being sent to the state machine. But the
             actor's input is an empty string.
             """
-            logger.error(f"Task {request.id} raised an error: {exc}")
+            logger.error(
+                "Task {request.id}, for session {session_id}, invocation {invocation_id} "
+                "raised an error: {exc}",
+                request=request,
+                session_id=session_id,
+                invocation_id=invocation_id,
+                exc=exc,
+            )
             logger.exception(traceback)
 
             with self.session_lock_manager.get_locked_model(session_id, cls_fqn) as model:
@@ -130,6 +138,7 @@ class CeleryManager:
                 model.task_error += json.dumps(
                     dict(
                         session_id=session_id,
+                        invocation_id=invocation_id,
                         task_id=request.id,
                         task_name=request.id,
                         exception=str(exc),
@@ -151,6 +160,7 @@ class CeleryManager:
                 event_name: str,
                 session_id: str,
                 model_fqn: str,
+                invocation_id: str,
         ):
             """
             This Celery Task is executed at the end of a Celery DAG and all the relevant
@@ -165,16 +175,7 @@ class CeleryManager:
             :param model_fqn: The fully qualified name of the class of the model
             """
             with self.session_lock_manager.get_locked_model(session_id, model_fqn) as model:
-                task_progress_list = GenieTaskProgress.select(ids=[session_id])
-                if len(task_progress_list) == 0:
-                    raise ValueError(f"Could not find task progress for session {session_id}")
-                task_progress = task_progress_list[0]
-                if task_progress.nr_subtasks_executed - task_progress.total_nr_subtasks > 1:
-                    logger.warning(
-                        "Not all subtasks for session {session_id} have been executed",
-                        session_id=session_id,
-                    )
-                GenieTaskProgress.delete(ids=[session_id])
+                self.session_lock_manager.progress_tombstone(session_id, invocation_id)
 
                 state_machine = model.get_state_machine_class()(model)
                 state_machine.add_listener(TransitionManager(self))
@@ -211,6 +212,7 @@ class CeleryManager:
                 template_name: str,
                 session_id: str,
                 model_fqn: str,
+                invocation_id: str,
         ) -> str:
             """
             This Celery Task executes the actual Invocation. It is given the data that should be
@@ -243,6 +245,7 @@ class CeleryManager:
                 template_name: str,
                 session_id: str,
                 model_fqn: str,
+                invocation_id: str,
         ):
             """
             This task maps a template onto the different values in a list of model parameters.
@@ -290,15 +293,24 @@ class CeleryManager:
                     template_name,
                     session_id,
                     model_fqn,
+                    invocation_id,
                 )
                 for map_index, map_value in enumerate(list_values)
             ]
-
             combine_task = self.celery_app.tasks["genie_flow.combine_group_to_list"]
+
+            # increase the number of tasks To Do by the number of values mapped,
+            # plus one for the combine task, minus one because we are replacing
+            # this MapTaskTemplate task that was already counted
+            self.session_lock_manager.progress_update_todo(
+                session_id,
+                invocation_id,
+                len(list_values),
+            )
             return task_instance.replace(
                 chord(
                     group(*mapped_tasks),
-                    combine_task.s(session_id, model_fqn),
+                    combine_task.s(session_id, model_fqn, invocation_id),
                 )
             )
 
@@ -315,6 +327,7 @@ class CeleryManager:
                 keys: list[str],
                 session_id: str,
                 model_fqn: str,
+                invocation_id: str,
         ) -> CompositeContentType:
             parsed_results = [parse_if_json(s) for s in results]
             return json.dumps(dict(zip(keys, parsed_results)))
@@ -331,6 +344,7 @@ class CeleryManager:
                 results: list[CompositeContentType],
                 session_id: str,
                 model_fqn: str,
+                invocation_id: str,
         ):
             parsed_results = [parse_if_json(s) for s in results]
             return json.dumps(parsed_results)
@@ -347,6 +361,7 @@ class CeleryManager:
                 result_of_previous_call: CompositeContentType,
                 session_id: str,
                 model_fqn: str,
+                invocation_id: str,
         ) -> CompositeContentType:
 
             parsed_previous_result = None
@@ -389,12 +404,14 @@ class CeleryManager:
             state_machine.get_template_for_state(target_state),
             model.session_id,
             model_fqn,
+            target_state.id,
             event_to_send_after,
         )
         task_compiler.task.on_error(
             task_compiler.error_handler.s(
                 model_fqn,
                 model.session_id,
+                task_compiler.invocation_id,
                 event_to_send_after,
             )
         )
@@ -402,12 +419,10 @@ class CeleryManager:
         # enqueuing the compiled task with an empty drag_net dictionary
         task = task_compiler.task.apply_async((None,))
 
-        GenieTaskProgress.insert(
-            GenieTaskProgress(
-                session_id=model.session_id,
-                task_id=task.id,
-                total_nr_subtasks=task_compiler.nr_tasks,
-            )
+        self.session_lock_manager.progress_start(
+            session_id=model.session_id,
+            invocation_id=task_compiler.invocation_id,
+            nr_tasks_todo=task_compiler.nr_tasks,
         )
 
     def get_task_result(self, task_id) -> AsyncResult:

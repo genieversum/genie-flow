@@ -1,65 +1,56 @@
-from typing import Optional
-
-import redis_lock
 from celery import Task
 from dependency_injector.wiring import inject, Provide
 from loguru import logger
 
 from genie_flow.containers.persistence import GenieFlowPersistenceContainer
-from genie_flow.genie import GenieTaskProgress
 from genie_flow.session_lock import SessionLockManager
 
 
 class ProgressLoggingTask(Task):
+    """
+    This is a celery task that logs the progress of a session.
+    It also updates the progress of the session in the session lock manager.
+    """
 
     @inject
-    def get_lock_for_session(
-            self,
-            session_id: str,
-            lock_manager: SessionLockManager = (
-                    Provide[GenieFlowPersistenceContainer.session_lock_manager]
-            ),
-    ) -> redis_lock.Lock:
-        return lock_manager.get_lock_for_session(session_id)
-
-    @staticmethod
-    def _retrieve_progress(session_id) -> Optional[GenieTaskProgress]:
-        task_progress_list = GenieTaskProgress.select(ids=[session_id])
-        if task_progress_list is None or len(task_progress_list) == 0:
-            logger.warning("No progress record for session {}", session_id)
-            return None
-
-        if len(task_progress_list) > 1:
-            logger.error(
-                f"Found too many tasks progress records for session {session_id};"
-                f" should be exactly one"
-            )
-
-        return task_progress_list[0]
+    def update_progress(
+        self,
+        session_id: str,
+        invocation_id: str,
+        lock_manager: SessionLockManager = (
+            Provide[GenieFlowPersistenceContainer.session_lock_manager]
+        ),
+    ):
+        lock_manager.progress_update_done(session_id, invocation_id)
 
     def on_success(self, retval, task_id, args, kwargs):
-        logger.info(f"Just finished task {task_id} successfully.")
-        logger.debug(f"Task {task_id} has return value: {retval}")
-        session_id: str = args[-1]
-        with self.get_lock_for_session(session_id):
-            task_progress = self._retrieve_progress(session_id)
-            if task_progress is None:
-                return
+        session_id: str = args[-3]
+        invocation_id: str = args[-1]
 
-            task_progress.nr_subtasks_executed += 1
-            GenieTaskProgress.update(
-                session_id,
-                {"nr_subtasks_executed": task_progress.nr_subtasks_executed},
-            )
-            logger.debug(
-                "session {} has now done {} tasks",
-                session_id,
-                task_progress.nr_subtasks_executed,
-            )
+        logger.info(
+            "Just finished task {task_id} successfully, "
+            "for session {session_id} invocation {invocation_id}",
+            task_id=task_id,
+            session_id=session_id,
+            invocation_id=invocation_id,
+        )
+        logger.debug(
+            "Task {task_id} has return value: {retval}",
+            task_id=task_id,
+            retval=retval,
+        )
+        self.update_progress(session_id=session_id, invocation_id=invocation_id)
 
     def on_failure(self, exc, task_id, args, kwargs, einfo):
-        logger.error(f"Task {task_id} failed with {exc}")
-        session_id: str = args[-1]
-        with self.get_lock_for_session(session_id):
-            self._retrieve_progress(session_id)
-            GenieTaskProgress.delete(session_id)
+        session_id: str = args[-2]
+        invocation_id: str = args[-1]
+
+        logger.error(
+            "Task {task_id} for session {session_id} invocation {invocation_id} "
+            "failed with {exc}",
+            task_id=task_id,
+            session_id=session_id,
+            invocation_id=invocation_id,
+            exc=exc,
+        )
+        self.update_progress(session_id=session_id, invocation_id=invocation_id)

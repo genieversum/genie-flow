@@ -1,19 +1,14 @@
 import json
-import uuid
 from datetime import datetime
 from enum import Enum
 
-from pydantic import Field, field_validator
-from pydantic_redis import Model
+from pydantic import Field, field_validator, BaseModel
 
 
-class DialogueElement(Model):
+class DialogueElement(BaseModel):
     """
     An element of a dialogue. Typically, a phrase that is output by an originator.
     """
-
-    _primary_key_field: str = "id"
-    id: str = Field(default_factory=lambda: uuid.uuid4().hex)
 
     actor: str = Field(
         description="the originator of the dialogue element",

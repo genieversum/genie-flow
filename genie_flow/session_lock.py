@@ -1,63 +1,82 @@
-from typing import Type, Optional
+from typing import Type, Optional, Literal
 
 import redis_lock
+from loguru import logger
 from redis import Redis
+from snappy import snappy
 
 from genie_flow.genie import GenieModel
 from genie_flow.utils import get_class_from_fully_qualified_name
 
 
-class LockedGenieModel:
-    """
-    A Context Manager for obtaining a locked `GenieModel`. This context manager obtains
-    a lock for a particular session, then retrieves the GenieModel from store. Upon the
-    exit of the context, that GenieModel is stored back into store and the lock is released.
-    """
-
-    def __init__(
-            self,
-            session_id: str,
-            model_class: Type[GenieModel],
-            lock: redis_lock.Lock
-    ):
-        self.session_id = session_id
-        self.model_class = model_class
-        self.lock = lock
-        self.model: Optional[GenieModel] = None
-
-    def __enter__(self) -> GenieModel:
-        self.lock.acquire()
-
-        models = self.model_class.select(ids=[self.session_id])
-        if len(models) == 0:
-            raise KeyError(f"No model with id {self.session_id}")
-        if len(models) > 1:
-            raise RuntimeError(f"Multiple models with id {self.session_id}")
-        self.model = models[0]
-
-        return self.model
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.model_class.insert(self.model)
-        self.lock.release()
+StoreType = Literal["object", "lock", "progress"]
 
 
 class SessionLockManager:
-    """
-    The `SessionLockManager` manages the session lock. When changes are (expected to be) made to
-    the model of a particular session, this manager deals with locking multithreaded access to
-    it when it gets retrieve from Store, and before it gets written back to it.
-    """
+
+    class ModelContextManager:
+
+        def __init__(
+                self,
+                lock_manager: "SessionLockManager",
+                session_id: str,
+                model_class: Type[GenieModel]
+        ):
+            """
+            A Context Manager for obtaining a locked `GenieModel`. This context manager obtains
+            a lock for a particular session, then retrieves the GenieModel from store. Upon the
+            exit of the context, that GenieModel is stored back into store and the lock is released.
+            """
+            self.lock_manager = lock_manager
+            self.model_class = model_class
+            self.session_id = session_id
+            self.lock = lock_manager._create_lock_for_session(session_id)
+            self.model: Optional[GenieModel] = None
+
+        def __enter__(self) -> GenieModel:
+            self.lock.acquire()
+            self.model = self.lock_manager._retrieve_model(self.session_id, self.model_class)
+            return self.model
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            self.lock_manager.store_model(self.model)
+            self.lock.release()
 
     def __init__(
         self,
+        redis_object_store: Redis,
         redis_lock_store: Redis,
+        redis_progress_store: Redis,
+        object_expiration_seconds: int,
         lock_expiration_seconds: int,
+        progress_expiration_seconds: int,
+        compression: bool,
+        application_prefix: str,
     ):
+        """
+        The `SessionLockManager` manages the session lock as well as the retrieval and persisting
+        of model objects. When changes are (expected to be) made to the model of a particular
+        session, this manager deals with locking multithreaded access to it when it retrieves
+        from Store, and before it gets written back to it.
+        :param redis_object_store: The Redis object store
+        :param redis_lock_store: The Redis lock store
+        :param redis_progress_store: The Redis progress store
+        :param object_expiration_seconds: The expiration time for objects in seconds
+        :param lock_expiration_seconds: The expiration time of the lock in seconds
+        :param progress_expiration_seconds: The expiration time of the progress object in seconds
+        :param compression: Whether or not to compress the model when persisting
+        :param application_prefix: The application prefix used to create the key for an object
+        """
+        self.redis_object_store = redis_object_store
         self.redis_lock_store = redis_lock_store
+        self.redis_progress_store = redis_progress_store
+        self.object_expiration_seconds = object_expiration_seconds
         self.lock_expiration_seconds = lock_expiration_seconds
+        self.progress_expiration_seconds = progress_expiration_seconds
+        self.compression = compression
+        self.application_prefix = application_prefix
 
-    def get_lock_for_session(self, session_id: str) -> redis_lock.Lock:
+    def _create_lock_for_session(self, session_id: str) -> redis_lock.Lock:
         """
         Retrieve the lock for the object for the given `session_id`. This ensures that only
         one process will have access to the model and potentially make changes to it.
@@ -66,11 +85,88 @@ class SessionLockManager:
         """
         lock = redis_lock.Lock(
             self.redis_lock_store,
-            name=f"lock-{session_id}",
+            name=session_id,
             expire=self.lock_expiration_seconds,
             auto_renewal=True,
         )
         return lock
+
+    def _create_key(
+            self,
+            store: StoreType,
+            model: GenieModel | type[GenieModel] | None,
+            *args: str,
+    ) -> str:
+        key = f"{self.application_prefix}:{store}"
+        if model is None:
+            model_indicator = ""
+        elif isinstance(model, GenieModel):
+            model_indicator = model.__class__.__name__
+        else:
+            model_indicator = model.__name__
+        return key + f":{model_indicator}:" + ":".join([arg for arg in args if arg is not None])
+
+    def _serialize(self, model: GenieModel) -> bytes:
+        """
+        Creates a serialization of the given model object. Serialization results in a
+        bytes object, containing the schema version number, a compression indicator and
+        the serialized version of the model object. All separated by a ':' character.
+
+        :param model: the GenieModel to serialize
+        :return: a bytes with the serialized version of the model object
+        """
+        model_dump = model.model_dump_json()
+        if self.compression:
+            payload = snappy.compress(model_dump, encoding="utf-8")
+        else:
+            payload = model_dump.encode("utf-8")
+        compression = b"1" if self.compression else b"0"
+
+        return b":".join([str(model.schema_version).encode("utf-8"), compression, payload])
+
+    def _deserialize(self, payload: bytes, model_cls: str | Type[GenieModel]) -> GenieModel:
+        if isinstance(model_cls, str):
+            model_cls: GenieModel = get_class_from_fully_qualified_name(model_cls)
+
+        persisted_version, compression, payload = payload.split(b":", maxsplit=2)
+        if int(persisted_version) != model_cls.schema_version:
+            logger.error(
+                "Cannot deserialize a model with schema version {persisted_version} "
+                "into a model with schema version {current_version} "
+                "for model class {model_class}",
+                persisted_version=int(persisted_version),
+                current_version=model_cls.schema_version,
+                model_class=model_cls.__name__,
+            )
+            raise ValueError(
+                f"Schema mis-match when deserializing a {model_cls.__name__} model"
+            )
+
+        if compression == b"1":
+            model_json = snappy.decompress(payload, decoding="utf-8")
+        else:
+            model_json = payload.decode("utf-8")
+
+        return model_cls.model_validate_json(model_json, by_alias=True, by_name=True)
+
+    def _retrieve_model(self, session_id: str, model_class: Type[GenieModel]) -> GenieModel:
+        """
+        Retrieve the GenieModel for the object for the given `session_id`. This retrieval is
+        not protected by a lock, and the user should ensure that no other process is accessing
+        the model at the same time.
+        :param session_id: the session id that the object in question belongs to
+        :param model_class: the GenieModel class to retrieve
+        :return: a retrieved GenieModel object for the given `session_id`
+        """
+        model_key = self._create_key("object", model_class, session_id)
+        payload = self.redis_object_store.get(model_key)
+        if payload is None:
+            logger.error(
+                "No model with id {session_id} found in object store",
+                session_id=session_id,
+            )
+            raise KeyError(f"No model with id {session_id}")
+        return self._deserialize(payload, model_class)
 
     def get_model(self, session_id: str, model_class: Type[GenieModel]) -> GenieModel:
         """
@@ -82,23 +178,256 @@ class SessionLockManager:
         :param model_class: The GenieModel class to retrieve
         :return: The GenieModel object for the given `session_id`
         """
-        with self.get_lock_for_session(session_id):
-            models = model_class.select(ids=[session_id])
-            if len(models) == 0:
-                raise KeyError(f"No model with id {session_id}")
-            if len(models) > 1:
-                raise RuntimeError(f"Multiple models with id {session_id}")
-            return models[0]
+        with self._create_lock_for_session(session_id):
+            return self._retrieve_model(session_id, model_class)
+
+    def store_model(self, model: GenieModel):
+        """
+        Store a model into the object store.
+
+        :param model: the object to store
+        """
+        model_key = self._create_key("object", model, model.session_id)
+        logger.debug(
+            "Storing model for session {session_id} in object store",
+            session_id=model.session_id,
+        )
+        self.redis_object_store.set(
+            model_key,
+            self._serialize(model),
+            ex=self.object_expiration_seconds,
+        )
 
     def get_locked_model(
             self,
             session_id: str,
             model_class: str | Type[GenieModel],
-    ) -> LockedGenieModel:
+    ) -> ModelContextManager:
         if isinstance(model_class, str):
             model_class = get_class_from_fully_qualified_name(model_class)
-        return LockedGenieModel(
-            session_id,
-            model_class,
-            self.get_lock_for_session(session_id)
+        return SessionLockManager.ModelContextManager(self, session_id, model_class)
+
+    @staticmethod
+    def _create_field_key(field: str, invocation_id: str) -> str:
+        return f"{invocation_id}:{field}"
+
+    def _create_existing_progress_key(
+            self,
+            action: str,
+            session_id: str,
+            invocation_id: str
+    ) -> str:
+        progress_key = self._create_key("progress", None, session_id)
+        if not self.redis_progress_store.exists(progress_key):
+            logger.error(
+                "Action {action} but no progress record for session {session_id}",
+                action=action,
+                session_id=session_id,
+            )
+            raise KeyError("No progress record for session")
+        if not self.redis_progress_store.hexists(
+            progress_key,
+            self._create_field_key("todo", invocation_id),
+        ):
+            logger.error(
+                "Action {action} but no progress record for session {session_id} "
+                "and invocation {invocation_id}",
+                action=action,
+                session_id=session_id,
+                invocation_id=invocation_id,
+            )
+            raise KeyError("No progress record for session and invocation")
+
+        logger.info(
+            "Starting {action} for session {session_id} and invocation {invocation_id}",
+            action=action,
+            session_id=session_id,
+            invocation_id=invocation_id,
         )
+        return progress_key
+
+    def progress_start(
+            self,
+            session_id: str,
+            invocation_id: str,
+            nr_tasks_todo: int,
+    ):
+        progress_key = self._create_key(
+            "progress",
+            None,
+            session_id,
+        )
+        if (
+            self.redis_progress_store.exists(progress_key) > 0
+            and self.redis_progress_store.hexists(
+                progress_key,
+                self._create_field_key("todo", invocation_id),
+            )
+        ):
+            logger.error(
+                "Progress record for session {session_id} and invocation {invocation_id} already exists",
+                session_id=session_id,
+                invocation_id=invocation_id,
+            )
+            raise ValueError("Progress record already exists for session and invocation")
+
+        logger.info(
+            "Starting progress record for session {session_id} and invocation {invocation_id}, "
+            "with {nr_todo} tasks",
+            session_id=session_id,
+            invocation_id=invocation_id,
+            nr_todo=nr_tasks_todo,
+        )
+        self.redis_progress_store.hset(
+            progress_key,
+            mapping={
+                self._create_field_key("todo", invocation_id): nr_tasks_todo,
+                self._create_field_key("done", invocation_id): 0,
+                self._create_field_key("tombstone", invocation_id): "f",
+            },
+        )
+
+    def progress_exists(self, session_id: str, invocation_id: Optional[str] = None) -> bool:
+        progress_key = self._create_key(
+            "progress",
+            None,
+            session_id,
+        )
+        if invocation_id is None:
+            return self.redis_progress_store.exists(progress_key) == 1
+
+        return self.redis_progress_store.hexists(
+            progress_key,
+            self._create_field_key("todo", invocation_id),
+        )
+
+    def progress_update_todo(
+            self,
+            session_id: str,
+            invocation_id: str,
+            nr_increase: int,
+    ) -> int:
+        progress_key = self._create_existing_progress_key(
+            "Update To Do Count",
+            session_id,
+            invocation_id,
+        )
+        new_todo = self.redis_progress_store.hincrby(
+            progress_key,
+            self._create_field_key("todo", invocation_id),
+            nr_increase,
+        )
+        logger.debug(
+            "New: {new_todo} tasks to do for session {session_id}, invocation {invocation_id}",
+            new_todo=new_todo,
+            session_id=session_id,
+            invocation_id=invocation_id,
+        )
+        return new_todo
+
+    def progress_update_done(
+            self,
+            session_id: str,
+            invocation_id: str,
+            nr_done: int = 1,
+    ) -> int:
+        progress_key = self._create_existing_progress_key(
+            "Update Done Count",
+            session_id,
+            invocation_id,
+        )
+
+        new_done = self.redis_progress_store.hincrby(
+            progress_key,
+            self._create_field_key("done", invocation_id),
+            nr_done,
+        )
+        logger.debug(
+            "New: {new_done} tasks done for session {session_id}, invocation {invocation_id}",
+            new_done=new_done,
+            session_id=session_id,
+            invocation_id=invocation_id,
+        )
+        tombstone, todo_str = self.redis_progress_store.hmget(
+            progress_key,
+            [
+                self._create_field_key("tombstone", invocation_id),
+                self._create_field_key("todo", invocation_id),
+            ],
+        )
+        todo = int(todo_str)
+        
+        if tombstone == b"t":
+            if todo > new_done:
+                logger.warning(
+                    "Got an update for session {session_id} and invocation {invocation_id} "
+                    "with a tombstoned progress record, with tasks to do {todo} > {done} done",
+                    session_id=session_id,
+                    invocation_id=invocation_id,
+                    todo=todo,
+                    done=new_done,
+                )
+            logger.info(
+                "Removing progress record for session {session_id} and invocation {invocation_id}",
+                session_id=session_id,
+                invocation_id=invocation_id,
+            )
+            self.redis_progress_store.hdel(
+                progress_key,
+                self._create_field_key("todo", invocation_id),
+                self._create_field_key("done", invocation_id),
+                self._create_field_key("tombstone", invocation_id),
+            )
+        elif new_done >= todo:
+            logger.warning(
+                "Progress record for session {session_id} and invocation {invocation_id} "
+                "indicates done {done} tasks >= {todo} tasks to do",
+                session_id=session_id,
+                invocation_id=invocation_id,
+                done=new_done,
+                todo=todo,
+            )
+        return todo - new_done
+
+    def progress_tombstone(self, session_id: str, invocation_id: str):
+        progress_key = self._create_existing_progress_key(
+            "Tombstone Progress Record",
+            session_id,
+            invocation_id,
+        )
+        self.redis_progress_store.hset(
+            progress_key,
+            self._create_field_key("tombstone", invocation_id),
+            "t"
+        )
+
+    def progress_status(self, session_id: str) -> tuple[int, int]:
+        progress_key = self._create_key("progress", None, session_id)
+        if not self.redis_progress_store.exists(progress_key):
+            return 0, 0
+
+        invocations_to_ignore = set()
+        field_values = self.redis_progress_store.hgetall(progress_key)
+        for field_name, value in field_values.items():
+            if field_name.endswith(b"tombstone") and value == b"t":
+                invocations_to_ignore.add(field_name.split(":")[0])
+
+        todo, done = 0, 0
+        for field_name, value in field_values.items():
+            invocation_id, field = field_name.split(b":")
+            if invocation_id in invocations_to_ignore:
+                continue
+            if field == b"todo":
+                todo += int(value)
+            elif field == b"done":
+                done += int(value)
+
+        logger.debug(
+            "Found there are {todo} - {done} = {nr_left} tasks left to do for "
+            "session {session_id}",
+            todo=todo,
+            done=done,
+            nr_left=todo - done,
+            session_id=session_id,
+        )
+        return todo, done
