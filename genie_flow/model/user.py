@@ -1,6 +1,6 @@
 import re
 
-from pydantic import BaseModel, Field, AfterValidator
+from pydantic import BaseModel, Field, AfterValidator, computed_field
 from typing import Optional, Annotated
 
 
@@ -48,7 +48,7 @@ class User(BaseModel):
         description="the base location of the current user"
     )
 
-
+    @computed_field
     @property
     def name(self) -> str:
         return f"{self.firstname} {self.lastname}"
