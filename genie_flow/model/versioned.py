@@ -1,11 +1,9 @@
 from functools import cache
-from typing import Type
 
 import snappy
 from loguru import logger
 from pydantic import BaseModel, ConfigDict
-
-from genie_flow.utils import get_class_from_fully_qualified_name
+from pydantic.main import IncEx
 
 
 class VersionedModel(BaseModel):
@@ -23,23 +21,37 @@ class VersionedModel(BaseModel):
     def schema_version(cls) -> int:
         return int(cls.model_json_schema()["schema_version"])
 
-    def serialize(self, compression: bool) -> bytes:
+    def serialize(
+            self,
+            compression: bool,
+            include: IncEx | None = None,
+            exclude: IncEx | None = None,
+    ) -> bytes:
         """
         Creates a serialization of the object. Serialization results in a
         bytes object, containing the schema version number, a compression indicator and
         the serialized version of the model object. All separated by a ':' character.
 
         :param compression: a boolean indicating whether to use compression or not
+        :param include: fields to include in the serialization
+        :param exclude: fields to exclude from the serialization
+        
         :return: a bytes with the serialized version of the model object
         """
-        model_dump = self.model_dump_json()
-        if self.compression:
+        model_dump = self.model_dump_json(include=include, exclude=exclude)
+        if compression:
             payload = snappy.compress(model_dump, encoding="utf-8")
         else:
             payload = model_dump.encode("utf-8")
-        compression = b"1" if self.compression else b"0"
+        compression_flag = b"1" if self.compression else b"0"
 
-        return b":".join([str(self.schema_version).encode("utf-8"), compression, payload])
+        return b":".join(
+            [
+                str(self.schema_version).encode("utf-8"), 
+                compression_flag,
+                payload
+            ]
+        )
 
     @classmethod
     def deserialize(cls, payload: bytes) -> "VersionedModel":

@@ -93,6 +93,31 @@ class GenieModel(VersionedModel):
     )
 
     @property
+    def render_data(self) -> dict[str, Any]:
+        """
+        Returns a dictionary containing all data that can be used to render a template.
+
+        It will contain:
+        - "state_id": The ID of the current state of the state machine
+        - "dialogue" The string output of the current dialogue
+        - all keys and values of the machine's current model
+        """
+        render_data = self.model.model_dump()
+        try:
+            parsed_json = json.loads(self.model.actor_input)
+        except json.JSONDecodeError:
+            parsed_json = None
+
+        render_data.update(
+            {
+                "parsed_actor_input": parsed_json,
+                "state_id": self.state,
+                "chat_history": str(self.format_dialogue(DialogueFormat.YAML)),
+            }
+        )
+        return render_data
+
+    @property
     def has_errors(self) -> bool:
         return self.task_error is not None
 
@@ -154,33 +179,6 @@ class GenieStateMachine(StateMachine):
     ):
         self.current_template: Optional[CompositeTemplateType] = None
         super(GenieStateMachine, self).__init__(model=model)
-
-    @property
-    def render_data(self) -> dict[str, Any]:
-        """
-        Returns a dictionary containing all data that can be used to render a template.
-
-        It will contain:
-        - "state_id": The ID of the current state of the state machine
-        - "state_name": The name of the current state of the state machine
-        - "dialogue" The string output of the current dialogue
-        - all keys and values of the machine's current model
-        """
-        render_data = self.model.model_dump()
-        try:
-            parsed_json = json.loads(self.model.actor_input)
-        except json.JSONDecodeError:
-            parsed_json = None
-
-        render_data.update(
-            {
-                "parsed_actor_input": parsed_json,
-                "state_id": self.current_state.id,
-                "state_name": self.current_state.name,
-                "chat_history": str(self.model.format_dialogue(DialogueFormat.YAML)),
-            }
-        )
-        return render_data
 
     def get_template_for_state(self, state: State) -> CompositeTemplateType:
         """

@@ -2,11 +2,10 @@ from typing import Type, Optional, Literal
 
 import redis_lock
 from loguru import logger
-from pydantic import BaseModel
 from redis import Redis
-from snappy import snappy
 
 from genie_flow.genie import GenieModel
+from genie_flow.model.secondary_store import SecondaryStore
 from genie_flow.model.versioned import VersionedModel
 from genie_flow.utils import get_class_from_fully_qualified_name
 
@@ -108,6 +107,15 @@ class SessionLockManager:
             model_indicator = model.__name__
         return key + f":{model_indicator}:" + ":".join([arg for arg in args if arg is not None])
 
+    def _retrieve_secondary_storage(
+            self,
+            session_id: str,
+            model_cls: Type[GenieModel],
+    ) -> SecondaryStore:
+        secondary_key = self._create_key("secondary", model_cls, session_id)
+        serialized_values = self.redis_object_store.hgetall(secondary_key)
+        return SecondaryStore.from_serialized(serialized_values)
+
     def _retrieve_model(self, session_id: str, model_class: Type[GenieModel]) -> GenieModel:
         """
         Retrieve the GenieModel for the object for the given `session_id`. This retrieval is
@@ -127,24 +135,51 @@ class SessionLockManager:
             raise KeyError(f"No model with id {session_id}")
 
         model = model_class.deserialize(payload)
+        model.secondary_storage = self._retrieve_secondary_storage(session_id, model_class)
         return model
 
-    def get_model(self, session_id: str, model_class: Type[GenieModel]) -> GenieModel:
+    def get_model(self, session_id: str, model_class: str | Type[GenieModel]) -> GenieModel:
         """
         Retrieve the GenieModel for the object for the given `session_id`. This retrieval is
         done inside a locked context, so no writing of the GenieModel can happen when this
         retrieval is done.
 
         :param session_id: The session id that the object in question belongs to
-        :param model_class: The GenieModel class to retrieve
+        :param model_class: The GenieModel class to retrieve or the fqn of the class
         :return: The GenieModel object for the given `session_id`
         """
+        if isinstance(model_class, str):
+            model_class = get_class_from_fully_qualified_name(model_class)
         with self._create_lock_for_session(session_id):
             return self._retrieve_model(session_id, model_class)
 
+    def store_secondary_storage(self, model: GenieModel):
+        secondary_key = self._create_key("secondary", model, model.session_id)
+
+        unpersisted_serialized = model.secondary_storage.unpersisted_serialized(
+            self.compression,
+        )
+        logger.debug(
+            "Writing unpersisted fields [{field_list}] to secondary storage "
+            "for session {session_id}",
+            field_list=", ".join(unpersisted_serialized.keys()),
+            session_id=model.session_id,
+        )
+        self.redis_object_store.hset(secondary_key, mapping=unpersisted_serialized)
+        model.secondary_storage.mark_persisted(unpersisted_serialized.keys())
+
+        for field in model.secondary_storage.deleted_keys:
+            logger.debug(
+                "Removing deleted field '{field}' from secondary storage "
+                "for session {session_id}",
+                field=field,
+                session_id=model.session_id,
+            )
+            self.redis_object_store.hdel(secondary_key, field)
+
     def store_model(self, model: GenieModel):
         """
-        Store a model into the object store.
+        Store a model into the object store. Also stores the secondary storage of the model.
 
         :param model: the object to store
         """
@@ -154,15 +189,11 @@ class SessionLockManager:
             session_id=model.session_id,
         )
 
-        if model.secondary_storage.has_unpersisted_values:
-            secondary_key = self._create_key("secondary", model, model.session_id)
-            unpersisted_serialized = model.secondary_storage.unpersisted_serialized(self.compression)
-            self.redis_object_store.hset(secondary_key, mapping=unpersisted_serialized)
-            model.secondary_storage.mark_persisted(unpersisted_serialized.keys())
+        self.store_secondary_storage(model)
 
         self.redis_object_store.set(
             model_key,
-            model.serialize(self.compression),
+            model.serialize(self.compression, exclude={"secondary_storage"}),
             ex=self.object_expiration_seconds,
         )
 

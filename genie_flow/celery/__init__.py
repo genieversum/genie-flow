@@ -72,9 +72,8 @@ class CeleryManager:
             "Retrieving render data for session {session_id}",
             session_id=session_id,
         )
-        with self.session_lock_manager.get_locked_model(session_id, model_fqn) as model:
-            state_machine = model.get_state_machine_class()(model)
-            render_data = state_machine.render_data
+        model = self.session_lock_manager.get_model(session_id, model_fqn)
+        render_data = model.render_data
 
         if drag_net is not None:
             logger.debug(
@@ -222,6 +221,7 @@ class CeleryManager:
             :param template_name: The name of the template that should be used to render
             :param session_id: The session id for which this task is executed
             :param model_fqn: The fully qualified name of the model
+            :param invocation_id: the id of the invocation that is being executed
             :returns: the result of the invocation
             """
             render_data = self._retrieve_render_data(drag_net, session_id, model_fqn)

@@ -1,7 +1,9 @@
 import re
 
-from pydantic import BaseModel, Field, AfterValidator, computed_field
+from pydantic import BaseModel, Field, AfterValidator, computed_field, ConfigDict
 from typing import Optional, Annotated
+
+from genie_flow.model.versioned import VersionedModel
 
 
 def is_printable(value: str) -> str:
@@ -16,7 +18,7 @@ def is_email(value: str) -> str:
     
 Printable = Annotated[str, AfterValidator(is_printable)]
 
-class User(BaseModel):
+class User(VersionedModel):
     
     email: Annotated[str, AfterValidator(is_email)] = Field(
         description="the email address of the current user"
@@ -37,4 +39,6 @@ class User(BaseModel):
     def name(self) -> str:
         return f"{self.firstname} {self.lastname}"
     
-
+    model_config = ConfigDict(
+        json_schema_extra={"schema_version": 0}
+    )
