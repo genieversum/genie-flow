@@ -10,6 +10,7 @@ from snappy import snappy
 
 from genie_flow.genie import GenieModel
 from genie_flow.model.dialogue import DialogueElement
+from genie_flow.model.user import User
 from genie_flow.model.versioned import VersionedModel
 
 
@@ -115,11 +116,41 @@ def test_store_retrieve_model_compressed(session_manager_connected, genie_model)
         assert de.actor_text == genie_model.dialogue[i].actor_text
 
 
-def test_persist_secondary_store(session_manager_connected, genie_model):
-    genie_model.secondary_storage["test"] = TestModel(aap="test")
+def test_persist_secondary_store(session_manager_connected, genie_model, user):
+    genie_model.secondary_storage["test"] = user
+
     session_manager_connected.store_model(genie_model)
     mm = session_manager_connected.get_model(genie_model.session_id, genie_model.__class__)
-    assert mm.secondary_storage["test"].aap == "test"
+    assert mm.secondary_storage["test"].email == "aap@noot.com"
+
+
+def test_not_persisting_secondary_store(session_manager_connected, genie_model, user):
+    genie_model.secondary_storage["test"] = user
+
+    session_manager_connected.store_model(genie_model)
+
+    with session_manager_connected.get_locked_model(
+            genie_model.session_id,
+            genie_model.__class__
+    ) as model:
+        model.secondary_storage["test"].lastname = "TESTING123"
+
+    mm = session_manager_connected.get_model(genie_model.session_id, genie_model.__class__)
+    assert mm.secondary_storage["test"].lastname == genie_model.secondary_storage["test"].lastname
+
+
+def test_delete_from_secondary_store(session_manager_connected, genie_model, user):
+    genie_model.secondary_storage["test"] = user
+
+    session_manager_connected.store_model(genie_model)
+
+    mm = session_manager_connected.get_model(genie_model.session_id, genie_model.__class__)
+    del mm.secondary_storage["test"]
+
+    session_manager_connected.store_model(mm)
+
+    mm = session_manager_connected.get_model(genie_model.session_id, genie_model.__class__)
+    assert "test" not in mm.secondary_storage
 
 
 def test_locked_model(session_manager_connected, genie_model):

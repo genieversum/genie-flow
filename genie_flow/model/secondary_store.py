@@ -100,7 +100,7 @@ class SecondaryStore(RootModel[dict[str, VersionedModel]]):
         )
 
     @property
-    def deleted_values(self) -> set[str]:
+    def deleted_keys(self) -> set[str]:
         """Returns a set of keys that are marked as deleted"""
         return {
             key
@@ -158,5 +158,5 @@ class SecondaryStore(RootModel[dict[str, VersionedModel]]):
         for key, value in self.unpersisted_values.items():
             model_fqn = get_fully_qualified_name_from_class(value)
             value_serialized = value.serialize(compression)
-            result[key] = f"{model_fqn}:{value_serialized}".encode("utf-8")
+            result[key] = model_fqn.encode("utf-8") + b":" + value_serialized
         return result

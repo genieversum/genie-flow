@@ -10,6 +10,7 @@ from loguru import logger
 
 from genie_flow.genie import GenieModel
 from genie_flow.model.dialogue import DialogueElement
+from genie_flow.model.user import User
 from genie_flow.session_lock import SessionLockManager
 
 
@@ -140,4 +141,16 @@ def session_manager_connected(redis_server_details):
         progress_expiration_seconds=120,
         compression=False,
         application_prefix="genie-flow-test",
+    )
+
+
+@pytest.fixture
+def user():
+    return User(
+        email="aap@noot.com",
+        firstname="Aap",
+        lastname="Noot",
+        custom_properties={
+            "GTM": "HLS"
+        }
     )

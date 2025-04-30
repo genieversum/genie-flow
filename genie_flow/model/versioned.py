@@ -80,15 +80,16 @@ class VersionedModel(BaseModel):
     @classmethod
     def deserialize(cls, payload: bytes) -> "VersionedModel":
         persisted_version, compression, payload = payload.split(b":", maxsplit=2)
+        persisted_version = int(persisted_version.decode("utf-8"))
         model_json = (
             snappy.decompress(payload, decoding="utf-8")
             if compression == b"1"
             else payload.decode("utf-8")
         )
 
-        if int(persisted_version) != cls.schema_version:
+        if persisted_version != cls.schema_version:
             model_data = from_json(model_json)
-            model_data = cls.upgrade_schema(int(persisted_version), model_data)
+            model_data = cls.upgrade_schema(persisted_version, model_data)
             return cls.model_validate(model_data)
 
         return cls.model_validate_json(model_json, by_alias=True, by_name=True)
