@@ -20,12 +20,20 @@ class SecondaryStore(RootModel[dict[str, VersionedModel]]):
     instances. It tracks the state of its items for persistence purposes, ensuring that only
     values that are marked as NEW_OBJECT are stored.
     """
-    _states: dict[str, Enum] = Field(default_factory=dict)
+    root: dict[str, VersionedModel] = Field(default_factory=dict)
+    _states: dict[str, Enum] = dict()
 
     def __getitem__(self, key: str) -> VersionedModel:
         return self.root[key]
 
     def __setitem__(self, key: str, value: VersionedModel):
+        if not isinstance(value, VersionedModel):
+            logger.error(
+                "Cannot set a value for key {key} that is not a VersionedModel",
+                key=key,
+            )
+            raise ValueError("Invalid data type for secondary store: must be a VersionedModel")
+
         self.root[key] = value
         self._states[key] = PersistenceState.NEW_OBJECT
 
@@ -61,7 +69,7 @@ class SecondaryStore(RootModel[dict[str, VersionedModel]]):
         key_values: dict[str, VersionedModel] = dict()
         for key, payload in payloads.items():
             payload_type, payload = payload.split(b":", maxsplit=1)
-            model_class = get_class_from_fully_qualified_name(payload_type)
+            model_class = get_class_from_fully_qualified_name(payload_type.decode("utf-8"))
             if not issubclass(model_class, VersionedModel):
                 logger.error(
                     "Cannot unserialize a payload with type {payload_type} that "
@@ -80,6 +88,14 @@ class SecondaryStore(RootModel[dict[str, VersionedModel]]):
         """Does this SecondaryStore have any unpersisted values?"""
         return any(
             state == PersistenceState.NEW_OBJECT
+            for state in self._states.values()
+        )
+
+    @property
+    def has_deleted_values(self) -> bool:
+        """Does this SecondaryStore have any deleted values?"""
+        return any(
+            state == PersistenceState.DELETED_OBJECT
             for state in self._states.values()
         )
 

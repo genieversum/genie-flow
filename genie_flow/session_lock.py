@@ -170,26 +170,28 @@ class SessionLockManager:
         """
         secondary_key = self._create_key("secondary", model, model.session_id)
 
-        unpersisted_serialized = model.secondary_storage.unpersisted_serialized(
-            self.compression,
-        )
-        logger.debug(
-            "Writing unpersisted fields [{field_list}] to secondary storage "
-            "for session {session_id}",
-            field_list=", ".join(unpersisted_serialized.keys()),
-            session_id=model.session_id,
-        )
-        self.redis_object_store.hset(secondary_key, mapping=unpersisted_serialized)
-        model.secondary_storage.mark_persisted(unpersisted_serialized.keys())
-
-        for field in model.secondary_storage.deleted_keys:
+        if model.secondary_storage.has_unpersisted_values:
+            unpersisted_serialized = model.secondary_storage.unpersisted_serialized(
+                self.compression,
+            )
             logger.debug(
-                "Removing deleted field '{field}' from secondary storage "
+                "Writing unpersisted fields [{field_list}] to secondary storage "
                 "for session {session_id}",
-                field=field,
+                field_list=", ".join(unpersisted_serialized.keys()),
                 session_id=model.session_id,
             )
-            self.redis_object_store.hdel(secondary_key, field)
+            self.redis_object_store.hset(secondary_key, mapping=unpersisted_serialized)
+            model.secondary_storage.mark_persisted(unpersisted_serialized.keys())
+
+        if model.secondary_storage.has_deleted_values:
+            deleted_fields = model.secondary_storage.deleted_keys
+            logger.debug(
+                "Removing deleted field(s) [{fields}] from secondary storage "
+                "for session {session_id}",
+                fields=", ".join(deleted_fields),
+                session_id=model.session_id,
+            )
+            self.redis_object_store.hdel(secondary_key, *deleted_fields)
 
     def _store_model(self, model: GenieModel):
         """

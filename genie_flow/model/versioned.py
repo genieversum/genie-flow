@@ -2,13 +2,20 @@ from functools import cache
 
 import snappy
 from loguru import logger
-from pydantic import BaseModel, ConfigDict, json
+from pydantic import BaseModel, ConfigDict
 from pydantic.main import IncEx
+from pydantic_core import from_json
 
 
 class VersionedModel(BaseModel):
     """
     A base class for models that have a schema version.
+    
+    This model provides built-in serialization and deserialization capabilities:
+
+    - Serialization: Converts model instances to bytes format with schema versioning and optional compression
+    - Deserialization: Restores model instances from bytes, handling schema version compatibility through upgrades
+    - Schema versioning: Ensures data compatibility across different model versions through version tracking
     """
 
     model_config = ConfigDict(json_schema_extra={"schema_version": 0})
@@ -21,7 +28,7 @@ class VersionedModel(BaseModel):
 
     def serialize(
         self,
-        compression: bool,
+        compression: bool = False,
         include: IncEx | None = None,
         exclude: IncEx | None = None,
     ) -> bytes:
@@ -41,7 +48,7 @@ class VersionedModel(BaseModel):
             payload = snappy.compress(model_dump, encoding="utf-8")
         else:
             payload = model_dump.encode("utf-8")
-        compression_flag = b"1" if self.compression else b"0"
+        compression_flag = b"1" if compression else b"0"
 
         return b":".join(
             [str(self.schema_version).encode("utf-8"), compression_flag, payload]
@@ -80,7 +87,7 @@ class VersionedModel(BaseModel):
         )
 
         if int(persisted_version) != cls.schema_version:
-            model_data = json.loads(model_json)
+            model_data = from_json(model_json)
             model_data = cls.upgrade_schema(int(persisted_version), model_data)
             return cls.model_validate(model_data)
 
