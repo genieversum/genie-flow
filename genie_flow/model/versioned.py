@@ -2,7 +2,7 @@ from functools import cache
 
 import snappy
 from loguru import logger
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, json
 from pydantic.main import IncEx
 
 
@@ -11,9 +11,7 @@ class VersionedModel(BaseModel):
     A base class for models that have a schema version.
     """
 
-    model_config = ConfigDict(
-        json_schema_extra={"schema_version": 0}
-    )
+    model_config = ConfigDict(json_schema_extra={"schema_version": 0})
 
     @classmethod
     @property
@@ -22,10 +20,10 @@ class VersionedModel(BaseModel):
         return int(cls.model_json_schema()["schema_version"])
 
     def serialize(
-            self,
-            compression: bool,
-            include: IncEx | None = None,
-            exclude: IncEx | None = None,
+        self,
+        compression: bool,
+        include: IncEx | None = None,
+        exclude: IncEx | None = None,
     ) -> bytes:
         """
         Creates a serialization of the object. Serialization results in a
@@ -35,7 +33,7 @@ class VersionedModel(BaseModel):
         :param compression: a boolean indicating whether to use compression or not
         :param include: fields to include in the serialization
         :param exclude: fields to exclude from the serialization
-        
+
         :return: a bytes with the serialized version of the model object
         """
         model_dump = self.model_dump_json(include=include, exclude=exclude)
@@ -46,32 +44,44 @@ class VersionedModel(BaseModel):
         compression_flag = b"1" if self.compression else b"0"
 
         return b":".join(
-            [
-                str(self.schema_version).encode("utf-8"), 
-                compression_flag,
-                payload
-            ]
+            [str(self.schema_version).encode("utf-8"), compression_flag, payload]
         )
+
+    @classmethod
+    def upgrade_schema(cls, from_version: int, model_data: dict) -> dict:
+        """
+        Upgrade the data in the model to the new schema version.
+
+        **NOTE**: This method should be overridden by subclasses.
+
+        :param from_version: the schema version to upgrade from
+        :param model_data: the data that should be upgraded
+        :return: the data that fits the current schema version
+        :raises ValueError: if the schema version cannot be made compatible with the
+        current schema version
+        """
+        logger.error(
+            "Cannot deserialize a model with schema version {persisted_version} "
+            "into a model with schema version {current_version} "
+            "for model class {model_class}",
+            persisted_version=int(from_version),
+            current_version=cls.schema_version,
+            model_class=cls.__name__,
+        )
+        raise ValueError(f"Schema mis-match when deserializing a {cls.__name__} model")
 
     @classmethod
     def deserialize(cls, payload: bytes) -> "VersionedModel":
         persisted_version, compression, payload = payload.split(b":", maxsplit=2)
-        if int(persisted_version) != cls.schema_version:
-            logger.error(
-                "Cannot deserialize a model with schema version {persisted_version} "
-                "into a model with schema version {current_version} "
-                "for model class {model_class}",
-                persisted_version=int(persisted_version),
-                current_version=cls.schema_version,
-                model_class=cls.__name__,
-            )
-            raise ValueError(
-                f"Schema mis-match when deserializing a {cls.__name__} model"
-            )
+        model_json = (
+            snappy.decompress(payload, decoding="utf-8")
+            if compression == b"1"
+            else payload.decode("utf-8")
+        )
 
-        if compression == b"1":
-            model_json = snappy.decompress(payload, decoding="utf-8")
-        else:
-            model_json = payload.decode("utf-8")
+        if int(persisted_version) != cls.schema_version:
+            model_data = json.loads(model_json)
+            model_data = cls.upgrade_schema(int(persisted_version), model_data)
+            return cls.model_validate(model_data)
 
         return cls.model_validate_json(model_json, by_alias=True, by_name=True)

@@ -15,6 +15,11 @@ class PersistenceState(Enum):
 
 
 class SecondaryStore(RootModel[dict[str, VersionedModel]]):
+    """
+    Represents a secondary data storage model that acts as a dict of str to `VersionedModel`
+    instances. It tracks the state of its items for persistence purposes, ensuring that only
+    values that are marked as NEW_OBJECT are stored.
+    """
     _states: dict[str, Enum] = Field(default_factory=dict)
 
     def __getitem__(self, key: str) -> VersionedModel:
@@ -29,7 +34,15 @@ class SecondaryStore(RootModel[dict[str, VersionedModel]]):
         self._states[key] = PersistenceState.DELETED_OBJECT
 
     @classmethod
-    def from_retrieved_values(cls, retrieved_values: dict[str, VersionedModel]):
+    def from_retrieved_values(cls, retrieved_values: dict[str, VersionedModel]) -> "SecondaryStore":
+        """
+        Create a SecondaryStore from retrieved values. This ensures that the state of
+        all properties is set to RETRIEVED_OBJECT, meaning that they are not persisted
+
+        :param retrieved_values: a dictionary that this SecondaryStore should encapsulate
+        :return: a new SecondaryStore with the retrieved values as root values,
+        and all states set to RETRIEVED_OBJECT
+        """
         result = cls.model_validate(retrieved_values)
         for key in retrieved_values.keys():
             result._states[key] = PersistenceState.RETRIEVED_OBJECT
@@ -37,6 +50,14 @@ class SecondaryStore(RootModel[dict[str, VersionedModel]]):
 
     @classmethod
     def from_serialized(cls, payloads: dict[str, bytes]) -> "SecondaryStore":
+        """
+        Create a SecondaryStore from serialized values. This ensures that the state of
+        all properties is set to RETRIEVED_OBJECT, meaning that they are not persisted.
+
+        :param payloads: a dictionary where the values for each key are serialized objects
+        :return: a new SecondaryStore with the retrieved values as root values,
+        and all states set to RETRIEVED_OBJECT
+        """
         key_values: dict[str, VersionedModel] = dict()
         for key, payload in payloads.items():
             payload_type, payload = payload.split(b":", maxsplit=1)
@@ -56,6 +77,7 @@ class SecondaryStore(RootModel[dict[str, VersionedModel]]):
 
     @property
     def has_unpersisted_values(self) -> bool:
+        """Does this SecondaryStore have any unpersisted values?"""
         return any(
             state == PersistenceState.NEW_OBJECT
             for state in self._states.values()
@@ -63,6 +85,7 @@ class SecondaryStore(RootModel[dict[str, VersionedModel]]):
 
     @property
     def deleted_values(self) -> set[str]:
+        """Returns a set of keys that are marked as deleted"""
         return {
             key
             for key, state in self._states.items()
@@ -71,6 +94,7 @@ class SecondaryStore(RootModel[dict[str, VersionedModel]]):
 
     @property
     def unpersisted_values(self) -> dict[str, VersionedModel]:
+        """Returns a dictionary of keys and values that are marked as new"""
         return {
             key: self.root[key]
             for key, state in self._states.items()
@@ -78,6 +102,15 @@ class SecondaryStore(RootModel[dict[str, VersionedModel]]):
         }
 
     def mark_persisted(self, keys: str | list[str]):
+        """
+        Marks the provided keys as persisted in the internal state dictionary. If any key is
+        already marked as persisted, a KeyError is raised.
+
+        :param keys: A string representing a single key or a list of strings representing
+                     multiple keys to be marked as persisted.
+        :raises KeyError: If attempting to mark a key as persisted when it is already marked
+                          as such.
+        """
         if isinstance(keys, str):
             keys = [keys]
 
@@ -91,6 +124,20 @@ class SecondaryStore(RootModel[dict[str, VersionedModel]]):
             self._states[key] = PersistenceState.RETRIEVED_OBJECT
 
     def unpersisted_serialized(self, compression: bool) -> dict[str, bytes]:
+        """
+        Serializes unpersisted values in the instance to a dictionary, encoding them with
+        the proper format and optionally applying compression.
+
+        The function iterates over the `unpersisted_values` attribute, retrieves the fully
+        qualified name (FQN) of each value's class, serializes the value itself, and combines
+        the FQN with the serialized data. It then stores the result in a dictionary where
+        keys are the original keys, and values are the encoded serialized results.
+
+        :param compression: Flag indicating whether to apply compression during serialization.
+        :type compression: bool
+        :return: A dictionary mapping the original keys to the encoded serialized data.
+        :rtype: dict[str, bytes]
+        """
         result: dict[str, bytes] = dict()
         for key, value in self.unpersisted_values.items():
             model_fqn = get_fully_qualified_name_from_class(value)

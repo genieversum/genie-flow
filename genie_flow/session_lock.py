@@ -40,7 +40,7 @@ class SessionLockManager:
             return self.model
 
         def __exit__(self, exc_type, exc_val, exc_tb):
-            self.lock_manager.store_model(self.model)
+            self.lock_manager._store_model(self.model)
             self.lock.release()
 
     def __init__(
@@ -112,6 +112,14 @@ class SessionLockManager:
             session_id: str,
             model_cls: Type[GenieModel],
     ) -> SecondaryStore:
+        """
+        Retrieve the secondary storage for the given session id and model class.
+        Not protected by a lock, and the user should ensure that no other process is accessing
+        the model's secondary storage at the same time.
+        :param session_id: the session id for which to retrieve the secondary storage
+        :param model_cls: the model class for which to retrieve the secondary storage
+        :return: a newly instantiated SecondaryStore object for the given session id and model class
+        """
         secondary_key = self._create_key("secondary", model_cls, session_id)
         serialized_values = self.redis_object_store.hgetall(secondary_key)
         return SecondaryStore.from_serialized(serialized_values)
@@ -153,7 +161,13 @@ class SessionLockManager:
         with self._create_lock_for_session(session_id):
             return self._retrieve_model(session_id, model_class)
 
-    def store_secondary_storage(self, model: GenieModel):
+    def _store_secondary_storage(self, model: GenieModel):
+        """
+        Store the secondary storage values from the given Genie Model.
+        Will only persist properties that have not yet been stored before.
+
+        :param model: The Genie Model containing the secondary store to persist
+        """
         secondary_key = self._create_key("secondary", model, model.session_id)
 
         unpersisted_serialized = model.secondary_storage.unpersisted_serialized(
@@ -177,11 +191,13 @@ class SessionLockManager:
             )
             self.redis_object_store.hdel(secondary_key, field)
 
-    def store_model(self, model: GenieModel):
+    def _store_model(self, model: GenieModel):
         """
-        Store a model into the object store. Also stores the secondary storage of the model.
+        Underlying logic of writing a Genie Model to the object store.
+        No locking happens in this method, so user is responsible for
+        making sure no parallel reading or writing is done.
 
-        :param model: the object to store
+        :param model: the GenieModel to store
         """
         model_key = self._create_key("object", model, model.session_id)
         logger.debug(
@@ -189,7 +205,7 @@ class SessionLockManager:
             session_id=model.session_id,
         )
 
-        self.store_secondary_storage(model)
+        self._store_secondary_storage(model)
 
         self.redis_object_store.set(
             model_key,
@@ -197,10 +213,17 @@ class SessionLockManager:
             ex=self.object_expiration_seconds,
         )
 
-    def get_secondary_storage(self, session_id: str, model_fqn: str) -> dict[str, VersionedModel]:
-        model_cls = get_class_from_fully_qualified_name(model_fqn)
-        secondary_key = self._create_key("secondary", model_cls, session_id)
-        serialized_values = self.redis_object_store.hgetall(secondary_key)
+    def store_model(self, model: GenieModel):
+        """
+        Store a model into the object store. Also stores the secondary storage of the model.
+        Storing happens inside a locked context, so no reading or writing of the GenieModel
+        can happen when this method is executing.
+
+        :param model: the object to store
+        """
+        with self._create_lock_for_session(model.session_id):
+            self._store_model(model)
+
 
     def get_locked_model(
             self,

@@ -59,9 +59,7 @@ class SessionManager:
         )
 
         model_class = self.model_key_registry[model_key]
-        model = model_class(
-            session_id=session_id,
-        )
+        model = model_class(session_id=session_id)
         if user_info is not None:
             model.secondary_storage["user_info"] = user_info
 

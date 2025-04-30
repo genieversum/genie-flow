@@ -1,17 +1,17 @@
+import datetime
 import enum
 import json
 from functools import cached_property, cache
 from typing import Optional, Any
 
 from loguru import logger
-from pydantic import Field, BaseModel, ConfigDict
+from pydantic import Field
 from statemachine import StateMachine, State
 from statemachine.event_data import EventData
 
 from genie_flow.model.dialogue import DialogueElement, DialogueFormat
 from genie_flow.model.secondary_store import SecondaryStore
 from genie_flow.model.template import CompositeTemplateType
-from genie_flow.model.user import User
 from genie_flow.model.versioned import VersionedModel
 
 
@@ -99,6 +99,7 @@ class GenieModel(VersionedModel):
 
         It will contain:
         - "state_id": The ID of the current state of the state machine
+        - "current_datetime": The ISO 8601 formatted current date and time in UTC
         - "dialogue" The string output of the current dialogue
         - all keys and values of the machine's current model
         """
@@ -112,6 +113,7 @@ class GenieModel(VersionedModel):
             {
                 "parsed_actor_input": parsed_json,
                 "state_id": self.state,
+                "current_datetime": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 "chat_history": str(self.format_dialogue(DialogueFormat.YAML)),
             }
         )
