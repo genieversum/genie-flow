@@ -175,7 +175,7 @@ class SessionLockManager:
                 self.compression,
             )
             logger.debug(
-                "Writing unpersisted fields [{field_list}] to secondary storage "
+                "Writing unpersisted field(s) [{field_list}] to secondary storage "
                 "for session {session_id}",
                 field_list=", ".join(unpersisted_serialized.keys()),
                 session_id=model.session_id,

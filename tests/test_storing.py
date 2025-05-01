@@ -12,6 +12,7 @@ from genie_flow.genie import GenieModel
 from genie_flow.model.dialogue import DialogueElement
 from genie_flow.model.user import User
 from genie_flow.model.versioned import VersionedModel
+from genie_flow.utils import get_fully_qualified_name_from_class
 
 
 def test_serialize():
@@ -123,6 +124,16 @@ def test_persist_secondary_store(session_manager_connected, genie_model, user):
     mm = session_manager_connected.get_model(genie_model.session_id, genie_model.__class__)
     assert mm.secondary_storage["test"].email == "aap@noot.com"
 
+    secondary_store_key = session_manager_connected._create_key(
+        "secondary",
+        genie_model.__class__,
+        genie_model.session_id,
+    )
+    persisted_fields = session_manager_connected.redis_object_store.hgetall(secondary_store_key)
+    print(persisted_fields)
+    user_fqn = get_fully_qualified_name_from_class(user)
+    persisted_fields[b"test"].startswith(user_fqn.encode("utf-8"))
+
 
 def test_not_persisting_secondary_store(session_manager_connected, genie_model, user):
     genie_model.secondary_storage["test"] = user
@@ -133,9 +144,12 @@ def test_not_persisting_secondary_store(session_manager_connected, genie_model, 
             genie_model.session_id,
             genie_model.__class__
     ) as model:
+        model.actor = "test-actor"
         model.secondary_storage["test"].lastname = "TESTING123"
 
     mm = session_manager_connected.get_model(genie_model.session_id, genie_model.__class__)
+
+    assert mm.actor == "test-actor"
     assert mm.secondary_storage["test"].lastname == genie_model.secondary_storage["test"].lastname
 
 

@@ -137,6 +137,7 @@ class SecondaryStore(RootModel[dict[str, VersionedModel]]):
                     key=key,
                 )
                 raise KeyError("Attempting to overwrite existing persisted id")
+            logger.debug("Marking {key} as persisted", key=key)
             self._states[key] = PersistenceState.RETRIEVED_OBJECT
 
     def unpersisted_serialized(self, compression: bool) -> dict[str, bytes]:
