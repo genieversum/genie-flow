@@ -168,16 +168,18 @@ class SessionLockManager:
             raise KeyError(f"No model with id {session_id}")
         return self._deserialize(payload, model_class)
 
-    def get_model(self, session_id: str, model_class: Type[GenieModel]) -> GenieModel:
+    def get_model(self, session_id: str, model_class: str | Type[GenieModel]) -> GenieModel:
         """
         Retrieve the GenieModel for the object for the given `session_id`. This retrieval is
         done inside a locked context, so no writing of the GenieModel can happen when this
         retrieval is done.
 
         :param session_id: The session id that the object in question belongs to
-        :param model_class: The GenieModel class to retrieve
+        :param model_class: The GenieModel class to retrieve or the fqn of the class
         :return: The GenieModel object for the given `session_id`
         """
+        if isinstance(model_class, str):
+            model_class = get_class_from_fully_qualified_name(model_class)
         with self._create_lock_for_session(session_id):
             return self._retrieve_model(session_id, model_class)
 

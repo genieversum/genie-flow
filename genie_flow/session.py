@@ -57,7 +57,7 @@ class SessionManager:
 
         initial_prompt = self.genie_environment.render_template(
             state_machine.get_template_for_state(state_machine.current_state),
-            state_machine.render_data,
+            model.render_data,
         )
         model.add_dialogue_element("assistant", initial_prompt)
         self.session_lock_manager.store_model(model)

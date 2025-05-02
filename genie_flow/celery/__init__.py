@@ -72,9 +72,8 @@ class CeleryManager:
             "Retrieving render data for session {session_id}",
             session_id=session_id,
         )
-        with self.session_lock_manager.get_locked_model(session_id, model_fqn) as model:
-            state_machine = model.get_state_machine_class()(model)
-            render_data = state_machine.render_data
+        model = self.session_lock_manager.get_model(session_id, model_fqn)
+        render_data = model.render_data
 
         if drag_net is not None:
             logger.debug(
