@@ -153,7 +153,7 @@ class TransitionManager:
             )
             actor_input = self.celery_manager.genie_environment.render_template(
                 template_path=target_template_path,
-                data_context=event_data.machine.render_data,
+                data_context=event_data.machine.model.render_data,
             )
             logger.debug(
                 "recording rendered output for session {session_id}, "
