@@ -410,7 +410,7 @@ class SessionLockManager:
         field_values = self.redis_progress_store.hgetall(progress_key)
         for field_name, value in field_values.items():
             if field_name.endswith(b"tombstone") and value == b"t":
-                invocations_to_ignore.add(field_name.split(":")[0])
+                invocations_to_ignore.add(field_name.split(b":")[0])
 
         todo, done = 0, 0
         for field_name, value in field_values.items():

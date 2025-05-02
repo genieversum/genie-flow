@@ -1,15 +1,17 @@
+import datetime
 import enum
 import json
 from functools import cached_property, cache
 from typing import Optional, Any
 
 from loguru import logger
-from pydantic import Field, BaseModel, ConfigDict
+from pydantic import Field
 from statemachine import StateMachine, State
 from statemachine.event_data import EventData
 
 from genie_flow.model.dialogue import DialogueElement, DialogueFormat
 from genie_flow.model.template import CompositeTemplateType
+from genie_flow.model.versioned import VersionedModel
 
 
 class StateType(enum.IntEnum):
@@ -33,7 +35,7 @@ class DialoguePersistence(enum.IntEnum):
     RENDERED = 2
 
 
-class GenieModel(BaseModel):
+class GenieModel(VersionedModel):
     """
     The base model for all models that will carry data in the dialogue. Contains the attributes
     that are required and expected by the `GenieStateMachine` such as `state` and `session_id`/
@@ -85,15 +87,32 @@ class GenieModel(BaseModel):
         description="the most recent received input from the actor",
     )
 
-    model_config = ConfigDict(
-        json_schema_extra={"schema_version": 0}
-    )
-
-    @classmethod
     @property
-    @cache
-    def schema_version(cls) -> int:
-        return int(cls.model_json_schema()["schema_version"])
+    def render_data(self) -> dict[str, Any]:
+        """
+        Returns a dictionary containing all data that can be used to render a template.
+
+        It will contain:
+        - "state_id": The ID of the current state of the state machine
+        - "current_datetime": The ISO 8601 formatted current date and time in UTC
+        - "dialogue" The string output of the current dialogue
+        - all keys and values of the machine's current model
+        """
+        render_data = self.model.model_dump()
+        try:
+            parsed_json = json.loads(self.model.actor_input)
+        except json.JSONDecodeError:
+            parsed_json = None
+
+        render_data.update(
+            {
+                "parsed_actor_input": parsed_json,
+                "state_id": self.state,
+                "current_datetime": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "chat_history": str(self.format_dialogue(DialogueFormat.YAML)),
+            }
+        )
+        return render_data
 
     @property
     def has_errors(self) -> bool:
@@ -157,33 +176,6 @@ class GenieStateMachine(StateMachine):
     ):
         self.current_template: Optional[CompositeTemplateType] = None
         super(GenieStateMachine, self).__init__(model=model)
-
-    @property
-    def render_data(self) -> dict[str, Any]:
-        """
-        Returns a dictionary containing all data that can be used to render a template.
-
-        It will contain:
-        - "state_id": The ID of the current state of the state machine
-        - "state_name": The name of the current state of the state machine
-        - "dialogue" The string output of the current dialogue
-        - all keys and values of the machine's current model
-        """
-        render_data = self.model.model_dump()
-        try:
-            parsed_json = json.loads(self.model.actor_input)
-        except json.JSONDecodeError:
-            parsed_json = None
-
-        render_data.update(
-            {
-                "parsed_actor_input": parsed_json,
-                "state_id": self.current_state.id,
-                "state_name": self.current_state.name,
-                "chat_history": str(self.model.format_dialogue(DialogueFormat.YAML)),
-            }
-        )
-        return render_data
 
     def get_template_for_state(self, state: State) -> CompositeTemplateType:
         """

@@ -152,6 +152,7 @@ class CeleryManager:
         @self.celery_app.task(
             bind=True,
             base=ProgressLoggingTask,
+            session_lock_manager=self.session_lock_manager,
             name='genie_flow.trigger_ai_event'
         )
         def trigger_ai_event(
@@ -205,6 +206,7 @@ class CeleryManager:
 
         @self.celery_app.task(
             base=ProgressLoggingTask,
+            session_lock_manager=self.session_lock_manager,
             name="genie_flow.invoke_task",
         )
         def invoke_ai_event(
@@ -234,6 +236,7 @@ class CeleryManager:
         @self.celery_app.task(
             bind=True,
             base=ProgressLoggingTask,
+            session_lock_manager=self.session_lock_manager,
             name="genie_flow.map_task",
         )
         def map_task(
@@ -320,6 +323,7 @@ class CeleryManager:
 
         @self.celery_app.task(
             base=ProgressLoggingTask,
+            session_lock_manager=self.session_lock_manager,
             name="genie_flow.combine_group_to_dict",
         )
         def combine_group_to_dict(
@@ -338,6 +342,7 @@ class CeleryManager:
 
         @self.celery_app.task(
             base=ProgressLoggingTask,
+            session_lock_manager=self.session_lock_manager,
             name="genie_flow.combine_group_to_list",
         )
         def combine_chain_to_list(
@@ -355,6 +360,7 @@ class CeleryManager:
 
         @self.celery_app.task(
             base=ProgressLoggingTask,
+            session_lock_manager=self.session_lock_manager,
             name="genie_flow.chained_template",
         )
         def chained_template(
