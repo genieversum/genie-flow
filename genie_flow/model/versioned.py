@@ -37,21 +37,12 @@ class VersionedModel(BaseModel):
         bytes object, containing the schema version number, a compression indicator and
         the serialized version of the model object. All separated by a ':' character.
 
-        Computed fields will be excluded from serialization, except for those explicitly
-        included.
-
         :param compression: a boolean indicating whether to use compression or not
         :param include: fields to include in the serialization
         :param exclude: fields to exclude from the serialization
 
         :return: a bytes with the serialized version of the model object
         """
-        computed_fields_to_exclude = {
-            field
-            for field in self.__class__.model_computed_fields.keys()
-            if include is None or field not in include
-        }
-        exclude = exclude.union(computed_fields_to_exclude) if exclude else computed_fields_to_exclude
         model_dump = self.model_dump_json(include=include, exclude=exclude)
         if compression:
             payload = snappy.compress(model_dump, encoding="utf-8")
