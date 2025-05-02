@@ -7,10 +7,12 @@ from typing import Optional
 import pytest
 import redis
 from loguru import logger
+from pydantic import Field, computed_field
 
 from genie_flow.genie import GenieModel
 from genie_flow.model.dialogue import DialogueElement
 from genie_flow.model.user import User
+from genie_flow.model.versioned import VersionedModel
 from genie_flow.session_lock import SessionLockManager
 
 
@@ -153,4 +155,32 @@ def user():
         custom_properties={
             "GTM": "HLS"
         }
+    )
+
+
+class ComputedFieldsModel(VersionedModel):
+    relevant_letters: list[str] = Field(
+        default_factory=list,
+        description="letters that are relevant",
+    )
+    relevant_digits: list[str] = Field(
+        default_factory=list,
+        description="digits that are relevant",
+    )
+
+    @computed_field
+    @property
+    def relevant_letters_digits(self) -> list[tuple[str, str]] :
+        return [
+            (letter, digit)
+            for letter in self.relevant_letters
+            for digit in self.relevant_digits
+        ]
+
+
+@pytest.fixture
+def example_computed_field():
+    return ComputedFieldsModel(
+        relevant_letters=["a", "b", "c"],
+        relevant_digits=["1", "2", "3"],
     )

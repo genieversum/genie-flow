@@ -103,9 +103,9 @@ class GenieModel(VersionedModel):
         - "dialogue" The string output of the current dialogue
         - all keys and values of the machine's current model
         """
-        render_data = self.model.model_dump()
+        render_data = self.model_dump()
         try:
-            parsed_json = json.loads(self.model.actor_input)
+            parsed_json = json.loads(self.actor_input)
         except json.JSONDecodeError:
             parsed_json = None
 
