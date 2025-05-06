@@ -130,9 +130,8 @@ def test_persist_secondary_store(session_manager_connected, genie_model, user):
         genie_model.session_id,
     )
     persisted_fields = session_manager_connected.redis_object_store.hgetall(secondary_store_key)
-    print(persisted_fields)
     user_fqn = get_fully_qualified_name_from_class(user)
-    persisted_fields[b"test"].startswith(user_fqn.encode("utf-8"))
+    assert persisted_fields[b"test"].startswith(user_fqn.encode("utf-8"))
 
 
 def test_not_persisting_secondary_store(session_manager_connected, genie_model, user):
