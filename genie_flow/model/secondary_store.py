@@ -9,9 +9,9 @@ from genie_flow.utils import get_fully_qualified_name_from_class, \
 
 
 class PersistenceState(Enum):
-    NEW_OBJECT = 0
-    RETRIEVED_OBJECT = 1
-    DELETED_OBJECT = 2
+    NEW_OBJECT = 0  # new object that should be persisted
+    RETRIEVED_OBJECT = 1  # existing object that should NOT be persisted
+    DELETED_OBJECT = 2  # old object that should be removed
 
 
 class SecondaryStore(RootModel[dict[str, VersionedModel]]):
@@ -45,7 +45,7 @@ class SecondaryStore(RootModel[dict[str, VersionedModel]]):
     def from_retrieved_values(cls, retrieved_values: dict[str, VersionedModel]) -> "SecondaryStore":
         """
         Create a SecondaryStore from retrieved values. This ensures that the state of
-        all properties is set to RETRIEVED_OBJECT, meaning that they are not persisted
+        all properties is set to RETRIEVED_OBJECT.
 
         :param retrieved_values: a dictionary that this SecondaryStore should encapsulate
         :return: a new SecondaryStore with the retrieved values as root values,
@@ -60,7 +60,7 @@ class SecondaryStore(RootModel[dict[str, VersionedModel]]):
     def from_serialized(cls, payloads: dict[str, bytes]) -> "SecondaryStore":
         """
         Create a SecondaryStore from serialized values. This ensures that the state of
-        all properties is set to RETRIEVED_OBJECT, meaning that they are not persisted.
+        all properties states are set to RETRIEVED_OBJECT.
 
         :param payloads: a dictionary where the values for each key are serialized objects
         :return: a new SecondaryStore with the retrieved values as root values,
