@@ -1,5 +1,6 @@
 from typing import Any, Optional
 
+import ulid
 from celery import Celery, Task, chord, group
 from celery.canvas import Signature
 
@@ -14,6 +15,7 @@ class TaskCompiler:
             template: CompositeTemplateType,
             session_id: str,
             model_fqn: str,
+            state_name: str,
             event_to_send_after: str,
     ):
         self.celery_app = celery_app
@@ -23,6 +25,8 @@ class TaskCompiler:
 
         self.nr_tasks = 0
         self.task: Optional[Signature] = None
+
+        self.invocation_id = state_name + "-" + str(ulid.new())
 
         self._compile_task(template)
 
@@ -67,6 +71,7 @@ class TaskCompiler:
                 template,
                 self.session_id,
                 self.model_fqn,
+                self.invocation_id,
             )
 
         if isinstance(template, Task):
@@ -74,6 +79,7 @@ class TaskCompiler:
             return template.s(
                 self.session_id,
                 self.model_fqn,
+                self.invocation_id,
             )
 
         if isinstance(template, list):
@@ -82,7 +88,11 @@ class TaskCompiler:
                 if chained is None:
                     chained = self._compile_task_graph(t)
                 else:
-                    chained |= self._chained_template_task.s(self.session_id, self.model_fqn)
+                    chained |= self._chained_template_task.s(
+                        self.session_id,
+                        self.model_fqn,
+                    self.invocation_id,
+                    )
                     chained |= self._compile_task_graph(t)
             self.nr_tasks += len(template) - 1
             return chained
@@ -96,6 +106,7 @@ class TaskCompiler:
                     dict_keys,
                     self.session_id,
                     self.model_fqn,
+                    self.invocation_id,
                 ),
             )
 
@@ -111,6 +122,7 @@ class TaskCompiler:
                 template.template_name,
                 self.session_id,
                 self.model_fqn,
+                self.invocation_id,
             )
 
         raise ValueError(
@@ -125,6 +137,7 @@ class TaskCompiler:
                 self.event_to_send_after,
                 self.session_id,
                 self.model_fqn,
+                self.invocation_id,
             )
         )
         self.nr_tasks += 1

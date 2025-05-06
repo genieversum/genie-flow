@@ -1,57 +1,45 @@
-import pydantic_redis
 from dependency_injector import containers, providers
 from redis import Redis
 
 from genie_flow.session_lock import SessionLockManager
-from genie_flow.store import StoreManager
-
-
-class PydanticRedisStoreWrapper(pydantic_redis.Store):
-
-    def __init__(
-        self, host: str, port: int, db: int, password: str, life_span_in_seconds: int = 86400
-    ):
-        redis_config = pydantic_redis.RedisConfig(
-            host=host,
-            port=port,
-            db=db,
-            password=password
-        )
-        super().__init__(
-            "genie flow store",
-            redis_config,
-            life_span_in_seconds=life_span_in_seconds,
-        )
 
 
 class GenieFlowPersistenceContainer(containers.DeclarativeContainer):
 
     config = providers.Configuration()
 
-    pydantic_redis_store = providers.Singleton(
-        PydanticRedisStoreWrapper,
-        host=config.model_store.host,
-        port=config.model_store.port,
-        db=config.model_store.db,
-        password=config.model_store.password,
-        life_span_in_seconds=config.model_store.life_span_in_seconds,
+    redis_object_store = providers.Singleton(
+        Redis,
+        host=config.object_store.host,
+        port=config.object_store.port,
+        db=config.object_store.db,
+        password=config.object_store.password,
     )
 
     redis_lock_store = providers.Singleton(
         Redis,
         host=config.lock_store.host,
         port=config.lock_store.port,
-        password=config.lock_store.password,
         db=config.lock_store.db,
+        password=config.lock_store.password,
     )
 
-    store_manager = providers.Singleton(
-        StoreManager,
-        store=pydantic_redis_store,
+    redis_progress_store = providers.Singleton(
+        Redis,
+        host=config.progress_store.host,
+        port=config.progress_store.port,
+        db=config.progress_store.db,
+        password=config.progress_store.password,
     )
 
     session_lock_manager = providers.Singleton(
         SessionLockManager,
+        redis_object_store=redis_object_store,
         redis_lock_store=redis_lock_store,
-        lock_expiration_seconds=config.lock_store.lock_expiration_seconds() or 120,
+        redis_progress_store=redis_progress_store,
+        compression=config.object_store.object_compression or True,
+        application_prefix=config.application_prefix or 'genie-flow',
+        object_expiration_seconds=config.object_store.expiration_seconds or 120,
+        lock_expiration_seconds=config.lock_store.expiration_seconds or 120,
+        progress_expiration_seconds=config.progress_store.expiration_seconds or 120,
     )

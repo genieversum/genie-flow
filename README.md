@@ -16,4 +16,4 @@ Documentation can be found [here](doc/index.md)
 
 1. Setup your environment variables `cp .env.example .env` and set the values accordingly
 2. Load .env variables into terminal `export $(grep -v '^#' .env | xargs)` 
-3. Install package dependencies `pip install -e .`
+3. Install package dependencies `PIP_EXTRA_INDEX_URL=https://$GENIE_FLOW_TOKEN_NAME:$GENIE_FLOW_TOKEN@gitlab.stopstaringatme.org/api/v4/projects/207/packages/pypi/simple pip install -e .`

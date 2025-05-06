@@ -1,34 +1,17 @@
+import datetime
 import enum
 import json
-from typing import Optional, Any, NamedTuple
-from unittest import case
+from functools import cached_property, cache
+from typing import Optional, Any
 
 from loguru import logger
 from pydantic import Field
-from pydantic_redis import Model
 from statemachine import StateMachine, State
 from statemachine.event_data import EventData
 
 from genie_flow.model.dialogue import DialogueElement, DialogueFormat
 from genie_flow.model.template import CompositeTemplateType
-
-
-class GenieTaskProgress(Model):
-    _primary_key_field = "session_id"
-
-    session_id: str = Field(
-        description="The session id for which a task is running",
-    )
-    task_id: str = Field(
-        description="The ID of the running root task for the session",
-    )
-    total_nr_subtasks: int = Field(
-        description="the total number of subtasks that need to be executed by the running task",
-    )
-    nr_subtasks_executed: int = Field(
-        default=0,
-        description="the number of subtasks that have been executed by the running task",
-    )
+from genie_flow.model.versioned import VersionedModel
 
 
 class StateType(enum.IntEnum):
@@ -42,6 +25,8 @@ class StateType(enum.IntEnum):
                 return "assistant"
             case StateType.USER:
                 return "user"
+            case _:
+                raise ValueError("Unknown State Type")
 
 
 class DialoguePersistence(enum.IntEnum):
@@ -50,7 +35,7 @@ class DialoguePersistence(enum.IntEnum):
     RENDERED = 2
 
 
-class GenieModel(Model):
+class GenieModel(VersionedModel):
     """
     The base model for all models that will carry data in the dialogue. Contains the attributes
     that are required and expected by the `GenieStateMachine` such as `state` and `session_id`/
@@ -65,8 +50,6 @@ class GenieModel(Model):
     persist the values into Reids and retrieve it again by its primary key. The attribute
     `_primary_key_field` is used to determine the name of the primary key.
     """
-
-    _primary_key_field: str = "session_id"
 
     state: str | int | None = Field(
         None,
@@ -105,16 +88,31 @@ class GenieModel(Model):
     )
 
     @property
-    def has_running_tasks(self) -> bool:
-        task_progress_list = GenieTaskProgress.select(
-            ids=[self.session_id],
-            columns=["task_id"],
+    def render_data(self) -> dict[str, Any]:
+        """
+        Returns a dictionary containing all data that can be used to render a template.
+
+        It will contain:
+        - "state_id": The ID of the current state of the state machine
+        - "current_datetime": The ISO 8601 formatted current date and time in UTC
+        - "dialogue" The string output of the current dialogue
+        - all keys and values of the machine's current model
+        """
+        render_data = self.model_dump()
+        try:
+            parsed_json = json.loads(self.actor_input)
+        except json.JSONDecodeError:
+            parsed_json = None
+
+        render_data.update(
+            {
+                "parsed_actor_input": parsed_json,
+                "state_id": self.state,
+                "current_datetime": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "chat_history": str(self.format_dialogue(DialogueFormat.YAML)),
+            }
         )
-        if task_progress_list is None or len(task_progress_list) == 0:
-            return False
-        if len(task_progress_list) > 1:
-            logger.error("Too many task progress records for session {}", self.session_id)
-        return True
+        return render_data
 
     @property
     def has_errors(self) -> bool:
@@ -178,33 +176,6 @@ class GenieStateMachine(StateMachine):
     ):
         self.current_template: Optional[CompositeTemplateType] = None
         super(GenieStateMachine, self).__init__(model=model)
-
-    @property
-    def render_data(self) -> dict[str, Any]:
-        """
-        Returns a dictionary containing all data that can be used to render a template.
-
-        It will contain:
-        - "state_id": The ID of the current state of the state machine
-        - "state_name": The name of the current state of the state machine
-        - "dialogue" The string output of the current dialogue
-        - all keys and values of the machine's current model
-        """
-        render_data = self.model.model_dump()
-        try:
-            parsed_json = json.loads(self.model.actor_input)
-        except json.JSONDecodeError:
-            parsed_json = None
-
-        render_data.update(
-            {
-                "parsed_actor_input": parsed_json,
-                "state_id": self.current_state.id,
-                "state_name": self.current_state.name,
-                "chat_history": str(self.model.format_dialogue(DialogueFormat.YAML)),
-            }
-        )
-        return render_data
 
     def get_template_for_state(self, state: State) -> CompositeTemplateType:
         """

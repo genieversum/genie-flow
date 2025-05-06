@@ -8,7 +8,7 @@ from genie_flow.celery import CeleryManager
 from genie_flow.environment import GenieEnvironment
 from genie_flow.model.types import ModelKeyRegistryType
 from genie_flow.session import SessionManager
-from genie_flow_invoker import InvokerFactory
+from genie_flow_invoker.factory import InvokerFactory
 
 
 class GenieFlowContainer(containers.DeclarativeContainer):
@@ -36,7 +36,6 @@ class GenieFlowContainer(containers.DeclarativeContainer):
         GenieEnvironment,
         config.genie_environment.template_root_path,
         config.genie_environment.pool_size,
-        storage.store_manager,
         model_key_registry,
         invoker_factory,
     )

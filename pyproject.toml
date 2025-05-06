@@ -20,16 +20,24 @@ classifiers=[
 ]
 dependencies=[
     "genie-flow-invoker~=0.6.0",
-    "loguru~=0.7.2",
-    "python-statemachine~=2.3.6",
-    "pydantic~=2.10.6",
-    "pydantic-redis==0.5.0",
-    "jinja2~=3.1.4",
-    "fastapi~=0.111.0",
-    "celery~=5.4.0",
-    "redis~=5.0.8",
-    "python-redis-lock~=4.0.0",
-    "dependency-injector~=4.42.0",
-    "jmespath~=1.0.1",
+    "loguru~=0.7",
+    "python-statemachine~=2.3",
+    "pydantic~=2.11",
+    "jinja2~=3.1",
+    "fastapi~=0.115",
+    "celery~=5.5",
+    "redis~=5.2",
+    "python-redis-lock~=4.0",
+    "dependency-injector~=4.42",
+    "jmespath-community~=1.1",
+    "python-snappy~=0.7",
+    "ulid-py~=1.1",
+    "pyaml~=25.1",
 ]
 dynamic = ["version"]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "pytest-docker",
+]

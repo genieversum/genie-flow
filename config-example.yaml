@@ -1,0 +1,38 @@
+persistence:
+  application_prefix: genie-flow-app
+  object_store:
+    host: redis
+    port: 6379
+    db: 1
+    object_compression: true
+    expiration_seconds: 86400
+  lock_store:
+    host: redis
+    port: 6379
+    db: 2
+    expiration_seconds: 120
+  progress_store:
+    host: redis
+    port: 6379
+    db: 3
+    expiration_seconds: 120
+celery:
+  broker: redis://redis:6379/0
+  backend: redis://redis:6379/0
+  redis_socket_timeout: 4.0
+  redis_socket_connect_timeout: 4.0
+api:
+  debug: true
+  root_path: /api/v1
+genie_environment:
+  template_root_path: .
+  pool_size: 1
+invokers:
+cors:
+  allow_origins:
+    - "*"
+  allow_credentials: true
+  allow_methods:
+    - "*"
+  allow_headers:
+    - "*"

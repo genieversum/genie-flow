@@ -7,15 +7,14 @@ from loguru import logger
 import yaml
 from celery import Task
 from jinja2 import Environment, PrefixLoader, TemplateNotFound
-from pydantic_redis import Model
+from pydantic import BaseModel
 from statemachine import State
 
 from genie_flow.genie import GenieModel, GenieStateMachine
-from genie_flow_invoker import InvokersPool
+from genie_flow_invoker.pool import InvokersPool
 from genie_flow_invoker.factory import InvokerFactory
 from genie_flow.model.types import ModelKeyRegistryType
 from genie_flow.model.template import CompositeTemplateType, MapTaskTemplate
-from genie_flow.store import StoreManager
 
 _META_FILENAME: str = "meta.yaml"
 _T = TypeVar("_T")
@@ -38,13 +37,11 @@ class GenieEnvironment:
         self,
         template_root_path: str | PathLike,
         pool_size: int,
-        store_manager: StoreManager,
         model_key_registry: ModelKeyRegistryType,
         invoker_factory: InvokerFactory,
     ):
         self.template_root_path = Path(template_root_path).resolve()
         self.pool_size = pool_size
-        self.store_manager = store_manager
         self.model_key_registry = model_key_registry
         self.invoker_factory = invoker_factory
 
@@ -169,7 +166,7 @@ class GenieEnvironment:
                 f"For GenieStateMachine {state_machine_class}, "
                 f"the following values are duplicates: {duplicate_values}")
 
-    def register_model(self, model_key: str, model_class: Type[Model]):
+    def register_model(self, model_key: str, model_class: Type[BaseModel]):
         """
         Register a model class, so it can be stored in the object store. Also registers
         the model with the given model_key for the API.
@@ -188,7 +185,6 @@ class GenieEnvironment:
         if model_key in self.model_key_registry:
             raise ValueError(f"Model key {model_key} already registered")
 
-        self.store_manager.register_model(model_class)
         self.model_key_registry[model_key] = model_class
 
     def _create_invoker_registration(
