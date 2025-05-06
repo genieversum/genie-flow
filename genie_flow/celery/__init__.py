@@ -223,6 +223,7 @@ class CeleryManager:
             :param template_name: The name of the template that should be used to render
             :param session_id: The session id for which this task is executed
             :param model_fqn: The fully qualified name of the model
+            :param invocation_id: the id of the invocation that is being executed
             :returns: the result of the invocation
             """
             render_data = self._retrieve_render_data(drag_net, session_id, model_fqn)

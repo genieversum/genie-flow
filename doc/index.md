@@ -1,5 +1,3 @@
-from genie_flow.genie import GenieStateMachine
-
 # Genie Flow
 The Genie Flow Framework is intended to make it easy to design and implement dialogues between a
 Human user and an LLM. Such dialogue is typically directed through a number of stages. Often they
@@ -21,11 +19,10 @@ takes care of creating sessions, persisting data, maintaining the dialogue histo
 the LLMs asynchronously, and other feats.
 
 ## Genie Model
-This is just a [pydantic](https://docs.pydantic.dev/latest/) model that can have as many fields as
+This is essentially a [pydantic](https://docs.pydantic.dev/latest/) model that can have as many fields as
 one needs. A developer would subclass the `GenieModel` class, which adds a number of required
-fields and methods. That `GenieModel` class also implements all functionality to persist it into
-a Redis database. That functionality is based on the package [Pydantic-Redis](https://sopherapps.github.io/pydantic-redis/)
-which implements the necessary ORM functionality.
+fields and methods. That `GenieModel` class also implements all functionality to persist it in
+a key/value store (such as Redis) in serialized form.
 
 ### data object class fields
 
@@ -48,9 +45,12 @@ a Human actor and `LLM` for an LLM.
 `actor_input`
 : The input that was last uttered by the most recent actor.
 
-`parsed_actor_input`
-: If the `actor_input` was a JSON serialized object, this property will contain the object value
-as parsed.
+`secondary_storage`
+: A dict-like structure to persist "write-once-read-many" objects. These are (normally larger)
+objects that are compiled as part of the flow, but once saved are not mutated at all. Whereas
+changes to any direct property of a `GenieModel` are always persisted, objects stored under
+the `secondary_storage` field will only be persisted when they are brand new. After that, any
+changes (accidentally) made to the content of objects in there will not be persisted.
 
 ### data object methods and properties
 
@@ -69,71 +69,52 @@ Some convenience methods exist:
 
 ### related objects
 If a developed needs to maintain a relation to other objects that are not base classes, the class
-of that other object also needs to be ORM-able. This is achieved by inheriting that other class
-not from `BaseModel` as is done for Pydantic, but by inheriting from `Model` which comes from the
-Pydantic-Redis package.
+of that other object also needs to be persistable. Since we are persisting the `GenieModel`
+with all their properties, subclassing the pydantic `BaseModel` is fine. This means you can
+create smart objects such as Managers and Stores that take away some of the management tasks
+that you want to centralize around these classes, rather than implement these inside your 
+flow.
 
-This also means that this other object needs to have a class property called `_primary_key_field`
-which is the name of the field that uniquely identifies an instance of that object.
+Objects that are going to be stored inside the secondary store are persisted on their own.
+This means that they need to inherit, not from `BaseModel`, but from the `VersionedModel`
+class. That is just a direct subclass of `BaseModel` with some additional functionality around
+serialization and deserialization.
 
-For example, the `DialogeElement` class (of which the `GenieModel` maintains a list) is implemented
-as follows:
+> Classes for objects in the secondary storage need to be subclasses from `VersionedModel`
 
-```python
-import uuid
-
-from pydantic import Field
-from pydantic_redis import Model
-
-class DialogueElement(Model):
-    _primary_key_field = "id"
-
-    id: str = Field(default_factory=lambda: uuid.uuid4().hex)
-    
-    # other fields and methods
-```
-
-And with that implementation, the `GenieModel` can now maintain a list of `DialogueElement`s that
-are then also persisted into Redis. Like so:
+## `VersionedModel`
+This abstract class implements everything that is required to serialize and de-serialize a
+pydantic model. It also implements a schema version number. These are implemented as follows:
 
 ```python
-from pydantic import Field
-from pydantic_redis import Model
+from pydantic import BaseModel, ConfigDict
 
-class GenieModel(Model):
-    _primary_key_field: str = "session_id"
+class VersionedModel(BaseModel):
 
-    dialogue: list["DialogueElement"] = Field(
-        default_factory=list
-    )
+    model_config = ConfigDict(json_schema_extra={"schema_version": 42})
 
-    # other fields and methods
-```
-
-### Registering Models
-When the developed has created a new `GenieModel`, that new model needs to be registered. This will
-make that model recognized to the Pydantic-Redis ORM framework. This registration is done as follows:
-
-```python
-from genie_flow import GenieFlow
-from genie_flow.genie import GenieModel
-
-
-class MyNewModel(GenieModel):
-    ...
-
-
-genie_flow = GenieFlow.from_yaml("config.yaml")
-genie_flow.genie_environment.register_model("my_genie", MyNewModel)
+    @classmethod
+    def upgrade_schema(cls, from_version: int, model_data: dict) -> dict:
+        ...
 
 ```
 
-From that point onwards, the class `MyNewModel` can be persisted and therefore used by the Genie
-Flow framework. This registration also makes the model and accompanying state machine available
-at the API, under the model key `my_genie`.
+Two things are important here:
 
-Remember that this also needs to be done for any additional models that may be referred to by this
-`MyNewModel` class.
+* The version of the schema needs to be stated. The base class `VersionedModel` implements this
+  by specifying version `0` - but it is good practice to assign a new version model yourself.
+* The class method `upgrade_schema` may be implemented to upgrade data that is obtained from an
+  older version of a model, into the data that is required for the current version of the model.
+  These would typically involve:
+  * Mapping state_id's to their new state_id's
+  * Dropping fields that do no longer exist
+  * Create (initial) data for new fields that have been added
+  
+  This method should return a dictionary that will be used to instantiate a fresh instance of
+  the class.
+
+The base implementation of `VersionedModel` just raises a `ValueError` when it is asked to
+deserialize data from a different version number.
 
 ## Genie Flow state machine principles
 The backbone of the Genie Flow framework is defined by the State Machine. The Genie Flow State
@@ -181,6 +162,8 @@ Genie Flow application. The dialogue, however, is simplistic and never-ending. N
 the following flow diagram:
 
 ![state diagram of Q and A with conditions](../example_qa.q_and_a_cond.QandACondModel.png)
+
+@TODO this needs updating!
 
 It is almost the same Question and Answer flow, except that we have now introduced conditions.
 There are now two `ai_extraction` event transitions from the state `Ai creates response`. One
@@ -242,16 +225,19 @@ templating engine.
 When rendering the template, all attributes of the data model are available. Additional attributes
 that are available are:
 
-state_id
+`parsed_actor_input`
+: If the `actor_input` field of the `GenieModel` happens to be JSON, then this will contain a
+JSON parsed version of the `actor_input`.
+
+`state_id`
 : The id of the state. This is the class property name that is given to the state.
 
-state_name
-: The name that is formed from the `state_id`. This is done by capitalizing the first letter and
-replacing underscores by space characters.
+`current_date_time`
+: The current date and time, in iso 8601 format, in the UTC time zone
 
-chat_history
+`chat_history`
 : This is a serialization of the complete dialogue history, formatted using
-the `DialogueFormat.CHAT` format. (see XXX)
+the `DialogueFormat.YAML` format.
 
 ### conclusion
 In the previous examples we have seen how, through `states`, `transitions`, `events`, `conditions`,

@@ -5,11 +5,12 @@ from functools import cached_property, cache
 from typing import Optional, Any
 
 from loguru import logger
-from pydantic import Field
+from pydantic import Field, BaseModel, ConfigDict
 from statemachine import StateMachine, State
 from statemachine.event_data import EventData
 
 from genie_flow.model.dialogue import DialogueElement, DialogueFormat
+from genie_flow.model.secondary_store import SecondaryStore
 from genie_flow.model.template import CompositeTemplateType
 from genie_flow.model.versioned import VersionedModel
 
@@ -85,6 +86,10 @@ class GenieModel(VersionedModel):
     actor_input: str = Field(
         "",
         description="the most recent received input from the actor",
+    )
+    secondary_storage: SecondaryStore = Field(
+        default_factory=SecondaryStore,
+        description="A dictionary that can be used to store secondary information about the session",
     )
 
     @property
@@ -176,6 +181,33 @@ class GenieStateMachine(StateMachine):
     ):
         self.current_template: Optional[CompositeTemplateType] = None
         super(GenieStateMachine, self).__init__(model=model)
+
+    @property
+    def render_data(self) -> dict[str, Any]:
+        """
+        Returns a dictionary containing all data that can be used to render a template.
+
+        It will contain:
+        - "state_id": The ID of the current state of the state machine
+        - "state_name": The name of the current state of the state machine
+        - "dialogue" The string output of the current dialogue
+        - all keys and values of the machine's current model
+        """
+        render_data = self.model.model_dump()
+        try:
+            parsed_json = json.loads(self.model.actor_input)
+        except json.JSONDecodeError:
+            parsed_json = None
+
+        render_data.update(
+            {
+                "parsed_actor_input": parsed_json,
+                "state_id": self.current_state.id,
+                "state_name": self.current_state.name,
+                "chat_history": str(self.model.format_dialogue(DialogueFormat.YAML)),
+            }
+        )
+        return render_data
 
     def get_template_for_state(self, state: State) -> CompositeTemplateType:
         """

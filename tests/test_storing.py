@@ -5,25 +5,27 @@ from multiprocessing import Process, Value
 
 import pytest
 import ulid
+from pydantic import Field
 from snappy import snappy
 
 from genie_flow.genie import GenieModel
 from genie_flow.model.dialogue import DialogueElement
+from genie_flow.model.user import User
+from genie_flow.model.versioned import VersionedModel
+from genie_flow.utils import get_fully_qualified_name_from_class
 
 
-def test_serialize(session_manager_unconnected):
+def test_serialize():
     m = GenieModel(session_id=uuid.uuid4().hex)
-    s = session_manager_unconnected._serialize(m)
+    s = m.serialize()
 
     model_dump_json = m.model_dump_json()
 
     assert s == b"0:0:"+model_dump_json.encode("utf-8")
 
-def test_serialize_compressed(session_manager_unconnected):
-    session_manager_unconnected.compression = True
-
+def test_serialize_compressed():
     m = GenieModel(session_id=uuid.uuid4().hex)
-    s = session_manager_unconnected._serialize(m)
+    s = m.serialize(compression=True)
 
     json_dump = m.model_dump_json()
     json_compressed = snappy.compress(json_dump)
@@ -31,19 +33,17 @@ def test_serialize_compressed(session_manager_unconnected):
     assert s == b"0:1:"+json_compressed
 
 
-def test_deserialize(session_manager_unconnected):
+def test_deserialize():
     s = b'0:1:1\xc0{"session_id":"efb2e397b4554ea2998dd3182e6a6190"}'
-    m = session_manager_unconnected._deserialize(s, GenieModel)
+    m = GenieModel.deserialize(s)
 
     assert isinstance(m, GenieModel)
     assert m.session_id == "efb2e397b4554ea2998dd3182e6a6190"
 
 
-def test_deserialize_deserialize(session_manager_unconnected, genie_model):
-    session_manager_unconnected.compression = True
-
-    s = session_manager_unconnected._serialize(genie_model)
-    mm = session_manager_unconnected._deserialize(s, GenieModel)
+def test_deserialize_deserialize(genie_model):
+    s = genie_model.serialize(compression=True)
+    mm = GenieModel.deserialize(s)
 
     assert isinstance(mm, GenieModel)
     assert mm.session_id == genie_model.session_id
@@ -52,14 +52,14 @@ def test_deserialize_deserialize(session_manager_unconnected, genie_model):
         assert de.actor_text == genie_model.dialogue[i].actor_text
 
 
-def test_serialize_deserialize_schema_version(session_manager_unconnected, genie_model):
-    s = session_manager_unconnected._serialize(genie_model)
+def test_serialize_deserialize_schema_version(genie_model):
+    s = genie_model.serialize(compression=True)
 
     # alter the version number of the serialized payload
     s = b"1" + s[1:]
 
     with pytest.raises(ValueError):
-        session_manager_unconnected._deserialize(s, GenieModel)
+        GenieModel.deserialize(s)
 
 
 def test_create_key_session_id(session_manager_unconnected):
@@ -115,6 +115,55 @@ def test_store_retrieve_model_compressed(session_manager_connected, genie_model)
     for i, de in enumerate(mm.dialogue):
         assert de.actor == genie_model.dialogue[i].actor
         assert de.actor_text == genie_model.dialogue[i].actor_text
+
+
+def test_persist_secondary_store(session_manager_connected, genie_model, user):
+    genie_model.secondary_storage["test"] = user
+
+    session_manager_connected.store_model(genie_model)
+    mm = session_manager_connected.get_model(genie_model.session_id, genie_model.__class__)
+    assert mm.secondary_storage["test"].email == "aap@noot.com"
+
+    secondary_store_key = session_manager_connected._create_key(
+        "secondary",
+        genie_model.__class__,
+        genie_model.session_id,
+    )
+    persisted_fields = session_manager_connected.redis_object_store.hgetall(secondary_store_key)
+    user_fqn = get_fully_qualified_name_from_class(user)
+    assert persisted_fields[b"test"].startswith(user_fqn.encode("utf-8"))
+
+
+def test_not_persisting_secondary_store(session_manager_connected, genie_model, user):
+    genie_model.secondary_storage["test"] = user
+
+    session_manager_connected.store_model(genie_model)
+
+    with session_manager_connected.get_locked_model(
+            genie_model.session_id,
+            genie_model.__class__
+    ) as model:
+        model.actor = "test-actor"
+        model.secondary_storage["test"].lastname = "TESTING123"
+
+    mm = session_manager_connected.get_model(genie_model.session_id, genie_model.__class__)
+
+    assert mm.actor == "test-actor"
+    assert mm.secondary_storage["test"].lastname == genie_model.secondary_storage["test"].lastname
+
+
+def test_delete_from_secondary_store(session_manager_connected, genie_model, user):
+    genie_model.secondary_storage["test"] = user
+
+    session_manager_connected.store_model(genie_model)
+
+    mm = session_manager_connected.get_model(genie_model.session_id, genie_model.__class__)
+    del mm.secondary_storage["test"]
+
+    session_manager_connected.store_model(mm)
+
+    mm = session_manager_connected.get_model(genie_model.session_id, genie_model.__class__)
+    assert "test" not in mm.secondary_storage
 
 
 def test_locked_model(session_manager_connected, genie_model):

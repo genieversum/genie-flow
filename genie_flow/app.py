@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from genie_flow.model.api import AIStatusResponse, AIResponse, EventInput
 from genie_flow.session import SessionManager
+from genie_flow.model.user import User
 
 
 def _unknown_state_machine_exception(state_machine_key: str) -> HTTPException:
@@ -31,6 +32,11 @@ class GenieFlowRouterBuilder:
             methods=["GET"],
         )
         router.add_api_route(
+            "/{state_machine_key}/start_session",
+            self.start_session,
+            methods=["POST"],
+        )
+        router.add_api_route(
             "/{state_machine_key}/event",
             self.start_event,
             methods=["POST"],
@@ -47,9 +53,9 @@ class GenieFlowRouterBuilder:
         )
         return router
 
-    def start_session(self, state_machine_key: str) -> AIResponse:
+    def start_session(self, state_machine_key: str, user_info: Optional[User]=None) -> AIResponse:
         try:
-            return self.session_manager.create_new_session(state_machine_key)
+            return self.session_manager.create_new_session(state_machine_key, user_info)
         except KeyError:
             raise _unknown_state_machine_exception(state_machine_key)
 
