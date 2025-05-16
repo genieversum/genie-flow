@@ -97,13 +97,16 @@ class GenieModel(VersionedModel):
         """
         Returns a dictionary containing all data that can be used to render a template.
 
+        **NOTE** We are using the `serialize_as_any` flag here to make sure that properties
+        in the `secondary_storage` are also included.
+
         It will contain:
         - "state_id": The ID of the current state of the state machine
         - "current_datetime": The ISO 8601 formatted current date and time in UTC
         - "dialogue" The string output of the current dialogue
         - all keys and values of the machine's current model
         """
-        render_data = self.model_dump()
+        render_data = self.model_dump(serialize_as_any=True)
         try:
             parsed_json = json.loads(self.actor_input)
         except json.JSONDecodeError:
