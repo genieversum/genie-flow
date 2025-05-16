@@ -33,6 +33,7 @@ dependencies=[
     "python-snappy~=0.7",
     "ulid-py~=1.1",
     "pyaml~=25.1",
+    "uvicorn==0.34.2",
 ]
 dynamic = ["version"]
 
