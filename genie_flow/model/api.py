@@ -4,6 +4,8 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from genie_flow.genie import GenieModel
+from genie_flow.model.user import User
+from genie_flow.model.versioned import VersionedModel
 
 
 class GenieMessage(BaseModel, ABC):
@@ -55,12 +57,17 @@ class AIResponse(GenieMessageWithActions):
     to transition into the next state.
     """
 
-    error: Optional[str] = Field(None, description="A potential error message")
+    error: Optional[str] = Field(
+        default=None,
+        description="A potential error message",
+    )
     response: Optional[str] = Field(
-        None, description="The text response from the AI service"
+        default=None,
+        description="The text response from the AI service",
     )
     progress: Optional[AIProgressResponse] = Field(
-        None, description="The progress of any background process execution"
+        default=None,
+        description="The progress of any background process execution",
     )
 
 
@@ -72,3 +79,12 @@ class EventInput(GenieMessage):
 
     event: str = Field(description="The name of the event that is triggered")
     event_input: str = Field(description="The string input that belongs to this event")
+
+
+class SessionStartRequest(BaseModel):
+    event: str = Field(description="The name of the event that is triggered")
+    event_input: str = Field(description="The string input that belongs to this event")
+    user_info: Optional[User] = Field(
+        default=None,
+        description="The user information that is associated with the session",
+    )
