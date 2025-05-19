@@ -10,6 +10,7 @@ from genie_flow.celery import CeleryManager
 from genie_flow.celery.transition import TransitionManager
 from genie_flow.environment import GenieEnvironment
 from genie_flow.genie import GenieModel
+from genie_flow.model.persistence import PersistenceLevel, Persistence
 from genie_flow.model.types import ModelKeyRegistryType
 from genie_flow.model.api import AIResponse, EventInput, AIStatusResponse, AIProgressResponse
 from genie_flow.session_lock import SessionLockManager
@@ -34,9 +35,46 @@ class SessionManager:
         self.genie_environment = genie_environment
         self.celery_manager = celery_manager
 
+    def _create_new_model(
+            self,
+            model_key: str,
+            persistence: Persistence,
+            user_info: Optional[User]=None,
+    ):
+        """
+        Create a new model instance for a given model key with specified persistence level.
+    
+        This method creates a new session ID using ULID and instantiates a new model instance
+        of the class registered under the given model key. The model is initialized with the
+        provided persistence level and optional user information.
+    
+        :param model_key: The key under which the model class is registered
+        :param persistence: Persistence configuration specifying how the model should be stored
+        :param user_info: Optional User instance containing information about the current user
+        :return: A new instance of the model class registered under the given model key
+        """
+
+        session_id = str(ulid.new().uuid)
+        logger.info(
+            "Creating new session {session_id} for model {model_key} "
+            "and persistence level {persistence_level}",
+            session_id=session_id,
+            model_key=model_key,
+            persistence_level=persistence.level.name,
+        )
+
+        model_class = self.model_key_registry[model_key]
+        model = model_class(session_id=session_id)
+
+        model.secondary_storage["persistence"] = persistence
+        if user_info is not None:
+            model.secondary_storage["user_info"] = user_info
+
+        return model
+
     def create_new_session(self, model_key: str, user_info: Optional[User]=None) -> AIResponse:
         """
-        Create a new session. This method creates a new session id (UUID4), creates a model
+        Create a new session. This method creates a new session id (ULID), creates a model
         instance of the given model class, initiates a state machine for that model instance
         and finally persists the model to Redis.
 
@@ -51,18 +89,11 @@ class SessionManager:
         :param user_info: optional User instance containing information about the current user
         :return: an instance of `AIResponse` with the appropriate values
         """
-        session_id = str(ulid.new().uuid)
-        logger.info(
-            "Creating new session {session_id} for model {model_key}",
-            session_id=session_id,
+        model = self._create_new_model(
             model_key=model_key,
+            persistence=Persistence(level=PersistenceLevel.LONG_TERM_PERSISTENCE),
+            user_info=user_info,
         )
-
-        model_class = self.model_key_registry[model_key]
-        model = model_class(session_id=session_id)
-        if user_info is not None:
-            model.secondary_storage["user_info"] = user_info
-
         state_machine = model.get_state_machine_class()(model)
 
         initial_prompt = self.genie_environment.render_template(
@@ -75,9 +106,45 @@ class SessionManager:
         response = model.current_response.actor_text
 
         return AIResponse(
-            session_id=session_id,
+            session_id=model.session_id,
             response=response,
             next_actions=state_machine.current_state.transitions.unique_events,
+        )
+
+    def start_ephemeral_session(
+            self,
+            model_key: str,
+            event: str,
+            event_input: str,
+            user_info: Optional[User]=None,
+    ) -> AIResponse:
+        """
+        Create a new ephemeral session. This method creates a new session id (ULID),
+        creates a model and initiates a state machine for that model instance. It then
+        immediately sends the event to the state machine and returns the appropriate
+        nex actions that can be taken from the current state.
+    
+        :param model_key: the key under which the model class is registered
+        :param event: the event to send to the state machine
+        :param event_input: the input to the event
+        :param user_info: optional User instance containing information about the current user
+        :return: an instance of `AIResponse` with the appropriate values
+        """
+        model = self._create_new_model(
+            model_key=model_key,
+            persistence=Persistence(level=PersistenceLevel.EPHEMERAL),
+            user_info=user_info,
+        )
+
+        self.session_lock_manager.store_model(model)
+
+        return self.process_event(
+            model_key,
+            EventInput(
+                session_id=model.session_id,
+                event=event,
+                event_input=event_input,
+            )
         )
 
     def _handle_poll(self, model: GenieModel) -> AIResponse:

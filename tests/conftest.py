@@ -118,7 +118,7 @@ def genie_model():
 
 
 @pytest.fixture
-def session_manager_unconnected():
+def session_lock_manager_unconnected():
     return SessionLockManager(
         None,
         None,
@@ -132,7 +132,7 @@ def session_manager_unconnected():
 
 
 @pytest.fixture
-def session_manager_connected(redis_server_details):
+def session_lock_manager_connected(redis_server_details):
     connection = redis.Redis(**redis_server_details)
     return SessionLockManager(
         redis_object_store=connection,
