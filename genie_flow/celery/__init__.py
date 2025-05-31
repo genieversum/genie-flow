@@ -4,7 +4,7 @@ from typing import Any, Optional
 import jmespath
 from celery import Celery, Task
 from celery.app.task import Context
-from celery.canvas import chord, group
+from celery.canvas import chord, group, Signature
 from celery.result import AsyncResult
 from loguru import logger
 from statemachine import State
@@ -47,6 +47,8 @@ class CeleryManager:
         self._add_error_handler()
         self._add_trigger_ai_event_task()
         self._add_invoke_task()
+        self._add_wrap_index()
+        self._add_recompile()
         self._add_map_task()
         self._add_combine_group_to_dict()
         self._add_combine_group_to_list()
@@ -231,6 +233,64 @@ class CeleryManager:
 
         return invoke_ai_event
 
+    def _add_wrap_index(self):
+
+        @self.celery_app.task(name="genie_flow.wrap_index")
+        def wrap_index(
+                map_index: int,
+                task_signature: Signature | dict
+        ) -> tuple[int, Any]:
+            """
+            This is a helper function that wraps the invocation of a task with the index of
+            the position in a list. This is used to ensure that the order of the results can
+            be recompiled correctly.
+
+            :param map_index: the position in the list of the invocation result
+            :param task_signature: the signature of the task to be invoked, or a dict of the same
+            :return: a tuple containing the index and the result of the invocation.
+            """
+            if isinstance(task_signature, dict):
+                task_signature = Signature.from_dict(task_signature)
+            return map_index, task_signature()
+
+        return wrap_index
+
+    def _add_recompile(self):
+
+        @self.celery_app.task(name="genie_flow.recompile")
+        def recompile(
+                results: list,
+                session_id: str,
+                model_fqn: str,
+                invocation_id: str,
+        ):
+            """
+            This is a helper function that re-orders the results of a task that has been
+            jumbled. This function expects a list of tuples, where the first element is the
+            original position in a list. The second element is the result of the invocation.
+            :param results: a list of tuples
+            :param session_id: the session id for which this task is executed
+            :param model_fqn: the model fully qualified name for which this task is executed
+            :param invocation_id: the invocation id for which this task is executed
+            :return: a list of results in the order they were invoked.
+            """
+            if len(results) > 1:
+                for i in range(1, len(results)):
+                    if results[i][0] != results[i-1][0] + 1:
+                        logger.warning(
+                            "results are not in order - re-ordering results for session {session_id} "
+                            "invocation {invocation_id}",
+                            session_id=session_id,
+                            invocation_id=invocation_id,
+                        )
+                        break
+
+                results.sort(key=lambda x: x[0])
+
+            return [r[1] for r in results]
+
+        return recompile
+
     def _add_map_task(self):
 
         @self.celery_app.task(
@@ -286,21 +346,32 @@ class CeleryManager:
                 )
                 list_values = [list_values]
 
+            index_wrapper_task = self.celery_app.tasks["genie_flow.wrap_index"]
             invoke_task = self.celery_app.tasks["genie_flow.invoke_task"]
+
+            # We wrap the actual invocation with the index wrapper. This is to work around
+            # an apparent bug in Celery where replacing a task with a group jumbles up the
+            # order of the results. See the discussion on the Celery home here:
+            # https://github.com/celery/celery/discussions/9731
+            # The index wrapper task simply returns the index and the invocation result.
+            # We then use the recompile task to re-order the results.
             mapped_tasks = [
-                invoke_task.s(
-                    {
-                        map_index_field: map_index,
-                        map_value_field: map_value,
-                    },
-                    template_name,
-                    session_id,
-                    model_fqn,
-                    invocation_id,
+                index_wrapper_task.s(
+                    map_index,
+                    invoke_task.s(
+                        {
+                            map_index_field: map_index,
+                            map_value_field: map_value,
+                        },
+                        template_name,
+                        session_id,
+                        model_fqn,
+                        invocation_id,
+                    )
                 )
                 for map_index, map_value in enumerate(list_values)
             ]
-            combine_task = self.celery_app.tasks["genie_flow.combine_group_to_list"]
+            recompile_task = self.celery_app.tasks["genie_flow.recompile"]
 
             # increase the number of tasks To Do by the number of values mapped,
             # plus one for the combine task, minus one because we are replacing
@@ -313,7 +384,7 @@ class CeleryManager:
             return task_instance.replace(
                 chord(
                     group(*mapped_tasks),
-                    combine_task.s(session_id, model_fqn, invocation_id),
+                    recompile_task.s(session_id, model_fqn, invocation_id),
                 )
             )
 
