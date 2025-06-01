@@ -235,10 +235,17 @@ class CeleryManager:
 
     def _add_wrap_index(self):
 
-        @self.celery_app.task(name="genie_flow.wrap_index")
+        @self.celery_app.task(
+            base=ProgressLoggingTask,
+            session_lock_manager=self.session_lock_manager,
+            name="genie_flow.wrap_index",
+        )
         def wrap_index(
                 map_index: int,
-                task_signature: Signature | dict
+                task_signature: Signature | dict,
+                session_id: str,
+                model_fqn: str,
+                invocation_id: str,
         ) -> tuple[int, Any]:
             """
             This is a helper function that wraps the invocation of a task with the index of
@@ -247,17 +254,24 @@ class CeleryManager:
 
             :param map_index: the position in the list of the invocation result
             :param task_signature: the signature of the task to be invoked, or a dict of the same
+            :param session_id: The session id for which this task is executed
+            :param model_fqn: The fully qualified name of the model
+            :param invocation_id: the id of the invocation that is being executed
             :return: a tuple containing the index and the result of the invocation.
             """
             if isinstance(task_signature, dict):
                 task_signature = Signature.from_dict(task_signature)
-            return map_index, task_signature()
+            return map_index, parse_if_json(task_signature())
 
         return wrap_index
 
     def _add_recompile(self):
 
-        @self.celery_app.task(name="genie_flow.recompile")
+        @self.celery_app.task(
+            base=ProgressLoggingTask,
+            session_lock_manager=self.session_lock_manager,
+            name="genie_flow.recompile",
+        )
         def recompile(
                 results: list,
                 session_id: str,
@@ -275,19 +289,19 @@ class CeleryManager:
             :return: a list of results in the order they were invoked.
             """
             if len(results) > 1:
-                for i in range(1, len(results)):
-                    if results[i][0] != results[i-1][0] + 1:
-                        logger.warning(
-                            "results are not in order - re-ordering results for session {session_id} "
-                            "invocation {invocation_id}",
-                            session_id=session_id,
-                            invocation_id=invocation_id,
-                        )
-                        break
+                if all(
+                        results[i][0] == results[i-1][0] + 1
+                        for i in range(1, len(results))
+                ):
+                    logger.warning(
+                        "results are in order, reordering not strictly required "
+                        "for session {session_id} invocation {invocation_id}",
+                        session_id=session_id,
+                        invocation_id=invocation_id,
+                    )
 
-                results.sort(key=lambda x: x[0])
-
-            return [r[1] for r in results]
+            results.sort(key=lambda x: x[0])
+            return json.dumps([r[1] for r in results])
 
         return recompile
 
@@ -367,7 +381,10 @@ class CeleryManager:
                         session_id,
                         model_fqn,
                         invocation_id,
-                    )
+                    ),
+                    session_id,
+                    model_fqn,
+                    invocation_id,
                 )
                 for map_index, map_value in enumerate(list_values)
             ]
