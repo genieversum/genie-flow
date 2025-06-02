@@ -13,6 +13,7 @@ from genie_flow.genie import GenieModel
 from genie_flow.model.persistence import PersistenceLevel, Persistence
 from genie_flow.model.types import ModelKeyRegistryType
 from genie_flow.model.api import AIResponse, EventInput, AIStatusResponse, AIProgressResponse
+from genie_flow.mongo import retrieve_user_sessions_mongo
 from genie_flow.session_lock import SessionLockManager
 from genie_flow.model.user import User
 
@@ -71,6 +72,9 @@ class SessionManager:
             model.secondary_storage["user_info"] = user_info
 
         return model
+
+    def get_user_sessions(self, user_info: User):
+        return retrieve_user_sessions_mongo(user_info)
 
     def create_new_session(self, model_key: str, user_info: Optional[User]=None) -> AIResponse:
         """
@@ -297,4 +301,10 @@ class SessionManager:
         :return: the model instance that belongs to the given session id
         """
         model_class = self.model_key_registry[model_key]
-        return self.session_lock_manager.get_model(session_id, model_class)
+        model = self.session_lock_manager.get_model(session_id, model_class)
+        state_machine = model.get_state_machine_class()(model=model)
+        return AIResponse(
+            session_id=model.session_id,
+            response=state_machine.model.current_response.actor_text,
+            next_actions=state_machine.current_state.transitions.unique_events,
+        )

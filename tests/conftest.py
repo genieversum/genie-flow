@@ -8,13 +8,19 @@ import pytest
 import redis
 from loguru import logger
 from pydantic import Field, computed_field
+from pymongo import MongoClient
+from urllib import parse
 
 from genie_flow.genie import GenieModel
 from genie_flow.model.dialogue import DialogueElement
+from genie_flow.model.persistence import Persistence, PersistenceLevel
+from genie_flow.model.secondary_store import SecondaryStore
 from genie_flow.model.user import User
 from genie_flow.model.versioned import VersionedModel
 from genie_flow.session_lock import SessionLockManager
 
+
+collect_ignore_glob = ["*mongodb*"]
 
 @pytest.fixture(scope="session")
 def docker_compose_file():
@@ -34,6 +40,15 @@ def docker_cleanup(docker_cleanup):
         return False
     return docker_cleanup
 
+@pytest.fixture(scope="session")
+def mongo_client(mongo_server_details):
+    client = MongoClient(host=mongo_server_details['host'],
+                         port=mongo_server_details['port'],
+                         username=parse.quote_plus("test_user"),
+                         password=parse.quote_plus("password"),
+                         authSource=mongo_server_details['db'])
+    yield client
+    client.close()
 
 @pytest.fixture(scope="session")
 def redis_server_details(docker_services) -> Optional[dict[str, str | int]]:
@@ -94,6 +109,66 @@ def redis_server_details(docker_services) -> Optional[dict[str, str | int]]:
         "db": db,
     }
 
+@pytest.fixture(scope="session")
+def mongo_server_details(docker_services) -> Optional[dict[str, str | int]]:
+
+    def mongo_server_is_responsive(host, port, db):
+        try:
+            logger.info(
+                "trying to reach mongo at host {host}, port {port} and database {db}",
+                host=host,
+                port=port,
+                db=db,
+            )
+            connection = MongoClient(host=host, port=port, authSource=db)
+            connection.admin.command("ping")
+        except Exception as e:
+            logger.exception("failed to reach Mongo", e)
+            return False
+
+        connection.close()
+        return True
+
+    def get_existing_mongo():
+        host, port, db = (
+            os.environ.get("MONGO_HOST"),
+            int(os.environ.get("MONGO_PORT")),
+            os.environ.get("MONGO_DB"),
+        )
+        logger.info(
+            "We are using an existing mongo server at {mongo_server}, "
+            "port {mongo_server_port} and mongo database {mongo_server_db}",
+            mongo_server=host,
+            mongo_server_port=port,
+            mongo_server_db=db,
+        )
+
+        for _ in range(900):
+            if mongo_server_is_responsive(host, port, db):
+                return host, port, db
+            time.sleep(0.1)
+
+        logger.critical("failed to reach Mongo Server in time -- giving up")
+        raise ValueError("Failed to reach existing Mongo server")
+
+    if "MONGO_HOST" in os.environ:
+        host, port, db = get_existing_mongo()
+    else:
+        host, port, db = ("localhost",27017,"genie_db")
+        logger.debug("We are using a local docker container for mongo")
+        docker_services.wait_until_responsive(
+            timeout=90.0,
+            pause=0.1,
+            check=lambda: mongo_server_is_responsive(host, port, db)
+        )
+
+    return {
+        "host": host,
+        "port": port,
+        "db": db,
+    }
+
+
 @pytest.fixture(scope="function")
 def genie_model():
     return GenieModel(
@@ -113,8 +188,9 @@ def genie_model():
                 )
             )
             for _ in range(50)
-        ]
-    )
+        ],
+        secondary_storage=secondary_storage
+)
 
 
 @pytest.fixture
@@ -145,6 +221,20 @@ def session_lock_manager_connected(redis_server_details):
         application_prefix="genie-flow-test",
     )
 
+
+secondary_storage=SecondaryStore(
+    root={
+        "persistence": Persistence(level=PersistenceLevel.LONG_TERM_PERSISTENCE),
+        "user_info":  User(
+            email="aap@noot.com",
+            firstname="Aap",
+            lastname="Noot",
+            custom_properties={
+                "GTM": "HLS"
+            }
+        )
+    }
+)
 
 @pytest.fixture
 def user():

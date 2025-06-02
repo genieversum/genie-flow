@@ -12,6 +12,7 @@ from genie_flow.genie import GenieModel
 from genie_flow.model.dialogue import DialogueElement
 from genie_flow.model.user import User
 from genie_flow.model.versioned import VersionedModel
+from genie_flow.mongo import retrieve_model, store_session, store_user
 from genie_flow.utils import get_fully_qualified_name_from_class
 
 
@@ -231,3 +232,19 @@ def test_exclude_computed_fields(example_computed_field):
 def test_include_computed_fields(example_computed_field):
     s = example_computed_field.serialize(include={"relevant_letters_digits"})
     assert b"relevant_letters_digits" in s
+
+def test_session_model_stored_in_mongo(genie_model, mongo_client):
+    store_session(genie_model, mongo_client)
+    col=mongo_client['genie_db'].session_collection
+    assert col.find_one({"session_id": genie_model.session_id}) is not None
+
+def test_user_info_stored_in_mongo(genie_model, user, mongo_client):
+    store_user(user,genie_model.session_id, mongo_client)
+    col=mongo_client['genie_db'].user_collection
+    assert col.find_one({"email":"aap@noot.com"}) is not None
+
+def test_get_stored_model_from_mongo(genie_model, mongo_client):
+    store_session(genie_model, mongo_client)
+    payload = retrieve_model(genie_model.session_id, mongo_client)
+    model = GenieModel.deserialize(payload['model'])
+    assert model.session_id == genie_model.session_id
