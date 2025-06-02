@@ -9,6 +9,7 @@ from statemachine.exceptions import TransitionNotAllowed
 from genie_flow.model.api import AIStatusResponse, AIResponse, EventInput, SessionStartRequest
 from genie_flow.session import SessionManager
 from genie_flow.model.user import User
+from loguru import logger
 
 
 def _unknown_state_machine_exception(state_machine_key: str) -> HTTPException:
@@ -57,7 +58,19 @@ class GenieFlowRouterBuilder:
             self.get_model,
             methods=["GET"],
         )
+        router.add_api_route(
+            "/{state_machine_key}/user_sessions",
+            self.get_user_sessions,
+            methods=["POST"],
+        )
         return router
+
+    def get_user_sessions(self, state_machine_key: str, user_info: User):
+        try:
+            return self.session_manager.get_user_sessions(user_info)
+        except Exception as e:
+            raise _unknown_state_machine_exception(state_machine_key)
+
 
     def start_session(self, state_machine_key: str, user_info: Optional[User]=None) -> AIResponse:
         try:
@@ -100,7 +113,7 @@ class GenieFlowRouterBuilder:
         except KeyError:
             raise _unknown_state_machine_exception(state_machine_key)
 
-    def get_model(self, state_machine_key: str, session_id: str) -> BaseModel:
+    def get_model(self, state_machine_key: str, session_id: str) -> AIResponse:
         try:
             return self.session_manager.get_model(state_machine_key, session_id)
         except KeyError:

@@ -3,6 +3,7 @@ from dependency_injector import containers, providers
 
 from genie_flow.app import create_fastapi_app
 from genie_flow.containers.core import GenieFlowCoreContainer
+from genie_flow.containers.perm_persistence import GenieFlowPermanentPersistenceContainer
 from genie_flow.containers.persistence import GenieFlowPersistenceContainer
 from genie_flow.celery import CeleryManager
 from genie_flow.environment import GenieEnvironment
@@ -32,6 +33,11 @@ class GenieFlowContainer(containers.DeclarativeContainer):
         config=config.persistence,
     )
 
+    permanent_storage = providers.Container(
+        GenieFlowPermanentPersistenceContainer,
+        config=config.persistence,
+    )
+
     genie_environment = providers.Singleton(
         GenieEnvironment,
         config.genie_environment.template_root_path,
@@ -54,6 +60,7 @@ class GenieFlowContainer(containers.DeclarativeContainer):
         celery_app,
         storage.session_lock_manager,
         genie_environment,
+        update_mongo_period = config.celery.update_mongo_period or 60.0
     )
 
     session_manager = providers.Singleton(
