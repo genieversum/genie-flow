@@ -301,10 +301,4 @@ class SessionManager:
         :return: the model instance that belongs to the given session id
         """
         model_class = self.model_key_registry[model_key]
-        model = self.session_lock_manager.get_model(session_id, model_class)
-        state_machine = model.get_state_machine_class()(model=model)
-        return AIResponse(
-            session_id=model.session_id,
-            response=state_machine.model.current_response.actor_text,
-            next_actions=state_machine.current_state.transitions.unique_events,
-        )
+        return self.session_lock_manager.get_model(session_id, model_class)
