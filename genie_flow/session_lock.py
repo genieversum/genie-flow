@@ -5,9 +5,12 @@ from loguru import logger
 from redis import Redis
 
 from genie_flow.genie import GenieModel
+from genie_flow.model.persistence import Persistence, PersistenceLevel
 from genie_flow.model.secondary_store import SecondaryStore
 from genie_flow.model.versioned import VersionedModel
-from genie_flow.utils import get_class_from_fully_qualified_name
+from genie_flow.model.user import User
+from genie_flow.mongo import retrieve_model
+from genie_flow.utils import get_class_from_fully_qualified_name, get_fully_qualified_name_from_class
 
 
 StoreType = Literal["object", "secondary", "lock", "progress"]
@@ -76,7 +79,8 @@ class SessionLockManager:
         self.progress_expiration_seconds = progress_expiration_seconds
         self.compression = compression
         self.application_prefix = application_prefix
-
+        self.update_set_key="update:session"
+       
     def _create_lock_for_session(self, session_id: str) -> redis_lock.Lock:
         """
         Retrieve the lock for the object for the given `session_id`. This ensures that only
@@ -136,11 +140,12 @@ class SessionLockManager:
         model_key = self._create_key("object", model_class, session_id)
         payload = self.redis_object_store.get(model_key)
         if payload is None:
-            logger.error(
-                "No model with id {session_id} found in object store",
-                session_id=session_id,
-            )
-            raise KeyError(f"No model with id {session_id}")
+            logger.error("No model with id {session_id} found in object store, trying mongodb", session_id=session_id)
+            try:
+                mongo_data = retrieve_model(session_id)
+                payload = mongo_data['model']
+            except:
+                raise KeyError(f"No model with id {session_id}")
 
         model = model_class.deserialize(payload)
         model.secondary_storage = self._retrieve_secondary_storage(session_id, model_class)
@@ -214,6 +219,14 @@ class SessionLockManager:
             model.serialize(self.compression, exclude={"secondary_storage"}),
             ex=self.object_expiration_seconds,
         )
+        model_fqn = get_fully_qualified_name_from_class(model)
+        if "persistence" not in  model.secondary_storage or \
+            model.secondary_storage["persistence"].level == PersistenceLevel.LONG_TERM_PERSISTENCE:
+            self.redis_object_store.sadd(
+                self.update_set_key,
+                f"{model_fqn}:{model.session_id}"
+            )
+            logger.debug(f"{self.redis_object_store.smembers(self.update_set_key)}")
 
     def store_model(self, model: GenieModel):
         """
@@ -225,7 +238,6 @@ class SessionLockManager:
         """
         with self._create_lock_for_session(model.session_id):
             self._store_model(model)
-
 
     def get_locked_model(
             self,
