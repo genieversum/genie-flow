@@ -59,6 +59,10 @@ class GenieFlowRouterBuilder:
             "/{state_machine_key}/model/{session_id}",
             self.get_model,
             methods=["GET"],
+            description=
+                "Retrieve data from the model of a session. "
+                "Using the query parameter 'path' and specifying a JMSEpath, "
+                "this endpoint will only return the specified data.",
         )
         router.add_api_route(
             "/{state_machine_key}/user_sessions",
@@ -115,7 +119,12 @@ class GenieFlowRouterBuilder:
         except KeyError:
             raise _unknown_state_machine_exception(state_machine_key)
 
-    def get_model(self, state_machine_key: str, session_id: str, path: str = None) -> AIResponse:
+    def get_model(
+            self,
+            state_machine_key: str,
+            session_id: str,
+            path: Optional[str] = None
+    ) -> AIResponse:
         try:
             model = self.session_manager.get_model(state_machine_key, session_id)
         except KeyError:
