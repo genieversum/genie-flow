@@ -1,5 +1,7 @@
+import json
 from typing import Optional
 
+import jmespath
 from fastapi import HTTPException, APIRouter, FastAPI
 from fastapi import status
 from pydantic import BaseModel
@@ -57,6 +59,10 @@ class GenieFlowRouterBuilder:
             "/{state_machine_key}/model/{session_id}",
             self.get_model,
             methods=["GET"],
+            description=
+                "Retrieve data from the model of a session. "
+                "Using the query parameter 'path' and specifying a JMSEpath, "
+                "this endpoint will only return the specified data.",
         )
         router.add_api_route(
             "/{state_machine_key}/user_sessions",
@@ -113,12 +119,27 @@ class GenieFlowRouterBuilder:
         except KeyError:
             raise _unknown_state_machine_exception(state_machine_key)
 
-    def get_model(self, state_machine_key: str, session_id: str) -> AIResponse:
+    def get_model(
+            self,
+            state_machine_key: str,
+            session_id: str,
+            path: Optional[str] = None
+    ) -> AIResponse:
         try:
-            return self.session_manager.get_model(state_machine_key, session_id)
+            model = self.session_manager.get_model(state_machine_key, session_id)
         except KeyError:
             raise _unknown_state_machine_exception(state_machine_key)
 
+        model_data = model.model_dump(mode="json")
+        if path is not None:
+            model_data = jmespath.search(path, model_data)
+
+        state_machine = model.get_state_machine_class()(model)
+        return AIResponse(
+            session_id=model.session_id,
+            response=json.dumps(model_data),
+            next_actions=state_machine.current_state.transitions.unique_events,
+        )
 
 def create_fastapi_app(
         session_manager: SessionManager,
