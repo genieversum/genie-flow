@@ -4,14 +4,11 @@ from typing import Optional
 import jmespath
 from fastapi import HTTPException, APIRouter, FastAPI
 from fastapi import status
-from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-from statemachine.exceptions import TransitionNotAllowed
 
 from genie_flow.model.api import AIStatusResponse, AIResponse, EventInput, SessionStartRequest
 from genie_flow.session import SessionManager
 from genie_flow.model.user import User
-from loguru import logger
 
 
 def _unknown_state_machine_exception(state_machine_key: str) -> HTTPException:
@@ -134,11 +131,11 @@ class GenieFlowRouterBuilder:
         if path is not None:
             model_data = jmespath.search(path, model_data)
 
-        state_machine = model.get_state_machine_class()(model)
+        task_state = self.session_manager.get_task_state(state_machine_key, session_id)
         return AIResponse(
-            session_id=model.session_id,
+            session_id=session_id,
             response=json.dumps(model_data),
-            next_actions=state_machine.current_state.transitions.unique_events,
+            next_actions=task_state.next_actions if task_state.ready else ["poll"],
         )
 
 def create_fastapi_app(
