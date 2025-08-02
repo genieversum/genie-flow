@@ -12,10 +12,10 @@ authors = [
 ]
 description = "Core classes for Genie Flow"
 readme = "README.md"
-requires-python = "~=3.11.0"
+requires-python = ">=3.11.0"
+license = "Apache-2.0"
 classifiers=[
     'Programming Language :: Python :: 3',
-    'License :: OSI Approved :: MIT License',
     'Operating System :: OS Independent',
 ]
 dependencies=[
