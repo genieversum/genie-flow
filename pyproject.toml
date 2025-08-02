@@ -14,6 +14,10 @@ description = "Core classes for Genie Flow"
 readme = "README.md"
 requires-python = ">=3.11.0"
 license = "Apache-2.0"
+license-files = [
+    "LICENSES",
+    "NOTICES",
+]
 classifiers=[
     'Programming Language :: Python :: 3',
     'Operating System :: OS Independent',
@@ -37,6 +41,10 @@ dependencies=[
     "uvicorn==0.34",
 ]
 dynamic = ["version"]
+
+[project.urls]
+Homepage="https://genieversum.github.io"
+Repository="https://github.com/genieversum/genie-flow"
 
 [project.optional-dependencies]
 test = [
