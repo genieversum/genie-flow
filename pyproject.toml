@@ -7,8 +7,8 @@ genie_flow = "genie_flow"
 
 [project]
 name = "genie_flow"
-authors = [
-    { name = "Willem van Asperen", email = "willem.van.asperen@paconsulting.com"}
+maintainers = [
+    { name = "Willem van Asperen", email = "willem.van.asperen@paconsulting.com" },
 ]
 description = "Core classes for Genie Flow"
 readme = "README.md"
