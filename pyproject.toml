@@ -30,6 +30,7 @@ classifiers=[
     "Framework :: Pydantic",
     "Topic :: Communications :: Chat",
     "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Typing :: Typed",
 ]
 dependencies=[
