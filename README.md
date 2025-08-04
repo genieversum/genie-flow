@@ -1,4 +1,7 @@
 # Genieversum
+[![PyPI version](https://badge.fury.io/py/genie-flow.svg?icon=si%3Apython)](https://badge.fury.io/py/genie-flow)
+![PyPI - Downloads](https://img.shields.io/pypi/dm/genie-flow)
+
 ## Our Mission
 Genie Flow (or simply Genie) is a modular AI platform designed to help you build intelligent, 
 reusable agents that can automate tasks, process data, and interact with users or systems. 
