@@ -532,7 +532,9 @@ class CeleryManager:
         @self.celery_app.task(name="genie_flow.scheduler.update_mongo")
         def update_mongo():
             logger.debug("update mongo running")
-            updated_sessions = self.session_lock_manager.redis_object_store.smembers(self.session_lock_manager.update_set_key)
+            updated_sessions = self.session_lock_manager.redis_object_store.smembers(
+                self.session_lock_manager.update_set_key
+            )
             for session_item in updated_sessions:
                 fqn, session_id = session_item.decode().rsplit(':', 1)
                 with self.session_lock_manager.get_locked_model(
@@ -540,7 +542,13 @@ class CeleryManager:
                         model_class=fqn
                 ) as model:
                     store_session(model)
-                    store_user(model.secondary_storage["user_info"], session_id)
+                    try:
+                        store_user(model.secondary_storage["user_info"], session_id)
+                    except KeyError:
+                        logger.warning(
+                            "No user info found for session {session_id}; ignoring",
+                            session_id=session_id,
+                        )
                     self.session_lock_manager.redis_object_store.srem(self.session_lock_manager.update_set_key, session_id)
         return update_mongo
 
