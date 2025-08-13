@@ -23,8 +23,8 @@ persistence:
     password: password
     db: genie_db
 celery:
-  broker: redis://redis:6379/0
-  backend: redis://redis:6379/0
+  broker: redis://localhost:6379/0
+  backend: redis://localhost:6379/0
   redis_socket_timeout: 4.0
   redis_socket_connect_timeout: 4.0
   update_mongo_period: 30.0
@@ -34,7 +34,6 @@ api:
 genie_environment:
   template_root_path: .
   pool_size: 1
-invokers:
 cors:
   allow_origins:
     - "*"

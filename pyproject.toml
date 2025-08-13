@@ -7,19 +7,34 @@ genie_flow = "genie_flow"
 
 [project]
 name = "genie_flow"
-authors = [
-    { name = "Willem van Asperen", email = "willem.van.asperen@paconsulting.com"}
+maintainers = [
+    { name = "Willem van Asperen", email = "willem.van.asperen@paconsulting.com" },
 ]
 description = "Core classes for Genie Flow"
 readme = "README.md"
-requires-python = "~=3.11.0"
+requires-python = ">=3.11.0"
+license = "Apache-2.0"
+license-files = [
+    "LICENSES",
+    "NOTICES",
+]
 classifiers=[
-    'Programming Language :: Python :: 3',
-    'License :: OSI Approved :: MIT License',
-    'Operating System :: OS Independent',
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Framework :: Celery",
+    "Framework :: FastAPI",
+    "Framework :: Pydantic",
+    "Topic :: Communications :: Chat",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
 ]
 dependencies=[
-    "genie-flow-invoker~=0.6.0",
+    "genie-flow-invoker~=0.7.0",
     "loguru~=0.7",
     "python-statemachine~=2.3",
     "pydantic~=2.11",
@@ -37,6 +52,10 @@ dependencies=[
     "uvicorn==0.34",
 ]
 dynamic = ["version"]
+
+[project.urls]
+Homepage="https://genieversum.github.io"
+Repository="https://github.com/genieversum/genie-flow"
 
 [project.optional-dependencies]
 test = [
