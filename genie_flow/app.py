@@ -57,9 +57,9 @@ class GenieFlowRouterBuilder:
             self.get_model,
             methods=["GET"],
             description=
-                "Retrieve data from the model of a session. "
-                "Using the query parameter 'path' and specifying a JMSEpath, "
-                "this endpoint will only return the specified data.",
+            "Retrieve data from the model of a session. "
+            "Using the query parameter 'path' and specifying a JMSEpath, "
+            "this endpoint will only return the specified data.",
         )
         router.add_api_route(
             "/{state_machine_key}/user_sessions",
@@ -74,12 +74,30 @@ class GenieFlowRouterBuilder:
         except Exception as e:
             raise _unknown_state_machine_exception(state_machine_key)
 
+    def start_session(
+            self,
+            model_key: str,
+            user_info: Optional[User] = None,
+            seeding_data: Optional[str] = None,
+    ) -> AIResponse:
+        """
+        Create a new session for the given model key. If the user info is provided,
+        that user info will be associated with the session. If seeding_data is provided,
+        that string will be passed into the seed method of the newly created session object.
 
-    def start_session(self, state_machine_key: str, user_info: Optional[User]=None) -> AIResponse:
+        :param model_key: the model key of the state machine to start a session for
+        :param user_info: optional user info to associate with the session
+        :param seeding_data: optional string to seed the newly created session object
+        :return: a AIResponse object for the new session
+        """
         try:
-            return self.session_manager.create_new_session(state_machine_key, user_info)
+            return self.session_manager.create_new_session(
+                model_key,
+                user_info,
+                seeding_data,
+            )
         except KeyError:
-            raise _unknown_state_machine_exception(state_machine_key)
+            raise _unknown_state_machine_exception(model_key)
 
     def start_ephemeral_session(
             self,
@@ -109,7 +127,7 @@ class GenieFlowRouterBuilder:
             raise _unknown_state_machine_exception(state_machine_key)
 
     def get_task_state(
-        self, state_machine_key: str, session_id: str
+            self, state_machine_key: str, session_id: str
     ) -> AIStatusResponse:
         try:
             return self.session_manager.get_task_state(state_machine_key, session_id)
@@ -137,6 +155,7 @@ class GenieFlowRouterBuilder:
             response=json.dumps(model_data),
             next_actions=task_state.next_actions if task_state.ready else ["poll"],
         )
+
 
 def create_fastapi_app(
         session_manager: SessionManager,

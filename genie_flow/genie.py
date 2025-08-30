@@ -5,7 +5,7 @@ from functools import cached_property, cache
 from typing import Optional, Any
 
 from loguru import logger
-from pydantic import Field, BaseModel, ConfigDict
+from pydantic import Field, BaseModel, ConfigDict, computed_field
 from statemachine import StateMachine, State
 from statemachine.event_data import EventData
 
@@ -52,8 +52,12 @@ class GenieModel(VersionedModel):
     `_primary_key_field` is used to determine the name of the primary key.
     """
 
+    seeding_data: Optional[str] = Field(
+        default=None,
+        description="A string to seed the newly created session object with",
+    )
     state: str | int | None = Field(
-        None,
+        default=None,
         description="The current state that this model is in, represented by the state's value",
     )
     session_id: str = Field(
@@ -80,17 +84,48 @@ class GenieModel(VersionedModel):
         description="The error message returned from a running task",
     )
     actor: Optional[str] = Field(
-        None,
+        default=None,
         description="The actor that has created the current input",
     )
     actor_input: str = Field(
-        "",
+        default="",
         description="the most recent received input from the actor",
     )
     secondary_storage: SecondaryStore = Field(
         default_factory=SecondaryStore,
         description="A dictionary that can be used to store secondary information about the session",
     )
+
+    def model_post_init(self, context: Any, /) -> None:
+        """
+        Overriding this method to call the `seed_model` method and clear the seeding_data
+        property. When data passed as seeding_data is required, developers should override
+        the `seed_model` method.
+
+        :param context: any context that was created during model validations
+        """
+        if self.seeding_data is None:
+            logger.debug(
+                "No seeding data passed for {cls} with session {session_id}",
+                cls=self.__class__.name,
+                session_id=self.session_id,
+            )
+            return
+        logger.debug(
+            "Seeding model data for {cls} with session {session_id}",
+            cls=self.__class__.name,
+            session_id=self.session_id,
+        )
+        self.seed_model()
+        self.seeding_data = None
+
+    def seed_model(self):
+        """
+        By overriding this method, developers can seed a newly created instance of the
+        Genie Model from any seeding data that was passed. That seed data will be assigned
+        to the property `seeding_data`, which is a string.
+        """
+        pass
 
     @property
     def render_data(self) -> dict[str, Any]:
