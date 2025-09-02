@@ -48,11 +48,11 @@ class GenieModel(VersionedModel):
     as well as `actor` and `actor_text`, both indicators for the most recent interaction.
 
     This class is a subclass of the pydantic_redis `Model` class, which makes it possible to
-    persist the values into Reids and retrieve it again by its primary key. The attribute
+    persist the values into Redis and retrieve it again by its primary key. The attribute
     `_primary_key_field` is used to determine the name of the primary key.
     """
 
-    seeding_data: Optional[str] = Field(
+    seed_data: Optional[str] = Field(
         default=None,
         description="A string to seed the newly created session object with",
     )
@@ -104,20 +104,20 @@ class GenieModel(VersionedModel):
 
         :param context: any context that was created during model validations
         """
-        if self.seeding_data is None:
+        if self.seed_data is None:
             logger.debug(
                 "No seeding data passed for {cls} with session {session_id}",
-                cls=self.__class__.name,
+                cls=str(self.__class__),
                 session_id=self.session_id,
             )
             return
         logger.debug(
             "Seeding model data for {cls} with session {session_id}",
-            cls=self.__class__.name,
+            cls=str(self.__class__),
             session_id=self.session_id,
         )
         self.seed_model()
-        self.seeding_data = None
+        self.seed_data = None
 
     def seed_model(self):
         """

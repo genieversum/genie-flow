@@ -2,7 +2,7 @@ import json
 from typing import Optional
 
 import jmespath
-from fastapi import HTTPException, APIRouter, FastAPI
+from fastapi import HTTPException, APIRouter, FastAPI, Body
 from fastapi import status
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -76,28 +76,28 @@ class GenieFlowRouterBuilder:
 
     def start_session(
             self,
-            model_key: str,
-            user_info: Optional[User] = None,
-            seeding_data: Optional[str] = None,
+            state_machine_key: str,
+            user_info: Optional[User] = Body(None),
+            seed_data: Optional[str] = Body(None),
     ) -> AIResponse:
         """
         Create a new session for the given model key. If the user info is provided,
         that user info will be associated with the session. If seeding_data is provided,
         that string will be passed into the seed method of the newly created session object.
 
-        :param model_key: the model key of the state machine to start a session for
+        :param state_machine_key: the model key of the state machine to start a session for
         :param user_info: optional user info to associate with the session
-        :param seeding_data: optional string to seed the newly created session object
+        :param seed_data: optional string to seed the newly created session object
         :return: a AIResponse object for the new session
         """
         try:
             return self.session_manager.create_new_session(
-                model_key,
+                state_machine_key,
                 user_info,
-                seeding_data,
+                seed_data,
             )
         except KeyError:
-            raise _unknown_state_machine_exception(model_key)
+            raise _unknown_state_machine_exception(state_machine_key)
 
     def start_ephemeral_session(
             self,

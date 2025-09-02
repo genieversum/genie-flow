@@ -42,7 +42,7 @@ class SessionManager:
             model_key: str,
             persistence: Persistence,
             user_info: Optional[User]=None,
-            seeding_data: Optional[str]=None,
+            seed_data: Optional[str]=None,
     ):
         """
         Create a new model instance for a given model key with specified persistence level.
@@ -54,7 +54,7 @@ class SessionManager:
         :param model_key: The key under which the model class is registered
         :param persistence: Persistence configuration specifying how the model should be stored
         :param user_info: Optional User instance containing information about the current user
-        :param seeding_data: Optional string to seed the newly created session object with
+        :param seed_data: Optional string to seed the newly created session object with
         :return: A new instance of the model class registered under the given model key
         """
 
@@ -68,7 +68,7 @@ class SessionManager:
         )
 
         model_class = self.model_key_registry[model_key]
-        model = model_class(session_id=session_id, seeding_data=seeding_data)
+        model = model_class(session_id=session_id, seed_data=seed_data)
 
         model.secondary_storage["persistence"] = persistence
         if user_info is not None:
@@ -106,7 +106,7 @@ class SessionManager:
             model_key=model_key,
             persistence=Persistence(level=PersistenceLevel.LONG_TERM_PERSISTENCE),
             user_info=user_info,
-            seeding_data=seeding_data,
+            seed_data=seeding_data,
         )
         state_machine = model.get_state_machine_class()(model)
 

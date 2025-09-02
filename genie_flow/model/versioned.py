@@ -21,9 +21,8 @@ class VersionedModel(BaseModel):
     model_config = ConfigDict(json_schema_extra={"schema_version": 0})
 
     @classmethod
-    @property
     @cache
-    def schema_version(cls) -> int:
+    def get_schema_version(cls) -> int:
         return int(cls.model_json_schema()["schema_version"])
 
     def serialize(
@@ -60,7 +59,7 @@ class VersionedModel(BaseModel):
         compression_flag = b"1" if compression else b"0"
 
         return b":".join(
-            [str(self.schema_version).encode("utf-8"), compression_flag, payload]
+            [str(self.get_schema_version()).encode("utf-8"), compression_flag, payload]
         )
 
     @classmethod
@@ -81,7 +80,7 @@ class VersionedModel(BaseModel):
             "into a model with schema version {current_version} "
             "for model class {model_class}",
             persisted_version=int(from_version),
-            current_version=cls.schema_version,
+            current_version=cls.get_schema_version(),
             model_class=cls.__name__,
         )
         raise ValueError(f"Schema mis-match when deserializing a {cls.__name__} model")
@@ -96,7 +95,7 @@ class VersionedModel(BaseModel):
             else payload.decode("utf-8")
         )
 
-        if persisted_version != cls.schema_version:
+        if persisted_version != cls.get_schema_version():
             model_data = from_json(model_json)
             model_data = cls.upgrade_schema(persisted_version, model_data)
             return cls.model_validate(model_data)
