@@ -1,3 +1,4 @@
+import hashlib
 from enum import Enum
 
 from loguru import logger
@@ -116,6 +117,13 @@ class SecondaryStore(RootModel[dict[str, VersionedModel]]):
             for key, state in self._states.items()
             if state == PersistenceState.NEW_OBJECT
         }
+
+    @property
+    def transfer_key(self) -> str:
+        key = hashlib.sha256()
+        for value in self.root.values():
+            key.update(value.serialize(compression=True))
+        return key.hexdigest()
 
     def mark_persisted(self, keys: str | list[str]):
         """

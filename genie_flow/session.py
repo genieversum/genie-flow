@@ -11,6 +11,7 @@ from genie_flow.celery.transition import TransitionManager
 from genie_flow.environment import GenieEnvironment
 from genie_flow.genie import GenieModel
 from genie_flow.model.persistence import PersistenceLevel, Persistence
+from genie_flow.model.secondary_store import SecondaryStore
 from genie_flow.model.types import ModelKeyRegistryType
 from genie_flow.model.api import AIResponse, EventInput, AIStatusResponse, AIProgressResponse
 from genie_flow.mongo import retrieve_user_sessions_mongo
@@ -41,6 +42,7 @@ class SessionManager:
             model_key: str,
             persistence: Persistence,
             user_info: Optional[User]=None,
+            seed_data: Optional[str]=None,
     ):
         """
         Create a new model instance for a given model key with specified persistence level.
@@ -52,6 +54,7 @@ class SessionManager:
         :param model_key: The key under which the model class is registered
         :param persistence: Persistence configuration specifying how the model should be stored
         :param user_info: Optional User instance containing information about the current user
+        :param seed_data: Optional string to seed the newly created session object with
         :return: A new instance of the model class registered under the given model key
         """
 
@@ -65,7 +68,7 @@ class SessionManager:
         )
 
         model_class = self.model_key_registry[model_key]
-        model = model_class(session_id=session_id)
+        model = model_class(session_id=session_id, seed_data=seed_data)
 
         model.secondary_storage["persistence"] = persistence
         if user_info is not None:
@@ -76,7 +79,12 @@ class SessionManager:
     def get_user_sessions(self, user_info: User):
         return retrieve_user_sessions_mongo(user_info)
 
-    def create_new_session(self, model_key: str, user_info: Optional[User]=None) -> AIResponse:
+    def create_new_session(
+            self,
+            model_key: str,
+            user_info: Optional[User] = None,
+            seeding_data: Optional[str] = None,
+    ) -> AIResponse:
         """
         Create a new session. This method creates a new session id (ULID), creates a model
         instance of the given model class, initiates a state machine for that model instance
@@ -91,12 +99,14 @@ class SessionManager:
 
         :param model_key: the key under which the model class is registered
         :param user_info: optional User instance containing information about the current user
+        :param seeding_data: optional seeding data to seed the newly created session-object
         :return: an instance of `AIResponse` with the appropriate values
         """
         model = self._create_new_model(
             model_key=model_key,
             persistence=Persistence(level=PersistenceLevel.LONG_TERM_PERSISTENCE),
             user_info=user_info,
+            seed_data=seeding_data,
         )
         state_machine = model.get_state_machine_class()(model)
 
