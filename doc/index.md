@@ -900,7 +900,7 @@ This also means you would need to run a separate worker to pick up work from tha
 # the "normal" worker that will pick up default invocations
 celery --app main.celery_app worker --concurrency=4
 
-# a specially assinged worker that will only pick up work that 
+# a specially assigned worker that will only pick up work that 
 # is sent to the queue named "gpu_bound"
 celery --app main.celery_app worker --concurrency=2 -Q gpu_bound
 ```
