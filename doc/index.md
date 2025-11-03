@@ -872,7 +872,7 @@ from genie_flow.model.template import MapTaskTemplate, NamedQueueTaskTemplate
             template=dict(
                 driver_sentiment=MapTaskTemplate(
                     "json_llm/tag_driver_sentiment.jinja2",
-                    "post_store.chunked_documents[*].chunks[?hierarchy_level==`1`].content | [] | []",  # TODO: implement a working computed_field # noqa: E501
+                    "post_store.chunked_documents[*].chunks[?hierarchy_level==`1`].content | [] | []",  # noqa: E501
                 ),
                 author_role=MapTaskTemplate(
                     "json_llm/tag_author_role.jinja2",
