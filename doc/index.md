@@ -820,6 +820,95 @@ templates, no lists, dicts or other types are supported.
 `map_value_field`
 : (default `map_value`) the name of the field that will contain the value of each of the mappings
 
+### Assign to named queue
+By default, all work of the invokers is put onto a queue. That means that work will be created
+by the API service and put onto the queue. On the other side of the queue there are Celery
+Workers that pick up work from the queue - typically Invokers that need to be called.
+
+Work in the queue is handled in order of arrival. So, new work will be picked up by a worker,
+only when a previous task is picked up by another worker.
+
+As a consequence, when large bursts of work are being put into the queue - for instance by
+a `MapTaskTemplate` across a large list of work items - then all these tasks will have to be
+processed before work from other session can be picked up.
+
+This normally works fine. Works needs to be done. But imagine the following situation:
+* a flow has two CPU-bound template on a batch of documents, for instance: some Doc Proc
+  work to clean then chunk each document
+* that work is then followed by a GPU bound template, for instance to assess these documents
+
+When each of these templates are `MapTaskTemplate`s, this means the first batch is exploded
+into separate invocations of clean, the result of that is then exploded into a number of
+invocations of chunk. And then finally, a large number of LLM calls is exploded.
+
+And finally, we need to do some formatting and consolidation - again a CPU bound invocation
+that will explode into a burst of invocations.
+
+Now imagine that a new session is started during the processing of this first. When the first
+session approaches the GPU bound tasks on the queue, at that point in time we are depleting
+the CPU off work. It will just sit there and idle till the GPU batch is processed and new
+CPU work is picked up.
+
+This is an undesirable situation.
+
+With the `NamedQueueTaskTemplate`, you can assign a separate queue for a specific (set of)
+templates. Spinning up Celery workers that listen to that named queue means that we can have
+GPU bound work be processed in parallel of the "normal" CPU bound work. It means that
+invocation from these templates will be handled from a separate queue and not interfere with
+the rest of the work.
+
+The way to assign a `NamedQueueTaskTemplate` is as follows:
+
+```python
+from genie_flow.model.template import MapTaskTemplate, NamedQueueTaskTemplate
+
+    templates = dict(
+        document_input="response/intro.jinja2",
+        process_documents=[
+            MapTaskTemplate("clean/doc.jinja2", "post_store.chunked_documents[*]"),
+            MapTaskTemplate("chunk/doc.jinja2", "parsed_previous_result[*]"),
+        ],
+        ai_tagging=NamedQueueTaskTemplate(
+            template=dict(
+                driver_sentiment=MapTaskTemplate(
+                    "json_llm/tag_driver_sentiment.jinja2",
+                    "post_store.chunked_documents[*].chunks[?hierarchy_level==`1`].content | [] | []",  # noqa: E501
+                ),
+                author_role=MapTaskTemplate(
+                    "json_llm/tag_author_role.jinja2",
+                    "post_store.chunked_documents[*].chunks[?hierarchy_level==`1`].content | [] | []",  # noqa: E501
+                ),
+                product_category=MapTaskTemplate(
+                    "json_llm/tag_product_category.jinja2",
+                    "post_store.chunked_documents[*].chunks[?hierarchy_level==`1`].content | [] | []",  # noqa: E501
+                ),
+            ),
+            queue_name="gpu_bound",
+        ),
+        user_gets_result="response/user_gets_result.jinja2",
+        display_error="response/display_error.jinja2",
+    )
+
+```
+
+Here all the `MapTaskTemplate` templates on the `ai_tagging` state are sent to a separate,
+queue named "gpu_bound".
+
+This also means you would need to run a separate worker to pick up work from that queue:
+
+```bash
+# the "normal" worker that will pick up default invocations
+celery --app main.celery_app worker --concurrency=4
+
+# a specially assigned worker that will only pick up work that 
+# is sent to the queue named "gpu_bound"
+celery --app main.celery_app worker --concurrency=2 -Q gpu_bound
+```
+
+See the `-Q gpu_bound` part on that second worker launch. Only work that ends up on the
+queue "gpu_bound" will be picked up by that worker. And that will leave work on the default
+queue being picked up by the default worker.
+
 ### Your own Celery Task
 Rather than specifying a reference to a template, or a list or dictionary of some form, the
 template can also be a Celery Task reference. That celery task will then be called with as
