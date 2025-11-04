@@ -4,7 +4,7 @@ import ulid
 from celery import Celery, Task, chord, group
 from celery.canvas import Signature
 
-from genie_flow.model.template import CompositeTemplateType, MapTaskTemplate
+from genie_flow.model.template import CompositeTemplateType, MapTaskTemplate, NamedQueueTaskTemplate
 
 
 class TaskCompiler:
@@ -124,6 +124,11 @@ class TaskCompiler:
                 self.model_fqn,
                 self.invocation_id,
             )
+
+        if isinstance(template, NamedQueueTaskTemplate):
+            task = self._compile_task_graph(template.template)
+            task.set(queue=template.queue_name)
+            return task
 
         raise ValueError(
             f"cannot compile a task for a render of type '{type(template)}'"

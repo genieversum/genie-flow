@@ -14,7 +14,7 @@ from genie_flow.genie import GenieModel, GenieStateMachine
 from genie_flow_invoker.pool import InvokersPool
 from genie_flow_invoker.factory import InvokerFactory
 from genie_flow.model.types import ModelKeyRegistryType
-from genie_flow.model.template import CompositeTemplateType, MapTaskTemplate
+from genie_flow.model.template import CompositeTemplateType, MapTaskTemplate, NamedQueueTaskTemplate
 
 _META_FILENAME: str = "meta.yaml"
 _T = TypeVar("_T")
@@ -125,6 +125,9 @@ class GenieEnvironment:
 
         if isinstance(template, MapTaskTemplate):
             return self._non_existing_templates(template.template_name)
+
+        if isinstance(template, NamedQueueTaskTemplate):
+            return self._non_existing_templates(template.template)
 
         raise RuntimeError(f"Unknown template type: {type(template)}")
 
