@@ -365,8 +365,11 @@ class CeleryManager:
                 )
                 list_values = [list_values]
 
+            current_queue = task_instance.request.delivery_info.get("routing_key")
+
             index_wrapper_task = self.celery_app.tasks["genie_flow.wrap_index"]
             invoke_task = self.celery_app.tasks["genie_flow.invoke_task"]
+            recompile_task = self.celery_app.tasks["genie_flow.recompile"]
 
             # We wrap the actual invocation with the index wrapper. This is to work around
             # an apparent bug in Celery where replacing a task with a group jumbles up the
@@ -386,14 +389,13 @@ class CeleryManager:
                         session_id,
                         model_fqn,
                         invocation_id,
-                    ),
+                    ).set(queue=current_queue),
                     session_id,
                     model_fqn,
                     invocation_id,
-                )
+                ).set(queue=current_queue)
                 for map_index, map_value in enumerate(list_values)
             ]
-            recompile_task = self.celery_app.tasks["genie_flow.recompile"]
 
             # increase the number of tasks To Do by the number of values mapped,
             # plus one for the combine task, minus one because we are replacing
@@ -406,7 +408,11 @@ class CeleryManager:
             return task_instance.replace(
                 chord(
                     group(*mapped_tasks),
-                    recompile_task.s(session_id, model_fqn, invocation_id),
+                    recompile_task.s(
+                        session_id,
+                        model_fqn,
+                        invocation_id
+                    ).set(queue=current_queue),
                 )
             )
 
