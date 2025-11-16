@@ -355,6 +355,7 @@ class CeleryManager:
             :param template_name: the name of the template that should be used to render
             :param session_id: the session id for which this task is executed
             :param model_fqn: the fully qualified name of the model
+            :param invocation_id: the id of the invocation this task execution is part of
             """
             render_data = self._retrieve_render_data(drag_net, session_id, model_fqn)
             list_values = jmespath.search(list_attribute, render_data)
@@ -366,6 +367,12 @@ class CeleryManager:
                 list_values = [list_values]
 
             current_queue = task_instance.request.delivery_info.get("routing_key")
+            if current_queue is None or current_queue == "":
+                logger.warning(
+                    "No routing_key defined for MapTaskTemplate; using 'celery'",
+                    template_name=template_name,
+                )
+                current_queue = "celery"
 
             index_wrapper_task = self.celery_app.tasks["genie_flow.wrap_index"]
             invoke_task = self.celery_app.tasks["genie_flow.invoke_task"]
