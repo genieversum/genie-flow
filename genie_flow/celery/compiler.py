@@ -136,13 +136,13 @@ class TaskCompiler:
 
     def _compile_task(self, template):
         template_task_graph = self._compile_task_graph(template)
-        self.task = (
-            template_task_graph |
-            self._trigger_ai_event_task.s(
-                self.event_to_send_after,
-                self.session_id,
-                self.model_fqn,
-                self.invocation_id,
-            )
+        queue = template_task_graph.options.get("queue", "celery")
+        trigger_task = self._trigger_ai_event_task.s(
+            self.event_to_send_after,
+            self.session_id,
+            self.model_fqn,
+            self.invocation_id,
         )
+        trigger_task.set(queue=queue)
+        self.task = template_task_graph | trigger_task
         self.nr_tasks += 1
