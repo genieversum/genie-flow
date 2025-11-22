@@ -14,7 +14,7 @@ class GenieFlowPersistenceContainer(containers.DeclarativeContainer):
         port=config.object_store.port,
         db=config.object_store.db,
         password=config.object_store.password,
-        max_connections=config.object_store.max_connections.as_int() or 200,
+        max_connections=config.object_store.max_connections or 200,
     )
 
     redis_object_store = providers.Singleton(
@@ -28,7 +28,7 @@ class GenieFlowPersistenceContainer(containers.DeclarativeContainer):
         port=config.lock_store.port,
         db=config.lock_store.db,
         password=config.lock_store.password,
-        max_connections=config.lock_store.max_connections.as_int() or 200,
+        max_connections=config.lock_store.max_connections or 200,
     )
 
     redis_lock_store = providers.Singleton(
@@ -42,7 +42,7 @@ class GenieFlowPersistenceContainer(containers.DeclarativeContainer):
         port=config.progress_store.port,
         db=config.progress_store.db,
         password=config.progress_store.password,
-        max_connections=config.progress_store.max_connections.as_int() or 200,
+        max_connections=config.progress_store.max_connections or 200,
     )
 
     redis_progress_store = providers.Singleton(
