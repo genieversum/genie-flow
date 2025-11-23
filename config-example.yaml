@@ -36,7 +36,7 @@ api:
   root_path: /api/v1
 genie_environment:
   template_root_path: .
-  pool_size: 1
+  pool_size: 32
 cors:
   allow_origins:
     - "*"

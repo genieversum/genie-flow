@@ -34,7 +34,7 @@ classifiers=[
     "Typing :: Typed",
 ]
 dependencies=[
-    "genie-flow-invoker~=0.7.0",
+    "genie-flow-invoker~=0.7.2",
     "loguru~=0.7",
     "python-statemachine~=2.3",
     "pydantic~=2.11",
