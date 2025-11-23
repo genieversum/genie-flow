@@ -4,17 +4,20 @@ persistence:
     host: redis
     port: 6379
     db: 1
+    max_connections: 200
     object_compression: true
     expiration_seconds: 86400
   lock_store:
     host: redis
     port: 6379
     db: 2
+    max_connections: 200
     expiration_seconds: 120
   progress_store:
     host: redis
     port: 6379
     db: 3
+    max_connections: 200
     expiration_seconds: 120
   mongo_store:
     host: localhost
