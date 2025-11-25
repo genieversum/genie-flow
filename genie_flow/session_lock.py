@@ -1,6 +1,5 @@
-import threading
-import time
-from typing import Type, Optional, Literal, Dict, Tuple
+from contextlib import contextmanager
+from typing import Type, Optional, Literal
 
 import redis_lock
 from loguru import logger
@@ -17,34 +16,6 @@ StoreType = Literal["object", "secondary", "lock", "progress"]
 
 
 class SessionLockManager:
-
-    class ModelContextManager:
-
-        def __init__(
-                self,
-                lock_manager: "SessionLockManager",
-                session_id: str,
-                model_class: Type[GenieModel]
-        ):
-            """
-            A Context Manager for obtaining a locked `GenieModel`. This context manager obtains
-            a lock for a particular session, then retrieves the GenieModel from store. Upon the
-            exit of the context, that GenieModel is stored back into store and the lock is released.
-            """
-            self.lock_manager = lock_manager
-            self.model_class = model_class
-            self.session_id = session_id
-            self.lock = lock_manager._create_lock_for_session(session_id)
-            self.model: Optional[GenieModel] = None
-
-        def __enter__(self) -> GenieModel:
-            self.lock.acquire()
-            self.model = self.lock_manager._retrieve_model(self.session_id, self.model_class)
-            return self.model
-
-        def __exit__(self, exc_type, exc_val, exc_tb):
-            self.lock_manager._store_and_invalidate(self.model)
-            self.lock.release()
 
     def __init__(
         self,
@@ -80,69 +51,6 @@ class SessionLockManager:
         self.compression = compression
         self.application_prefix = application_prefix
         self.update_set_key="update:session"
-
-        if redis_object_store is not None:
-            self._pubsub_connection = Redis(
-                host=redis_object_store.connection_pool.connection_kwargs['host'],
-                port=redis_object_store.connection_pool.connection_kwargs['port'],
-                db=redis_object_store.connection_pool.connection_kwargs.get('db', 0),
-                decode_responses=False,  # Important: keep as bytes for safety
-            )
-            # Start listening for invalidations
-            self._start_cache_invalidation_listener()
-
-        # Local cache
-        self._cache: Dict[str, Tuple[GenieModel, float]] = {}  # {session_id: (model, timestamp)}
-        self._cache_lock = threading.Lock()
-        self._cache_ttl = 5  # seconds
-
-    def _start_cache_invalidation_listener(self):
-        """Background thread to listen for cache invalidations."""
-
-        def listener():
-            pubsub = self._pubsub_connection.pubsub()
-            channel = f"{self.application_prefix}:invalidate"
-            pubsub.subscribe(channel)  # Subscribe ONCE, outside the loop
-
-            logger.info(
-                "Started cache invalidation listener on channel: {channel}",
-                channel=channel,
-            )
-
-            while True:  # Auto-restart on failure
-                try:
-                    for message in pubsub.listen():
-                        if message["type"] == "message":
-                            session_id = message["data"].decode("utf-8")
-                            with self._cache_lock:
-                                if self._cache.pop(session_id, None):
-                                    logger.debug(
-                                        "Invalidated cache for {session_id}",
-                                        session_id=session_id,
-                                    )
-
-                except Exception as e:
-                    logger.error(
-                        "Cache invalidation listener error: {e}, restarting in 5s...",
-                        e=str(e),
-                    )
-                    time.sleep(5)
-
-                    # Re-create pubsub and re-subscribe after error
-                    try:
-                        pubsub.close()
-                    except:
-                        pass
-
-                    pubsub = self._pubsub_connection.pubsub()
-                    pubsub.subscribe(channel)
-                    logger.info(
-                        "Resubscribed to cache invalidation channel: {channel}",
-                        channel=channel,
-                    )
-
-        thread = threading.Thread(target=listener, daemon=True, name="cache-invalidator")
-        thread.start()
 
     def _create_lock_for_session(self, session_id: str) -> redis_lock.Lock:
         """
@@ -215,33 +123,11 @@ class SessionLockManager:
         return model
 
     def get_model(self, session_id: str, model_class: str | Type[GenieModel]) -> GenieModel:
-        """
-        Get model for READ-ONLY access with local caching.
-
-        WARNING: Do not modify the returned model. Use get_locked_model() if you need to modify.
-        """
+        """Lock-free read. Safe because writes only happen at state transitions."""
         if isinstance(model_class, str):
             model_class = get_class_from_fully_qualified_name(model_class)
 
-        # Check cache first
-        if self._pubsub_connection is not None:
-            with self._cache_lock:
-                if session_id in self._cache:
-                    cached_model, timestamp = self._cache[session_id]
-                    if time.time() - timestamp < self._cache_ttl:
-                        logger.debug("Cache hit for {session_id}", session_id=session_id)
-                        return cached_model
-
-        # Cache miss - read from Redis (no lock!)
-        logger.debug("Cache miss for {session_id}, fetching", session_id=session_id)
-        model = self._retrieve_model(session_id, model_class)
-
-        # Update cache
-        if self._pubsub_connection is not None:
-            with self._cache_lock:
-                self._cache[session_id] = (model, time.time())
-
-        return model
+        return self._retrieve_model(session_id, model_class)
 
     def _store_secondary_storage(self, model: GenieModel):
         """
@@ -274,28 +160,6 @@ class SessionLockManager:
                 session_id=model.session_id,
             )
             self.redis_object_store.hdel(secondary_key, *deleted_fields)
-
-    def _store_and_invalidate(self, model: GenieModel):
-        """
-        Store model and invalidate caches. Does NOT acquire lock.
-        Internal method used by both store_model() and ModelContextManager.
-        """
-        # Store to Redis
-        self._store_model(model)
-
-        if self._pubsub_connection is None:
-            return
-
-        # Invalidate cache and broadcast (only if caching enabled)
-        with self._cache_lock:
-            self._cache.pop(model.session_id, None)
-
-        channel = f"{self.application_prefix}:invalidate"
-        self.redis_object_store.publish(channel, model.session_id)
-        logger.debug(
-            "Published cache invalidation for {session_id}",
-            session_id=model.session_id,
-        )
 
     def _store_model(self, model: GenieModel):
         """
@@ -330,16 +194,22 @@ class SessionLockManager:
     def store_model(self, model: GenieModel):
         """Store model and invalidate caches across all workers."""
         with self._create_lock_for_session(model.session_id):
-            self._store_and_invalidate(model)
+            self._store_model(model)
 
-    def get_locked_model(
-            self,
-            session_id: str,
-            model_class: str | Type[GenieModel],
-    ) -> ModelContextManager:
+    @contextmanager
+    def get_locked_model(self, session_id: str, model_class: str | Type[GenieModel]):
         if isinstance(model_class, str):
             model_class = get_class_from_fully_qualified_name(model_class)
-        return SessionLockManager.ModelContextManager(self, session_id, model_class)
+
+        lock = self._create_lock_for_session(session_id)
+        lock.acquire()
+
+        try:
+            model = self._retrieve_model(session_id, model_class)
+            yield model
+        finally:
+            self._store_model(model)
+            lock.release()
 
     @staticmethod
     def _create_field_key(field: str, invocation_id: str) -> str:
