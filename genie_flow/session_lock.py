@@ -52,7 +52,7 @@ class SessionLockManager:
         self.application_prefix = application_prefix
         self.update_set_key="update:session"
 
-    def _create_lock_for_session(self, session_id: str) -> redis_lock.Lock:
+    def create_lock_for_session(self, session_id: str) -> redis_lock.Lock:
         """
         Retrieve the lock for the object for the given `session_id`. This ensures that only
         one process will have access to the model and potentially make changes to it.
@@ -99,7 +99,7 @@ class SessionLockManager:
         serialized_values = self.redis_object_store.hgetall(secondary_key)
         return SecondaryStore.from_serialized(serialized_values)
 
-    def _retrieve_model(self, session_id: str, model_class: Type[GenieModel]) -> GenieModel:
+    def retrieve_model(self, session_id: str, model_class: Type[GenieModel]) -> GenieModel:
         """
         Retrieve the GenieModel for the object for the given `session_id`. This retrieval is
         not protected by a lock, and the user should ensure that no other process is accessing
@@ -127,7 +127,7 @@ class SessionLockManager:
         if isinstance(model_class, str):
             model_class = get_class_from_fully_qualified_name(model_class)
 
-        return self._retrieve_model(session_id, model_class)
+        return self.retrieve_model(session_id, model_class)
 
     def _store_secondary_storage(self, model: GenieModel):
         """
@@ -161,7 +161,7 @@ class SessionLockManager:
             )
             self.redis_object_store.hdel(secondary_key, *deleted_fields)
 
-    def _store_model(self, model: GenieModel):
+    def persist_model(self, model: GenieModel):
         """
         Underlying logic of writing a Genie Model to the object store.
         No locking happens in this method, so user is responsible for
@@ -193,22 +193,22 @@ class SessionLockManager:
 
     def store_model(self, model: GenieModel):
         """Store model and invalidate caches across all workers."""
-        with self._create_lock_for_session(model.session_id):
-            self._store_model(model)
+        with self.create_lock_for_session(model.session_id):
+            self.persist_model(model)
 
     @contextmanager
     def get_locked_model(self, session_id: str, model_class: str | Type[GenieModel]):
         if isinstance(model_class, str):
             model_class = get_class_from_fully_qualified_name(model_class)
 
-        lock = self._create_lock_for_session(session_id)
+        lock = self.create_lock_for_session(session_id)
         lock.acquire()
 
         try:
-            model = self._retrieve_model(session_id, model_class)
+            model = self.retrieve_model(session_id, model_class)
             yield model
         finally:
-            self._store_model(model)
+            self.persist_model(model)
             lock.release()
 
     @staticmethod

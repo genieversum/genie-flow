@@ -182,19 +182,19 @@ class CeleryManager:
             :param session_id: The session id for which this task is executed
             :param model_fqn: The fully qualified name of the class of the model
             """
-            lock = self.session_lock_manager._create_lock_for_session(session_id)
+            lock = self.session_lock_manager.create_lock_for_session(session_id)
             lock.acquire()
 
             try:
                 model_class = get_class_from_fully_qualified_name(model_fqn)
-                model = self.session_lock_manager._retrieve_model(session_id, model_class)
+                model = self.session_lock_manager.retrieve_model(session_id, model_class)
                 self.session_lock_manager.progress_tombstone(session_id, invocation_id)
 
                 state_machine = model.get_state_machine_class()(model)
                 state_machine.add_listener(TransitionManager(self))
                 state_machine.send(event_name, response)
 
-                self.session_lock_manager._store_model(model)
+                self.session_lock_manager.persist_model(model)
 
                 if model.target_type == StateType.INVOKER:
                     logger.info(
