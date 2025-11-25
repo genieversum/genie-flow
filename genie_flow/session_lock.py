@@ -43,7 +43,7 @@ class SessionLockManager:
             return self.model
 
         def __exit__(self, exc_type, exc_val, exc_tb):
-            self.lock_manager._store_model(self.model)
+            self.lock_manager._store_and_invalidate(self.model)
             self.lock.release()
 
     def __init__(
@@ -275,6 +275,28 @@ class SessionLockManager:
             )
             self.redis_object_store.hdel(secondary_key, *deleted_fields)
 
+    def _store_and_invalidate(self, model: GenieModel):
+        """
+        Store model and invalidate caches. Does NOT acquire lock.
+        Internal method used by both store_model() and ModelContextManager.
+        """
+        # Store to Redis
+        self._store_model(model)
+
+        if self._pubsub_connection is None:
+            return
+
+        # Invalidate cache and broadcast (only if caching enabled)
+        with self._cache_lock:
+            self._cache.pop(model.session_id, None)
+
+        channel = f"{self.application_prefix}:invalidate"
+        self.redis_object_store.publish(channel, model.session_id)
+        logger.debug(
+            "Published cache invalidation for {session_id}",
+            session_id=model.session_id,
+        )
+
     def _store_model(self, model: GenieModel):
         """
         Underlying logic of writing a Genie Model to the object store.
@@ -307,24 +329,8 @@ class SessionLockManager:
 
     def store_model(self, model: GenieModel):
         """Store model and invalidate caches across all workers."""
-        # Still use lock for writes (only one writer at a time)
         with self._create_lock_for_session(model.session_id):
-            self._store_model(model)
-
-        # Invalidate local cache
-        if self._pubsub_connection is None:
-            return
-
-        with self._cache_lock:
-            self._cache.pop(model.session_id, None)
-
-        # Broadcast invalidation to ALL workers
-        channel = f"{self.application_prefix}:invalidate"
-        self.redis_object_store.publish(channel, model.session_id)
-        logger.debug(
-            "Published cache invalidation for {session_id}",
-            session_id=model.session_id,
-        )
+            self._store_and_invalidate(model)
 
     def get_locked_model(
             self,
