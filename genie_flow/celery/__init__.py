@@ -13,7 +13,7 @@ from genie_flow.celery.compiler import TaskCompiler
 from genie_flow.celery.progress import ProgressLoggingTask
 from genie_flow.celery.transition import TransitionManager
 from genie_flow.environment import GenieEnvironment
-from genie_flow.genie import GenieModel, GenieStateMachine
+from genie_flow.genie import GenieModel, GenieStateMachine, StateType
 from genie_flow.model.template import CompositeContentType
 from genie_flow.mongo import store_session, store_user
 from genie_flow.session_lock import SessionLockManager
@@ -195,6 +195,13 @@ class CeleryManager:
                 state_machine.send(event_name, response)
 
                 self.session_lock_manager._store_model(model)
+
+                if model.target_type == StateType.INVOKER:
+                    logger.info(
+                        "enqueueing task for session {session_id}",
+                        session_id=model.session_id,
+                    )
+                    self.enqueue_task(state_machine, model, state_machine.current_state)
 
                 if model.actor_input is None:
                     logger.debug("actor input is None")
