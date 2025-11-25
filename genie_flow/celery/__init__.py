@@ -529,13 +529,13 @@ class CeleryManager:
         )
 
         # enqueuing the compiled task with an empty drag_net dictionary
-        task = task_compiler.task.apply_async((None,))
-
         self.session_lock_manager.progress_start(
             session_id=model.session_id,
             invocation_id=task_compiler.invocation_id,
             nr_tasks_todo=task_compiler.nr_tasks,
         )
+
+        task = task_compiler.task.apply_async((None,))
 
     def get_task_result(self, task_id) -> AsyncResult:
         return AsyncResult(task_id, app=self.celery_app)
