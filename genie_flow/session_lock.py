@@ -1,6 +1,6 @@
 import threading
 import time
-from typing import Type, Optional, Literal
+from typing import Type, Optional, Literal, Dict, Tuple
 
 import redis_lock
 from loguru import logger
@@ -83,20 +83,20 @@ class SessionLockManager:
         self.application_prefix = application_prefix
         self.update_set_key="update:session"
 
-        self._pubsub_connection = Redis(
-            host=redis_object_store.connection_pool.connection_kwargs['host'],
-            port=redis_object_store.connection_pool.connection_kwargs['port'],
-            db=redis_object_store.connection_pool.connection_kwargs.get('db', 0),
-            decode_responses=False,  # Important: keep as bytes for safety
-        )
+        if redis_object_store is not None:
+            self._pubsub_connection = Redis(
+                host=redis_object_store.connection_pool.connection_kwargs['host'],
+                port=redis_object_store.connection_pool.connection_kwargs['port'],
+                db=redis_object_store.connection_pool.connection_kwargs.get('db', 0),
+                decode_responses=False,  # Important: keep as bytes for safety
+            )
+            # Start listening for invalidations
+            self._start_cache_invalidation_listener()
 
         # Local cache
-        self._cache = {}  # {session_id: (model, timestamp)}
+        self._cache: Dict[str, Tuple[GenieModel, float]] = {}  # {session_id: (model, timestamp)}
         self._cache_lock = threading.Lock()
         self._cache_ttl = 5  # seconds
-
-        # Start listening for invalidations
-        self._start_cache_invalidation_listener()
 
     def _start_cache_invalidation_listener(self):
         """Background thread to listen for cache invalidations."""
@@ -226,20 +226,22 @@ class SessionLockManager:
             model_class = get_class_from_fully_qualified_name(model_class)
 
         # Check cache first
-        with self._cache_lock:
-            if session_id in self._cache:
-                cached_model, timestamp = self._cache[session_id]
-                if time.time() - timestamp < self._cache_ttl:
-                    logger.debug("Cache hit for {session_id}", session_id=session_id)
-                    return cached_model
+        if self._pubsub_connection is not None:
+            with self._cache_lock:
+                if session_id in self._cache:
+                    cached_model, timestamp = self._cache[session_id]
+                    if time.time() - timestamp < self._cache_ttl:
+                        logger.debug("Cache hit for {session_id}", session_id=session_id)
+                        return cached_model
 
         # Cache miss - read from Redis (no lock!)
         logger.debug("Cache miss for {session_id}, fetching", session_id=session_id)
         model = self._retrieve_model(session_id, model_class)
 
         # Update cache
-        with self._cache_lock:
-            self._cache[session_id] = (model, time.time())
+        if self._pubsub_connection is not None:
+            with self._cache_lock:
+                self._cache[session_id] = (model, time.time())
 
         return model
 
@@ -312,6 +314,9 @@ class SessionLockManager:
             self._store_model(model)
 
         # Invalidate local cache
+        if self._pubsub_connection is None:
+            return
+
         with self._cache_lock:
             self._cache.pop(model.session_id, None)
 
@@ -481,7 +486,7 @@ class SessionLockManager:
             ],
         )
         todo = int(todo_str)
-        
+
         if tombstone == b"t":
             if todo > new_done:
                 logger.warning(
