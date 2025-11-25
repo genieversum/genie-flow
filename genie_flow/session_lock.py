@@ -1,3 +1,5 @@
+import threading
+import time
 from typing import Type, Optional, Literal
 
 import redis_lock
@@ -80,7 +82,70 @@ class SessionLockManager:
         self.compression = compression
         self.application_prefix = application_prefix
         self.update_set_key="update:session"
-       
+
+        self._pubsub_connection = Redis(
+            host=redis_object_store.connection_pool.connection_kwargs['host'],
+            port=redis_object_store.connection_pool.connection_kwargs['port'],
+            db=redis_object_store.connection_pool.connection_kwargs.get('db', 0),
+            decode_responses=False,  # Important: keep as bytes for safety
+        )
+
+        # Local cache
+        self._cache = {}  # {session_id: (model, timestamp)}
+        self._cache_lock = threading.Lock()
+        self._cache_ttl = 5  # seconds
+
+        # Start listening for invalidations
+        self._start_cache_invalidation_listener()
+
+    def _start_cache_invalidation_listener(self):
+        """Background thread to listen for cache invalidations."""
+
+        def listener():
+            pubsub = self._pubsub_connection.pubsub()
+            channel = f"{self.application_prefix}:invalidate"
+            pubsub.subscribe(channel)  # Subscribe ONCE, outside the loop
+
+            logger.info(
+                "Started cache invalidation listener on channel: {channel}",
+                channel=channel,
+            )
+
+            while True:  # Auto-restart on failure
+                try:
+                    for message in pubsub.listen():
+                        if message["type"] == "message":
+                            session_id = message["data"].decode("utf-8")
+                            with self._cache_lock:
+                                if self._cache.pop(session_id, None):
+                                    logger.debug(
+                                        "Invalidated cache for {session_id}",
+                                        session_id=session_id,
+                                    )
+
+                except Exception as e:
+                    logger.error(
+                        "Cache invalidation listener error: {e}, restarting in 5s...",
+                        e=str(e),
+                    )
+                    time.sleep(5)
+
+                    # Re-create pubsub and re-subscribe after error
+                    try:
+                        pubsub.close()
+                    except:
+                        pass
+
+                    pubsub = self._pubsub_connection.pubsub()
+                    pubsub.subscribe(channel)
+                    logger.info(
+                        "Resubscribed to cache invalidation channel: {channel}",
+                        channel=channel,
+                    )
+
+        thread = threading.Thread(target=listener, daemon=True, name="cache-invalidator")
+        thread.start()
+
     def _create_lock_for_session(self, session_id: str) -> redis_lock.Lock:
         """
         Retrieve the lock for the object for the given `session_id`. This ensures that only
@@ -153,18 +218,30 @@ class SessionLockManager:
 
     def get_model(self, session_id: str, model_class: str | Type[GenieModel]) -> GenieModel:
         """
-        Retrieve the GenieModel for the object for the given `session_id`. This retrieval is
-        done inside a locked context, so no writing of the GenieModel can happen when this
-        retrieval is done.
+        Get model for READ-ONLY access with local caching.
 
-        :param session_id: The session id that the object in question belongs to
-        :param model_class: The GenieModel class to retrieve or the fqn of the class
-        :return: The GenieModel object for the given `session_id`
+        WARNING: Do not modify the returned model. Use get_locked_model() if you need to modify.
         """
         if isinstance(model_class, str):
             model_class = get_class_from_fully_qualified_name(model_class)
-        with self._create_lock_for_session(session_id):
-            return self._retrieve_model(session_id, model_class)
+
+        # Check cache first
+        with self._cache_lock:
+            if session_id in self._cache:
+                cached_model, timestamp = self._cache[session_id]
+                if time.time() - timestamp < self._cache_ttl:
+                    logger.debug("Cache hit for {session_id}", session_id=session_id)
+                    return cached_model
+
+        # Cache miss - read from Redis (no lock!)
+        logger.debug("Cache miss for {session_id}, fetching", session_id=session_id)
+        model = self._retrieve_model(session_id, model_class)
+
+        # Update cache
+        with self._cache_lock:
+            self._cache[session_id] = (model, time.time())
+
+        return model
 
     def _store_secondary_storage(self, model: GenieModel):
         """
@@ -229,15 +306,22 @@ class SessionLockManager:
             logger.debug(f"{self.redis_object_store.smembers(self.update_set_key)}")
 
     def store_model(self, model: GenieModel):
-        """
-        Store a model into the object store. Also stores the secondary storage of the model.
-        Storing happens inside a locked context, so no reading or writing of the GenieModel
-        can happen when this method is executing.
-
-        :param model: the object to store
-        """
+        """Store model and invalidate caches across all workers."""
+        # Still use lock for writes (only one writer at a time)
         with self._create_lock_for_session(model.session_id):
             self._store_model(model)
+
+        # Invalidate local cache
+        with self._cache_lock:
+            self._cache.pop(model.session_id, None)
+
+        # Broadcast invalidation to ALL workers
+        channel = f"{self.application_prefix}:invalidate"
+        self.redis_object_store.publish(channel, model.session_id)
+        logger.debug(
+            "Published cache invalidation for {session_id}",
+            session_id=model.session_id,
+        )
 
     def get_locked_model(
             self,
