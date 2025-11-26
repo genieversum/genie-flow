@@ -116,20 +116,6 @@ class TransitionManager:
             dialogue_persistence=event_data.machine.model.dialogue_persistence.name,
         )
 
-        if event_data.machine.model.target_type == StateType.INVOKER:
-            logger.info(
-                "enqueueing task for session {session_id}, "
-                "to state {state_id} with event {event_id}",
-                session_id=event_data.machine.model.session_id,
-                state_id=event_data.target.id,
-                event_id=event_data.event,
-            )
-            self.celery_manager.enqueue_task(
-                event_data.machine,
-                event_data.machine.model,
-                event_data.target,
-            )
-
         if event_data.machine.model.dialogue_persistence == DialoguePersistence.NONE:
             logger.info(
                 "not recording dialogue for session {session_id}, "

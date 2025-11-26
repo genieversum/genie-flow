@@ -9,7 +9,7 @@ from statemachine.exceptions import TransitionNotAllowed
 from genie_flow.celery import CeleryManager
 from genie_flow.celery.transition import TransitionManager
 from genie_flow.environment import GenieEnvironment
-from genie_flow.genie import GenieModel
+from genie_flow.genie import GenieModel, StateType
 from genie_flow.model.persistence import PersistenceLevel, Persistence
 from genie_flow.model.secondary_store import SecondaryStore
 from genie_flow.model.types import ModelKeyRegistryType
@@ -229,7 +229,14 @@ class SessionManager:
         state_machine.add_listener(TransitionManager(self.celery_manager))
         state_machine.send(event.event, event.event_input)
 
-        if self.session_lock_manager.progress_exists(model.session_id):
+        self.session_lock_manager.persist_model(model)
+
+        if model.target_type == StateType.INVOKER:
+            logger.info(
+                "enqueueing task for session {session_id}",
+                session_id=model.session_id,
+            )
+            self.celery_manager.enqueue_task(state_machine, model, state_machine.current_state)
             return AIResponse(session_id=event.session_id, next_actions=["poll"])
 
         return AIResponse(
