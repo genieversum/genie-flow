@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from typing import Type, Optional, Literal
 
 import redis_lock
@@ -5,10 +6,8 @@ from loguru import logger
 from redis import Redis
 
 from genie_flow.genie import GenieModel
-from genie_flow.model.persistence import Persistence, PersistenceLevel
+from genie_flow.model.persistence import PersistenceLevel
 from genie_flow.model.secondary_store import SecondaryStore
-from genie_flow.model.versioned import VersionedModel
-from genie_flow.model.user import User
 from genie_flow.mongo import retrieve_model
 from genie_flow.utils import get_class_from_fully_qualified_name, get_fully_qualified_name_from_class
 
@@ -17,34 +16,6 @@ StoreType = Literal["object", "secondary", "lock", "progress"]
 
 
 class SessionLockManager:
-
-    class ModelContextManager:
-
-        def __init__(
-                self,
-                lock_manager: "SessionLockManager",
-                session_id: str,
-                model_class: Type[GenieModel]
-        ):
-            """
-            A Context Manager for obtaining a locked `GenieModel`. This context manager obtains
-            a lock for a particular session, then retrieves the GenieModel from store. Upon the
-            exit of the context, that GenieModel is stored back into store and the lock is released.
-            """
-            self.lock_manager = lock_manager
-            self.model_class = model_class
-            self.session_id = session_id
-            self.lock = lock_manager._create_lock_for_session(session_id)
-            self.model: Optional[GenieModel] = None
-
-        def __enter__(self) -> GenieModel:
-            self.lock.acquire()
-            self.model = self.lock_manager._retrieve_model(self.session_id, self.model_class)
-            return self.model
-
-        def __exit__(self, exc_type, exc_val, exc_tb):
-            self.lock_manager._store_model(self.model)
-            self.lock.release()
 
     def __init__(
         self,
@@ -80,8 +51,8 @@ class SessionLockManager:
         self.compression = compression
         self.application_prefix = application_prefix
         self.update_set_key="update:session"
-       
-    def _create_lock_for_session(self, session_id: str) -> redis_lock.Lock:
+
+    def create_lock_for_session(self, session_id: str) -> redis_lock.Lock:
         """
         Retrieve the lock for the object for the given `session_id`. This ensures that only
         one process will have access to the model and potentially make changes to it.
@@ -128,7 +99,7 @@ class SessionLockManager:
         serialized_values = self.redis_object_store.hgetall(secondary_key)
         return SecondaryStore.from_serialized(serialized_values)
 
-    def _retrieve_model(self, session_id: str, model_class: Type[GenieModel]) -> GenieModel:
+    def retrieve_model(self, session_id: str, model_class: Type[GenieModel]) -> GenieModel:
         """
         Retrieve the GenieModel for the object for the given `session_id`. This retrieval is
         not protected by a lock, and the user should ensure that no other process is accessing
@@ -152,19 +123,11 @@ class SessionLockManager:
         return model
 
     def get_model(self, session_id: str, model_class: str | Type[GenieModel]) -> GenieModel:
-        """
-        Retrieve the GenieModel for the object for the given `session_id`. This retrieval is
-        done inside a locked context, so no writing of the GenieModel can happen when this
-        retrieval is done.
-
-        :param session_id: The session id that the object in question belongs to
-        :param model_class: The GenieModel class to retrieve or the fqn of the class
-        :return: The GenieModel object for the given `session_id`
-        """
+        """Lock-free read. Safe because writes only happen at state transitions."""
         if isinstance(model_class, str):
             model_class = get_class_from_fully_qualified_name(model_class)
-        with self._create_lock_for_session(session_id):
-            return self._retrieve_model(session_id, model_class)
+
+        return self.retrieve_model(session_id, model_class)
 
     def _store_secondary_storage(self, model: GenieModel):
         """
@@ -198,7 +161,7 @@ class SessionLockManager:
             )
             self.redis_object_store.hdel(secondary_key, *deleted_fields)
 
-    def _store_model(self, model: GenieModel):
+    def persist_model(self, model: GenieModel):
         """
         Underlying logic of writing a Genie Model to the object store.
         No locking happens in this method, so user is responsible for
@@ -229,24 +192,24 @@ class SessionLockManager:
             logger.debug(f"{self.redis_object_store.smembers(self.update_set_key)}")
 
     def store_model(self, model: GenieModel):
-        """
-        Store a model into the object store. Also stores the secondary storage of the model.
-        Storing happens inside a locked context, so no reading or writing of the GenieModel
-        can happen when this method is executing.
+        """Store model and invalidate caches across all workers."""
+        with self.create_lock_for_session(model.session_id):
+            self.persist_model(model)
 
-        :param model: the object to store
-        """
-        with self._create_lock_for_session(model.session_id):
-            self._store_model(model)
-
-    def get_locked_model(
-            self,
-            session_id: str,
-            model_class: str | Type[GenieModel],
-    ) -> ModelContextManager:
+    @contextmanager
+    def get_locked_model(self, session_id: str, model_class: str | Type[GenieModel]):
         if isinstance(model_class, str):
             model_class = get_class_from_fully_qualified_name(model_class)
-        return SessionLockManager.ModelContextManager(self, session_id, model_class)
+
+        lock = self.create_lock_for_session(session_id)
+        lock.acquire()
+
+        try:
+            model = self.retrieve_model(session_id, model_class)
+            yield model
+        finally:
+            self.persist_model(model)
+            lock.release()
 
     @staticmethod
     def _create_field_key(field: str, invocation_id: str) -> str:
@@ -397,7 +360,7 @@ class SessionLockManager:
             ],
         )
         todo = int(todo_str)
-        
+
         if tombstone == b"t":
             if todo > new_done:
                 logger.warning(

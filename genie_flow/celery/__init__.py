@@ -13,11 +13,12 @@ from genie_flow.celery.compiler import TaskCompiler
 from genie_flow.celery.progress import ProgressLoggingTask
 from genie_flow.celery.transition import TransitionManager
 from genie_flow.environment import GenieEnvironment
-from genie_flow.genie import GenieModel, GenieStateMachine
+from genie_flow.genie import GenieModel, GenieStateMachine, StateType
 from genie_flow.model.template import CompositeContentType
 from genie_flow.mongo import store_session, store_user
 from genie_flow.session_lock import SessionLockManager
-from genie_flow.utils import get_fully_qualified_name_from_class
+from genie_flow.utils import get_fully_qualified_name_from_class, \
+    get_class_from_fully_qualified_name
 
 
 def parse_if_json(s: str) -> Any:
@@ -181,18 +182,26 @@ class CeleryManager:
             :param session_id: The session id for which this task is executed
             :param model_fqn: The fully qualified name of the class of the model
             """
-            with self.session_lock_manager.get_locked_model(session_id, model_fqn) as model:
+            lock = self.session_lock_manager.create_lock_for_session(session_id)
+            lock.acquire()
+
+            try:
+                model_class = get_class_from_fully_qualified_name(model_fqn)
+                model = self.session_lock_manager.retrieve_model(session_id, model_class)
                 self.session_lock_manager.progress_tombstone(session_id, invocation_id)
 
                 state_machine = model.get_state_machine_class()(model)
                 state_machine.add_listener(TransitionManager(self))
-
-                logger.debug(
-                    "sending {event_name} to state machine for session {session_id}",
-                    event_name=event_name,
-                    session_id=session_id,
-                )
                 state_machine.send(event_name, response)
+
+                self.session_lock_manager.persist_model(model)
+
+                if model.target_type == StateType.INVOKER:
+                    logger.info(
+                        "enqueueing task for session {session_id}",
+                        session_id=model.session_id,
+                    )
+                    self.enqueue_task(state_machine, model, state_machine.current_state)
 
                 if model.actor_input is None:
                     logger.debug("actor input is None")
@@ -205,6 +214,9 @@ class CeleryManager:
                             else model.actor_input[:50] + "..."
                         ),
                     )
+            finally:
+                lock.release()
+
 
         return trigger_ai_event
 
@@ -529,13 +541,13 @@ class CeleryManager:
         )
 
         # enqueuing the compiled task with an empty drag_net dictionary
-        task = task_compiler.task.apply_async((None,))
-
         self.session_lock_manager.progress_start(
             session_id=model.session_id,
             invocation_id=task_compiler.invocation_id,
             nr_tasks_todo=task_compiler.nr_tasks,
         )
+
+        task = task_compiler.task.apply_async((None,))
 
     def get_task_result(self, task_id) -> AsyncResult:
         return AsyncResult(task_id, app=self.celery_app)
