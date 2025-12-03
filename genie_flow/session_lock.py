@@ -189,7 +189,6 @@ class SessionLockManager:
                 self.update_set_key,
                 f"{model_fqn}:{model.session_id}"
             )
-            logger.debug(f"{self.redis_object_store.smembers(self.update_set_key)}")
 
     def store_model(self, model: GenieModel):
         """Store model and invalidate caches across all workers."""
