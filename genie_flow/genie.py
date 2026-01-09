@@ -1,11 +1,10 @@
 import datetime
 import enum
 import json
-from functools import cached_property, cache
 from typing import Optional, Any
 
 from loguru import logger
-from pydantic import Field, BaseModel, ConfigDict, computed_field
+from pydantic import Field
 from statemachine import StateMachine, State
 from statemachine.event_data import EventData
 
@@ -16,18 +15,8 @@ from genie_flow.model.versioned import VersionedModel
 
 
 class StateType(enum.IntEnum):
-    USER = 0
+    RENDERER = 0
     INVOKER = 1
-
-    @property
-    def as_actor(self) -> str:
-        match self:
-            case StateType.INVOKER:
-                return "assistant"
-            case StateType.USER:
-                return "user"
-            case _:
-                raise ValueError("Unknown State Type")
 
 
 class DialoguePersistence(enum.IntEnum):
