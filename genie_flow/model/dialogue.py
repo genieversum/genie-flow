@@ -1,6 +1,7 @@
 import json
 from datetime import datetime
 from enum import Enum
+from typing import Optional
 
 from pydantic import Field, field_validator, BaseModel
 
@@ -17,7 +18,14 @@ class DialogueElement(BaseModel):
         default_factory=datetime.now,
         description="the timestamp when this dialogue element was created",
     )
-    actor_text: str = Field(description="the text that was produced bu the actor")
+    event: Optional[str] = Field(
+        default=None,
+        description="The event that triggered this dialogue uttering"
+    )
+    actor_text: Optional[str] = Field(
+        default=None,
+        description="the text that was produced bu the actor"
+    )
 
     @field_validator("actor")
     @classmethod

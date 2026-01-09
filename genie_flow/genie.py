@@ -19,10 +19,32 @@ class StateType(enum.IntEnum):
     INVOKER = 1
 
 
-class DialoguePersistence(enum.IntEnum):
+class DialoguePersistence(enum.IntFlag):
+    """
+    `NONE`: none of the utterings during a transition are recorded
+
+    `USER_EVENT`: the event, if sent by the user, will be recorded
+    (role: user, event: 'event_name')
+
+    `USER_CONTENT`: the content, if sent by the user, will be recorded
+    (role: user, content: `actor_input`)
+
+    `ASSISTANT_EVENT`: the event, if sent by the assistant, will be recorded
+    (role: assistant, event: `event_name`)
+
+    `ASSISTANT_RAW`: the raw output sent by an invoker will be recorded
+    (role: assistant, content: "raw content")
+
+    `ASSISTANT_RENDERED`: the rendered output, based on the template of the
+    target state, will be recorded (role: assistant, content: "rendered content")
+    """
     NONE = 0
-    RAW = 1
-    RENDERED = 2
+    USER_EVENT = enum.auto()
+    USER_CONTENT = enum.auto()
+    ASSISTANT_EVENT = enum.auto()
+    ASSISTANT_RAW = enum.auto()
+    ASSISTANT_RENDERED = enum.auto()
+
 
 
 class GenieModel(VersionedModel):
@@ -62,7 +84,7 @@ class GenieModel(VersionedModel):
     )
     dialogue_persistence: Optional[DialoguePersistence] = Field(
         default=None,
-        description="Indicator to how to add most recent actor input to the dialogue",
+        description="Run-time override on how to add actor input to the dialogue",
     )
     dialogue: list[DialogueElement] = Field(
         default_factory=list,
@@ -171,20 +193,23 @@ class GenieModel(VersionedModel):
         """
         return DialogueFormat.format(self.dialogue, target_format)
 
-    def add_dialogue_element(self, actor: str, actor_text: str):
+    def add_dialogue_element(
+            self,
+            actor: str,
+            event: Optional[str],
+            actor_text: Optional[str]):
         """
         Add a given actor and actor text to the dialogue.
         :param actor: the name of the actor
-        :param actor_text: the actor text
+        :param event: the optional name of the event
+        :param actor_text: the optional actor text
         """
-        element = DialogueElement(actor=actor, actor_text=actor_text)
+        element = DialogueElement(
+            actor=actor,
+            event=event,
+            actor_text=actor_text,
+        )
         self.dialogue.append(element)
-
-    def record_dialogue_element(self):
-        """
-        Record the current `actor` and `actor_input` into the dialogue.
-       """
-        self.add_dialogue_element(self.actor, self.actor_input)
 
 
 class GenieStateMachine(StateMachine):
@@ -201,6 +226,26 @@ class GenieStateMachine(StateMachine):
 
     # TEMPLATE mapping that needs to be specified
     templates: dict[str, CompositeTemplateType] = dict()
+
+    # DIALOGUE PERSISTENCE
+    persistence: dict[str, DialoguePersistence] = {
+        "user_input": (
+            DialoguePersistence.USER_CONTENT
+            | DialoguePersistence.ASSISTANT_RENDERED
+        ),
+        "ai_extraction": (
+            DialoguePersistence.USER_CONTENT
+            | DialoguePersistence.ASSISTANT_RENDERED
+        ),
+        "advance": (
+            DialoguePersistence.USER_EVENT
+            | DialoguePersistence.ASSISTANT_RENDERED
+        ),
+        "file_upload": (
+            DialoguePersistence.USER_EVENT
+            | DialoguePersistence.ASSISTANT_EVENT
+        )
+    }
 
     def __init__(
         self,
