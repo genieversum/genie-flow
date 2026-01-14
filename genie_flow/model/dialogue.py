@@ -114,7 +114,14 @@ class DialoguePersistence(enum.IntFlag):
         return "\n".join(arg for arg in args if arg is not None)
 
     def render_user(self, event_name: str, raw: Optional[str]) -> Optional[str]:
-        if self == DialoguePersistence.NONE:
+        """
+        Compile content based on USER flags.
+
+        :param event_name: the name of the event that triggered a transition
+        :param raw: the raw content that was sent by the user
+        :return: an optional string based on the flags
+        """
+        if not self & (DialoguePersistence.USER_EVENT | DialoguePersistence.USER_CONTENT):
             return None
 
         event_name = event_name if self & DialoguePersistence.USER_EVENT else None
@@ -127,8 +134,21 @@ class DialoguePersistence(enum.IntFlag):
         raw: Optional[str],
         rendered:  str | Callable[[], str] | None
     ):
-        if self == DialoguePersistence.NONE:
+        """
+        Compile content based on ASSISTANT flags.
+
+        :param event_name: the name of the event that triggered the transition
+        :param raw: the string of raw content sent by the actor
+        :param rendered: a string or callable for the rendered content from the actor
+        :return: an optional string based on flags and parameters
+        """
+        if not self & (
+                DialoguePersistence.ASSISTANT_EVENT
+                | DialoguePersistence.ASSISTANT_RAW
+                | DialoguePersistence.ASSISTANT_RENDERED
+        ):
             return None
+
         event_name = event_name if self & DialoguePersistence.ASSISTANT_EVENT else None
         raw = raw if self & DialoguePersistence.ASSISTANT_RAW else None
         if self & DialoguePersistence.ASSISTANT_RENDERED:

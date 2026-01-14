@@ -127,16 +127,15 @@ class TransitionManager:
 
         machine: GenieStateMachine = event_data.machine
         model: GenieModel = machine.model
+        event_name: str = event_data.event.name
+
         model.source_type = source_type
         model.target_type = target_type
         model.actor = "user" if source_type.RENDERER else "assistant"
         model.actor_input = actor_input
 
-        persistence = _determine_persistence(machine, model, event_data.event.name)
-        content = persistence.render_user(
-            event_data.event.name,
-            actor_input,
-        )
+        persistence = _determine_persistence(machine, model, event_name)
+        content = persistence.render_user(event_name, actor_input)
         if content:
             logger.debug(
                 "Adding input '{user_content}' from '{actor}', to dialogue for session {session_id}, "
@@ -147,14 +146,14 @@ class TransitionManager:
                 from_state_id=event_data.source.id,
                 to_state_name=event_data.target.name,
                 to_state_id=event_data.target.id,
-                event_id=event_data.event.name,
+                event_id=event_name,
                 actor=model.actor,
                 user_content=content[50:],
             )
 
             model.add_dialogue_element(
                 actor=model.actor,
-                event=event_data.event.name,
+                event=event_name,
                 actor_text=content,
             )
 
@@ -180,19 +179,19 @@ class TransitionManager:
 
         machine: GenieStateMachine = event_data.machine
         model: GenieModel = machine.model
+        event_name: str = event_data.event.name
 
         def render_template():
-            target_template_path = machine.get_template_for_state(
-                event_data.machine.current_state,
-            )
+            # we are _after_ the transition, so the current state is the target state
+            target_template_path = machine.get_template_for_state(machine.current_state)
             return self.celery_manager.genie_environment.render_template(
                 template_path=target_template_path,
-                data_context=event_data.machine.model.render_data,
+                data_context=model.render_data,
             )
 
-        persistence = _determine_persistence(machine, model, event_data.event.name)
+        persistence = _determine_persistence(machine, model, event_name)
         content = persistence.render_assistant(
-            event_data.event.name,
+            event_name,
             event_data.args[0] if event_data.args else None,
             render_template,
         )
@@ -207,7 +206,7 @@ class TransitionManager:
                 from_state_id=event_data.source.id,
                 to_state_name=event_data.target.name,
                 to_state_id=event_data.target.id,
-                event_id=event_data.event.name,
+                event_id=event_name,
                 content=(
                     f"{content[:50]}..."
                     if content is not None and len(content) > 50 else content
@@ -216,6 +215,6 @@ class TransitionManager:
 
             model.add_dialogue_element(
                 actor="assistant",
-                event=event_data.event.name,
+                event=event_name,
                 actor_text=content,
             )
