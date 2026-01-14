@@ -9,7 +9,8 @@ from statemachine.exceptions import TransitionNotAllowed
 from genie_flow.celery import CeleryManager
 from genie_flow.celery.transition import TransitionManager
 from genie_flow.environment import GenieEnvironment
-from genie_flow.genie import GenieModel, StateType
+from genie_flow.genie import GenieModel
+from genie_flow.model.dialogue import StateType
 from genie_flow.model.persistence import PersistenceLevel, Persistence
 from genie_flow.model.secondary_store import SecondaryStore
 from genie_flow.model.types import ModelKeyRegistryType

@@ -1,5 +1,4 @@
 import datetime
-import enum
 import json
 from typing import Optional, Any
 
@@ -8,43 +7,15 @@ from pydantic import Field
 from statemachine import StateMachine, State
 from statemachine.event_data import EventData
 
-from genie_flow.model.dialogue import DialogueElement, DialogueFormat
+from genie_flow.model.dialogue import (
+    DialogueElement,
+    DialogueFormat,
+    StateType,
+    DialoguePersistence,
+)
 from genie_flow.model.secondary_store import SecondaryStore
 from genie_flow.model.template import CompositeTemplateType
 from genie_flow.model.versioned import VersionedModel
-
-
-class StateType(enum.IntEnum):
-    RENDERER = 0
-    INVOKER = 1
-
-
-class DialoguePersistence(enum.IntFlag):
-    """
-    `NONE`: none of the utterings during a transition are recorded
-
-    `USER_EVENT`: the event, if sent by the user, will be recorded
-    (role: user, event: 'event_name')
-
-    `USER_CONTENT`: the content, if sent by the user, will be recorded
-    (role: user, content: `actor_input`)
-
-    `ASSISTANT_EVENT`: the event, if sent by the assistant, will be recorded
-    (role: assistant, event: `event_name`)
-
-    `ASSISTANT_RAW`: the raw output sent by an invoker will be recorded
-    (role: assistant, content: "raw content")
-
-    `ASSISTANT_RENDERED`: the rendered output, based on the template of the
-    target state, will be recorded (role: assistant, content: "rendered content")
-    """
-    NONE = 0
-    USER_EVENT = enum.auto()
-    USER_CONTENT = enum.auto()
-    ASSISTANT_EVENT = enum.auto()
-    ASSISTANT_RAW = enum.auto()
-    ASSISTANT_RENDERED = enum.auto()
-
 
 
 class GenieModel(VersionedModel):
@@ -230,20 +201,20 @@ class GenieStateMachine(StateMachine):
     # DIALOGUE PERSISTENCE
     persistence: dict[str, DialoguePersistence] = {
         "user_input": (
-            DialoguePersistence.USER_CONTENT
-            | DialoguePersistence.ASSISTANT_RENDERED
+                DialoguePersistence.USER_CONTENT
+                | DialoguePersistence.ASSISTANT_RENDERED
         ),
         "ai_extraction": (
-            DialoguePersistence.USER_CONTENT
-            | DialoguePersistence.ASSISTANT_RENDERED
+                DialoguePersistence.USER_CONTENT
+                | DialoguePersistence.ASSISTANT_RENDERED
         ),
         "advance": (
-            DialoguePersistence.USER_EVENT
-            | DialoguePersistence.ASSISTANT_RENDERED
+                DialoguePersistence.USER_EVENT
+                | DialoguePersistence.ASSISTANT_RENDERED
         ),
         "file_upload": (
-            DialoguePersistence.USER_EVENT
-            | DialoguePersistence.ASSISTANT_EVENT
+                DialoguePersistence.USER_EVENT
+                | DialoguePersistence.ASSISTANT_EVENT
         )
     }
 

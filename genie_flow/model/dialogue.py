@@ -1,9 +1,11 @@
+import enum
 import json
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Optional, Callable
 
 from pydantic import Field, field_validator, BaseModel
+from statemachine.event_data import EventData
 
 
 class DialogueElement(BaseModel):
@@ -71,3 +73,94 @@ class DialogueFormat(Enum):
             case cls.QUESTION_ANSWER:
                 # TODO figure something out for question / answer
                 raise NotImplementedError()
+
+
+class StateType(enum.IntEnum):
+    RENDERER = 0
+    INVOKER = 1
+
+
+class DialoguePersistence(enum.IntFlag):
+    """
+    `NONE`: none of the utterings during a transition are recorded
+
+    `USER_EVENT`: the event, if sent by the user, will be recorded
+    (role: user, event: 'event_name')
+
+    `USER_CONTENT`: the content, if sent by the user, will be recorded
+    (role: user, content: `actor_input`)
+
+    `ASSISTANT_EVENT`: the event, if sent by the assistant, will be recorded
+    (role: assistant, event: `event_name`)
+
+    `ASSISTANT_RAW`: the raw output sent by an invoker will be recorded
+    (role: assistant, content: "raw content")
+
+    `ASSISTANT_RENDERED`: the rendered output, based on the template of the
+    target state, will be recorded (role: assistant, content: "rendered content")
+
+    If multiple flags are set (`_CONTENT`, `_EVENT`, `_RENDERED`) then the appropriate
+    values will be persisted, separated by a `\n`.
+    """
+    NONE = 0
+    USER_EVENT = enum.auto()
+    USER_CONTENT = enum.auto()
+    ASSISTANT_EVENT = enum.auto()
+    ASSISTANT_RAW = enum.auto()
+    ASSISTANT_RENDERED = enum.auto()
+
+    @classmethod
+    def from_event(cls, event_data: EventData, target_state_type: StateType):
+        """
+        Determine what persistence flag to use.
+        1. If the model has `dialogue_persistence` set, this trumps any other logic and that
+           value is returned.
+        2. If the reckoning type is not RENDERED (so the source or target state is not a
+           RENDERER state, then returns NONE to persist.
+        3. For anything else, follow the default that is set for the machine, based on the
+           name of the event - or default to USER_EVENT + ASSISTANT_EVENT
+
+        :param event_data: the `EventData` for the event that triggered the transition
+        :param target_state_type: the `StateType` of the target state
+        :return: the determined `DialoguePersistence` flags
+        """
+        if event_data.machine.model.dialogue_persistence is not None:
+            return event_data.machine.model.dialogue_persistence
+
+        if target_state_type != StateType.RENDERER:
+            return DialoguePersistence.NONE
+
+        default = DialoguePersistence.USER_EVENT | DialoguePersistence.ASSISTANT_EVENT
+        return event_data.machine.persistence.get(
+            event_data.event.name,
+            default
+        )
+
+    @staticmethod
+    def _render_join(*args: Optional[str]):
+        return "\n".join(arg for arg in args if arg is not None)
+
+    def render_user(self, event_name: str, raw: Optional[str]) -> Optional[str]:
+        if self == DialoguePersistence.NONE:
+            return None
+
+        event_name = event_name if self & DialoguePersistence.USER_EVENT else None
+        raw = raw if self & DialoguePersistence.USER_CONTENT else None
+        return self._render_join(event_name, raw)
+
+    def render_assistant(
+        self,
+        event_name: str,
+        raw: Optional[str],
+        rendered:  str | Callable[[], str] | None
+    ):
+        if self == DialoguePersistence.NONE:
+            return None
+        event_name = event_name if self & DialoguePersistence.ASSISTANT_EVENT else None
+        raw = raw if self & DialoguePersistence.ASSISTANT_RAW else None
+        if self & DialoguePersistence.ASSISTANT_RENDERED:
+            if callable(rendered):
+                rendered = rendered()
+        else:
+            rendered = None
+        return self._render_join(event_name, raw, rendered)
