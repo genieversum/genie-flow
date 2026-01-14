@@ -109,33 +109,6 @@ class DialoguePersistence(enum.IntFlag):
     ASSISTANT_RAW = enum.auto()
     ASSISTANT_RENDERED = enum.auto()
 
-    @classmethod
-    def from_event(cls, event_data: EventData, target_state_type: StateType):
-        """
-        Determine what persistence flag to use.
-        1. If the model has `dialogue_persistence` set, this trumps any other logic and that
-           value is returned.
-        2. If the reckoning type is not RENDERED (so the source or target state is not a
-           RENDERER state, then returns NONE to persist.
-        3. For anything else, follow the default that is set for the machine, based on the
-           name of the event - or default to USER_EVENT + ASSISTANT_EVENT
-
-        :param event_data: the `EventData` for the event that triggered the transition
-        :param target_state_type: the `StateType` of the target state
-        :return: the determined `DialoguePersistence` flags
-        """
-        if event_data.machine.model.dialogue_persistence is not None:
-            return event_data.machine.model.dialogue_persistence
-
-        if target_state_type != StateType.RENDERER:
-            return DialoguePersistence.NONE
-
-        default = DialoguePersistence.USER_EVENT | DialoguePersistence.ASSISTANT_EVENT
-        return event_data.machine.persistence.get(
-            event_data.event.name,
-            default
-        )
-
     @staticmethod
     def _render_join(*args: Optional[str]):
         return "\n".join(arg for arg in args if arg is not None)

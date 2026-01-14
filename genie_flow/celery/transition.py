@@ -5,12 +5,42 @@ from loguru import logger
 from statemachine import State
 from statemachine.event_data import EventData
 
-from genie_flow.genie import GenieModel
+from genie_flow.genie import GenieModel, GenieStateMachine
 from genie_flow.model.dialogue import StateType, DialoguePersistence
 from genie_flow.model.template import CompositeTemplateType
 
 if typing.TYPE_CHECKING:
     from genie_flow.celery import CeleryManager
+
+
+
+def _determine_persistence(
+        machine: GenieStateMachine,
+        model: GenieModel,
+        event_name: str,
+):
+    """
+    Determine what persistence flag to use.
+    1. If the model has `dialogue_persistence` set, this trumps any other logic and that
+       value is returned.
+    2. If the reckoning type is not RENDERED (so the source or target state is not a
+       RENDERER state, then returns NONE to persist.
+    3. For anything else, follow the default that is set for the machine, based on the
+       name of the event - or default to USER_EVENT + ASSISTANT_EVENT
+
+    :param machine: the `GenieStateMachine` that holds the defaults for different events
+    :param model: the `GenieModel` that may hold a run-time override
+    :param event_name: the name of the event that triggered the transition
+    :return: the determined `DialoguePersistence` flags
+    """
+    if model.dialogue_persistence is not None:
+        return model.dialogue_persistence
+
+    if model.target_type != StateType.RENDERER:
+        return DialoguePersistence.NONE
+
+    default = DialoguePersistence.USER_EVENT | DialoguePersistence.ASSISTANT_EVENT
+    return machine.persistence.get(event_name, default)
 
 
 class TransitionManager:
@@ -92,13 +122,17 @@ class TransitionManager:
 
         source_type, target_type = self._determine_transition_type(event_data)
 
-        model: GenieModel = event_data.machine.model
+        if not isinstance(event_data.machine, GenieStateMachine):
+            raise ValueError("State Machine is not a Genie state machine")
+
+        machine: GenieStateMachine = event_data.machine
+        model: GenieModel = machine.model
         model.source_type = source_type
         model.target_type = target_type
         model.actor = "user" if source_type.RENDERER else "assistant"
         model.actor_input = actor_input
 
-        persistence = DialoguePersistence.from_event(event_data, target_type)
+        persistence = _determine_persistence(machine, model, event_data.event.name)
         content = persistence.render_user(
             event_data.event.name,
             actor_input,
@@ -118,7 +152,7 @@ class TransitionManager:
                 user_content=content[50:],
             )
 
-            event_data.machine.model.add_dialogue_element(
+            model.add_dialogue_element(
                 actor=model.actor,
                 event=event_data.event.name,
                 actor_text=content,
@@ -141,13 +175,14 @@ class TransitionManager:
             event_id=event_data.event.name,
         )
 
-        persistence = DialoguePersistence.from_event(
-            event_data,
-            event_data.machine.model.target_state,
-        )
+        if not isinstance(event_data.machine, GenieStateMachine):
+            raise ValueError("State Machine is not a Genie state machine")
+
+        machine: GenieStateMachine = event_data.machine
+        model: GenieModel = machine.model
 
         def render_template():
-            target_template_path = event_data.machine.get_template_for_state(
+            target_template_path = machine.get_template_for_state(
                 event_data.machine.current_state,
             )
             return self.celery_manager.genie_environment.render_template(
@@ -155,6 +190,7 @@ class TransitionManager:
                 data_context=event_data.machine.model.render_data,
             )
 
+        persistence = _determine_persistence(machine, model, event_data.event.name)
         content = persistence.render_assistant(
             event_data.event.name,
             event_data.args[0] if event_data.args else None,
@@ -166,7 +202,7 @@ class TransitionManager:
                 "recording content '{content}' for session {session_id}, "
                 "from state '{from_state_name}' ({from_state_id}) "
                 "to state '{to_state_name}' ({to_state_id}) with event '{event_id}'",
-                session_id=event_data.machine.model.session_id,
+                session_id=model.session_id,
                 from_state_name=event_data.source.name,
                 from_state_id=event_data.source.id,
                 to_state_name=event_data.target.name,
@@ -178,7 +214,7 @@ class TransitionManager:
                 ),
             )
 
-            event_data.machine.model.add_dialogue_element(
+            model.add_dialogue_element(
                 actor="assistant",
                 event=event_data.event.name,
                 actor_text=content,
