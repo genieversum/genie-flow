@@ -23,10 +23,9 @@ def _determine_persistence(
     Determine what persistence flag to use.
     1. If the model has `dialogue_persistence` set, this trumps any other logic and that
        value is returned.
-    2. If the reckoning type is not RENDERED (so the source or target state is not a
-       RENDERER state, then returns NONE to persist.
+    2. If the target state type is not RENDERED, then returns NONE to persist.
     3. For anything else, follow the default that is set for the machine, based on the
-       name of the event - or default to USER_EVENT + ASSISTANT_EVENT
+       name of the event - or default to just recording the event
 
     :param machine: the `GenieStateMachine` that holds the defaults for different events
     :param model: the `GenieModel` that may hold a run-time override
@@ -39,7 +38,7 @@ def _determine_persistence(
     if model.target_type != StateType.RENDERER:
         return DialoguePersistence.NONE
 
-    default = DialoguePersistence.USER_EVENT | DialoguePersistence.ASSISTANT_EVENT
+    default = DialoguePersistence.SOURCE_EVENT | DialoguePersistence.TARGET_EVENT
     return machine.persistence.get(event_name, default)
 
 
@@ -135,27 +134,25 @@ class TransitionManager:
         model.actor_input = actor_input
 
         persistence = _determine_persistence(machine, model, event_name)
-        content = persistence.render_user(event_name, actor_input)
-        if content:
-            logger.debug(
-                "Adding input '{user_content}' from '{actor}', to dialogue for session {session_id}, "
-                "from state '{from_state_name}' ({from_state_id}) "
-                "to state '{to_state_name}' ({to_state_id}) with event '{event_id}'",
-                session_id=model.session_id,
-                from_state_name=event_data.source.name,
-                from_state_id=event_data.source.id,
-                to_state_name=event_data.target.name,
-                to_state_id=event_data.target.id,
-                event_id=event_name,
-                actor=model.actor,
-                user_content=content[50:],
-            )
+        if not persistence & DialoguePersistence.SOURCE:
+            return
 
-            model.add_dialogue_element(
-                actor=model.actor,
-                event=event_name,
-                actor_text=content,
-            )
+        content = persistence.render_user(event_name, actor_input)
+        logger.debug(
+            "Adding input '{user_content}' from '{actor}', to dialogue for session {session_id}, "
+            "from state '{from_state_name}' ({from_state_id}) "
+            "to state '{to_state_name}' ({to_state_id}) with event '{event_id}'",
+            session_id=model.session_id,
+            from_state_name=event_data.source.name,
+            from_state_id=event_data.source.id,
+            to_state_name=event_data.target.name,
+            to_state_id=event_data.target.id,
+            event_id=event_name,
+            actor=model.actor,
+            user_content=content[50:],
+        )
+
+        model.add_dialogue_element(model.actor, event_name, content)
 
     def after_transition(self, event_data: EventData):
         """
@@ -181,6 +178,10 @@ class TransitionManager:
         model: GenieModel = machine.model
         event_name: str = event_data.event.name
 
+        persistence = _determine_persistence(machine, model, event_name)
+        if not persistence & DialoguePersistence.TARGET:
+            return
+
         def render_template():
             # we are _after_ the transition, so the current state is the target state
             target_template_path = machine.get_template_for_state(machine.current_state)
@@ -189,32 +190,25 @@ class TransitionManager:
                 data_context=model.render_data,
             )
 
-        persistence = _determine_persistence(machine, model, event_name)
         content = persistence.render_assistant(
             event_name,
             event_data.args[0] if event_data.args else None,
             render_template,
         )
+        logger.debug(
+            "recording content '{content}' for session {session_id}, "
+            "from state '{from_state_name}' ({from_state_id}) "
+            "to state '{to_state_name}' ({to_state_id}) with event '{event_id}'",
+            session_id=model.session_id,
+            from_state_name=event_data.source.name,
+            from_state_id=event_data.source.id,
+            to_state_name=event_data.target.name,
+            to_state_id=event_data.target.id,
+            event_id=event_name,
+            content=(
+                f"{content[:50]}..."
+                if content is not None and len(content) > 50 else content
+            ),
+        )
 
-        if content:
-            logger.debug(
-                "recording content '{content}' for session {session_id}, "
-                "from state '{from_state_name}' ({from_state_id}) "
-                "to state '{to_state_name}' ({to_state_id}) with event '{event_id}'",
-                session_id=model.session_id,
-                from_state_name=event_data.source.name,
-                from_state_id=event_data.source.id,
-                to_state_name=event_data.target.name,
-                to_state_id=event_data.target.id,
-                event_id=event_name,
-                content=(
-                    f"{content[:50]}..."
-                    if content is not None and len(content) > 50 else content
-                ),
-            )
-
-            model.add_dialogue_element(
-                actor="assistant",
-                event=event_name,
-                actor_text=content,
-            )
+        model.add_dialogue_element("assistant", event_name, content)

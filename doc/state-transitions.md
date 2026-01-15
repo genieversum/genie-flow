@@ -1,35 +1,110 @@
 # Genie Flow State Transitions
 
 ## Event Flow
-Transitioning from one state to another goes through the following steps:
+The core of a Genie Flow agent is the State Machine. The different states that the machine
+can be in and the transitions between these states. From the initial state onwards, the
+Genie flow engine pushes through the state by means of "events". An event is the trigger
+for the State Machine to leave a state and move to the next.
 
-1. The input that was sent with the event that triggered the transition is set as `actor_input`
-2. The template for the target state is retrieved and assigned to the machine's `current_template`
-   property.
-3. If that template needs an Invoker:
-   - if we are transitioning out of another invoker state, then we do not need to record the
-     `actor_input` in the model dialogue. But if the current transition was user-triggered
-     then the `actor_input` is added as "user" uttering.
-   - after this transition, we are expecting a trigger from the invoker, rather than from the user
-   - the actor is set to "assistant" - this is the actor that is currently active
-   - the invocation is enqueued:
-     - a (Celery) DAG of tasks is started
-     - a `GenieTaskProgress` object is registered for this session (this contains the number
-       of tasks to execute as well as a continuously updated total of executed tasks)
-     - the final task of the DAG will be to send the next event back to the state machine
-   - rendering of the target template is done as part of the enqueued task / set of tasks
-   - because there is now an active Celery task, the API will send only the "poll" event as a
-     possible next action
-   - if a user triggered this transition, then they will gets sent the most recent addition to
-     the dialogue, which is the actor input that was sent to trigger this transition
-4. If that template does not need an Invoker, then it just needs to render the template
-   and return the results.
-   - we are now expecting the user to trigger a transition into the next state
-   - we render the template of the target (the `actor_input` property contains the raw output
-     of the previous state) 
-   - we add the rendered output onto the dialogue and record it
-   - the actor is set to "user" - this is the actor that is currently active and should send
-     the next event
+This chapter describes how the Genie engine interprets these events and uses the templates
+and template meta data to conduct the dialogue.
+
+```mermaid
+stateDiagram-v2
+    [*] --> AI: user_input
+    AI --> User: ai_extraction
+    User --> AI: user_input
+```
+
+In this simple diagram, we can see two transitions, "user_input" and "ai_extraction" that make 
+the State Machine travel from the initial state and between the AI and User states.
+
+The AI state is a so-called invoker state: it uses a template to conduct a background process
+that will result in an output. The User state is a renderer state: it renders the output
+and sends it back to the user.
+
+## On States, Events and Templates
+
+### events as triggers
+A transition from one state (source state) to the next (target state) is triggered by sending
+the State Machine an "event". A string with a name that represents something that happened.
+Good examples of events are:
+
+"user_input"
+: an event that is typically sent by the user, accompanied by some input from the user. It
+could be the question that a user asks, or a response to something the chat bot asks.
+
+"ai_extraction"
+: an event that is triggered when an invoker is finished, accompanied by the string output
+of the invocation. It could be the answer to a question or an embedding of a chunk of a 
+document.
+
+"file_input"
+: an event that is sent from the user, together with a base64 encoding of a file that the
+user is sending.
+
+But the development team is free to choose their event names and make them descriptive of the
+event that happens when they are triggered.
+
+### states have a type
+There are two types of states: invoker states and rendered states. And all states have a
+template.
+
+"invoker state"
+: A state that indicates that an invoker will be triggered, and we will have to wait till
+the result is created. This could be an LLM call, an embedding or any other process that
+is executed outside of the Genie Flow agent. Whenever the external service is complete,
+the Genie Flow engine will trigger the next event, based on the transitions going out of
+the state. This could be an "ai_extraction" event. With that event, the result of the
+invocation is sent as a parameter.
+
+"renderer state"
+: These are states meant to render output to the user of the agent. The Genie engine will
+construct the output, send it as output to the API and wait for the user to take action.
+
+This means that, from the type of the state, we can induce which party has triggered the
+transition -- which party has sent the event. If the source state is an *invoker*, then we
+know for certain that is was the party "assistant" who triggered the transition. Because
+an invoker has been executed and the Genie engine automatically sends the outgoing event
+to the State Machine. And when the source state is a *renderer* state, we know for sure that
+the event was sent by the "user" -- because a renderer state creates output, sends it as
+output, and then it is up to the user to send a new event.
+
+### template rendering
+Every state has a template. A template is a combination of a Jinja2 text template
+and a `meta.yaml` configuration. The configuration specifies if the template is an invoker,
+making the attached state an Invoker state, or a renderer, which makes the state a
+renderer state.
+
+The template for an invoker state renders the input that will be sent to the invoker. For 
+instance, if that invoker is an LLM, it is the prompt template. If the invoker calls an API,
+the rendered template may be the JSON payload that is sent to the API.
+
+And if the template is attached to a renderer state, the template is used to render the output
+that needs to be sent to the user.
+
+## On Transitions
+When an event is sent to the State Machine, a whole tower of logic is set into motion. That
+logic determines what data is made available, how the dialogue is persisted, and what special
+actions the agent should take based during these transitions.
+
+There are two important moments that the Genie engine hooks into: before and after the
+transition. The agent developer has the ability to hook into different stages of the transition
+to implement the necessary logic. The Genie engine is there to accommodate these actions,
+as well as to record the dialogue correctly. 
+
+### before transition
+The `before_transition()` hook is executed before any other transition hooks are called. It
+sets up the parameters that are necessary to make the transition correctly and to provide
+the agent developer with the correct information.
+
+1. A value for `actor_input` is determined from the string argument that has been sent with
+   the event. So, if the source state was an invoker state, this argument would be the
+   output of the invoker; if the source state was a renderer state, this argument would be
+   the text that was sent by the user.
+2. The `source_type` and `target_type` are determined: these are the state types of the source
+   and target states. They could be any combination of *renderer* and *invoker*.
+3. The `actor` is determined
 
 ### output
 When user sends an event (including the "poll" event) to the API, the API will respond with either:

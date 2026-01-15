@@ -202,19 +202,19 @@ class GenieStateMachine(StateMachine):
     persistence: dict[str, DialoguePersistence] = {
         "user_input": (
                 DialoguePersistence.USER_CONTENT
-                | DialoguePersistence.ASSISTANT_RENDERED
+                | DialoguePersistence.TARGET_RENDERED
         ),
         "ai_extraction": (
                 DialoguePersistence.USER_CONTENT
-                | DialoguePersistence.ASSISTANT_RENDERED
+                | DialoguePersistence.TARGET_RENDERED
         ),
         "advance": (
-                DialoguePersistence.USER_EVENT
-                | DialoguePersistence.ASSISTANT_RENDERED
+                DialoguePersistence.SOURCE_EVENT
+                | DialoguePersistence.TARGET_RENDERED
         ),
         "file_upload": (
-                DialoguePersistence.USER_EVENT
-                | DialoguePersistence.ASSISTANT_EVENT
+                DialoguePersistence.SOURCE_EVENT
+                | DialoguePersistence.TARGET_EVENT
         )
     }
 

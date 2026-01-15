@@ -84,30 +84,25 @@ class DialoguePersistence(enum.IntFlag):
     """
     `NONE`: none of the utterings during a transition are recorded
 
-    `USER_EVENT`: the event, if sent by the user, will be recorded
-    (role: user, event: 'event_name')
+    `SOURCE_EVENT`: the event will be recorded as a source event
+    `SOURCE_CONTENT`: the (raw) content, will be recorded
+    `SOURCE`: either event or event and source will be recorded
 
-    `USER_CONTENT`: the content, if sent by the user, will be recorded
-    (role: user, content: `actor_input`)
-
-    `ASSISTANT_EVENT`: the event, if sent by the assistant, will be recorded
-    (role: assistant, event: `event_name`)
-
-    `ASSISTANT_RAW`: the raw output sent by an invoker will be recorded
-    (role: assistant, content: "raw content")
-
-    `ASSISTANT_RENDERED`: the rendered output, based on the template of the
-    target state, will be recorded (role: assistant, content: "rendered content")
-
-    If multiple flags are set (`_CONTENT`, `_EVENT`, `_RENDERED`) then the appropriate
-    values will be persisted, separated by a `\n`.
+    `TARGET_RAW`: the raw output sent by an invoker will be recorded
+    `TARGET_RENDERED`: the rendered output, based on the template of the
+    target state, will be recorded
+    `TARGET`: the target raw and/or rendered will be recorded (if both, they will be
+    separated by \n
     """
     NONE = 0
-    USER_EVENT = enum.auto()
-    USER_CONTENT = enum.auto()
-    ASSISTANT_EVENT = enum.auto()
-    ASSISTANT_RAW = enum.auto()
-    ASSISTANT_RENDERED = enum.auto()
+
+    SOURCE_EVENT = enum.auto()
+    SOURCE_CONTENT = enum.auto()
+    SOURCE = SOURCE_EVENT | SOURCE_CONTENT
+
+    TARGET_RAW = enum.auto()
+    TARGET_RENDERED = enum.auto()
+    TARGET = TARGET_RAW | TARGET_RENDERED
 
     @staticmethod
     def _render_join(*args: Optional[str]):
@@ -121,11 +116,11 @@ class DialoguePersistence(enum.IntFlag):
         :param raw: the raw content that was sent by the user
         :return: an optional string based on the flags
         """
-        if not self & (DialoguePersistence.USER_EVENT | DialoguePersistence.USER_CONTENT):
+        if not self & DialoguePersistence.SOURCE:
             return None
 
-        event_name = event_name if self & DialoguePersistence.USER_EVENT else None
-        raw = raw if self & DialoguePersistence.USER_CONTENT else None
+        event_name = event_name if self & DialoguePersistence.SOURCE_EVENT else None
+        raw = raw if self & DialoguePersistence.SOURCE_CONTENT else None
         return self._render_join(event_name, raw)
 
     def render_assistant(
@@ -133,7 +128,7 @@ class DialoguePersistence(enum.IntFlag):
         event_name: str,
         raw: Optional[str],
         rendered:  str | Callable[[], str] | None
-    ):
+    ) -> Optional[str]:
         """
         Compile content based on ASSISTANT flags.
 
@@ -142,16 +137,12 @@ class DialoguePersistence(enum.IntFlag):
         :param rendered: a string or callable for the rendered content from the actor
         :return: an optional string based on flags and parameters
         """
-        if not self & (
-                DialoguePersistence.ASSISTANT_EVENT
-                | DialoguePersistence.ASSISTANT_RAW
-                | DialoguePersistence.ASSISTANT_RENDERED
-        ):
+        if not self & DialoguePersistence.TARGET:
             return None
 
-        event_name = event_name if self & DialoguePersistence.ASSISTANT_EVENT else None
-        raw = raw if self & DialoguePersistence.ASSISTANT_RAW else None
-        if self & DialoguePersistence.ASSISTANT_RENDERED:
+        event_name = event_name if self & DialoguePersistence.TARGET_EVENT else None
+        raw = raw if self & DialoguePersistence.TARGET_RAW else None
+        if self & DialoguePersistence.TARGET_RENDERED:
             if callable(rendered):
                 rendered = rendered()
         else:
