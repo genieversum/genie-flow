@@ -154,7 +154,11 @@ class TransitionManager:
             to_state_id=event_data.target.id,
             event_id=event_name,
             actor=model.actor,
-            actor_text=dialogue_element.actor_text[50:],
+            actor_text=(
+                f"{dialogue_element.actor_text[50:]}..."
+                if dialogue_element.actor_text is not None and len(dialogue_element.actor_text) > 50
+                else dialogue_element.actor_text
+            )
         )
         model.dialogue.append(dialogue_element)
 
@@ -197,13 +201,13 @@ class TransitionManager:
                 data_context=model.render_data,
             )
 
-        content = persistence.render_assistant(
+        dialogue_element = persistence.render_assistant(
             event_name,
             event_data.args[0] if event_data.args else None,
             render_template,
         )
         logger.debug(
-            "recording content '{content}' for session {session_id}, "
+            "recording actor text '{actor_text}' for session {session_id}, "
             "from state '{from_state_name}' ({from_state_id}) "
             "to state '{to_state_name}' ({to_state_id}) with event '{event_id}'",
             session_id=model.session_id,
@@ -212,10 +216,10 @@ class TransitionManager:
             to_state_name=event_data.target.name,
             to_state_id=event_data.target.id,
             event_id=event_name,
-            content=(
-                f"{content[:50]}..."
-                if content is not None and len(content) > 50 else content
+            actor_text=(
+                f"{dialogue_element.actor_text[:50]}..."
+                if dialogue_element.actor_text is not None and len(dialogue_element.actor_text) > 50
+                else dialogue_element.actor_text
             ),
         )
-
-        model.add_dialogue_element("assistant", event_name, content)
+        model.dialogue.append(dialogue_element)

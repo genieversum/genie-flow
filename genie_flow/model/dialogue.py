@@ -39,7 +39,11 @@ class DialogueElement(BaseModel):
         return f"[{self.actor.upper()}]: {self.actor_text}\n"
 
     def as_yaml(self) -> str:
-        lines = "\n".join(f"    {line}" for line in self.actor_text.splitlines())
+        lines = (
+            "\n".join(f"    {line}" for line in self.actor_text.splitlines())
+            if self.actor_text is not None
+            else ""
+        )
         return f"""- role: {self.actor}
   content: >
 {lines}
@@ -146,5 +150,5 @@ class DialoguePersistence(enum.IntFlag):
         return DialogueElement(
             actor="assistant",
             event=event_name,
-            actor_text="\n".join([raw, rendered])
+            actor_text="\n".join(s for s in [raw, rendered] if s is not None)
         )
