@@ -104,7 +104,16 @@ the agent developer with the correct information.
    the text that was sent by the user.
 2. The `source_type` and `target_type` are determined: these are the state types of the source
    and target states. They could be any combination of *renderer* and *invoker*.
-3. The `actor` is determined
+3. The `actor` is determined: if the source state is a *renderer*, the `actor` is set to
+   "user", else it is set to "assistant".
+4. Dialogue persistence is determined for the source state and appropriately handled.
+
+### after transition
+When the transition is concluded, and potentially some actions have been conducted as programmed
+by the agent developer, the Genie engine concludes the `after_transition()` hook.
+
+At this point, the dialogue persistence is determined for the target state and appropriately
+handeled.
 
 ### output
 When user sends an event (including the "poll" event) to the API, the API will respond with either:

@@ -38,8 +38,7 @@ def _determine_persistence(
     if model.target_type != StateType.RENDERER:
         return DialoguePersistence.NONE
 
-    default = DialoguePersistence.SOURCE_EVENT | DialoguePersistence.TARGET_EVENT
-    return machine.persistence.get(event_name, default)
+    return machine.persistence.get(event_name, DialoguePersistence.SOURCE_EVENT)
 
 
 class TransitionManager:
