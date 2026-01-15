@@ -13,12 +13,17 @@ if typing.TYPE_CHECKING:
     from genie_flow.celery import CeleryManager
 
 
+_DEFAULT_PERSISTENCE = (
+    DialoguePersistence.SOURCE_EVENT
+    | DialoguePersistence.TARGET_RENDERED
+)
+
 
 def _determine_persistence(
         machine: GenieStateMachine,
         model: GenieModel,
         event_name: str,
-):
+) -> DialoguePersistence:
     """
     Determine what persistence flag to use.
     1. If the model has `dialogue_persistence` set, this trumps any other logic and that
@@ -35,10 +40,7 @@ def _determine_persistence(
     if model.dialogue_persistence is not None:
         return model.dialogue_persistence
 
-    if model.target_type != StateType.RENDERER:
-        return DialoguePersistence.NONE
-
-    return machine.persistence.get(event_name, DialoguePersistence.SOURCE_EVENT)
+    return machine.persistence.get(event_name, _DEFAULT_PERSISTENCE)
 
 
 class TransitionManager:
@@ -120,8 +122,10 @@ class TransitionManager:
 
         source_type, target_type = self._determine_transition_type(event_data)
 
-        if not isinstance(event_data.machine, GenieStateMachine):
-            raise ValueError("State Machine is not a Genie state machine")
+        assert (
+            isinstance(event_data.machine, GenieStateMachine),
+            "State Machine is not a Genie state machine"
+        )
 
         machine: GenieStateMachine = event_data.machine
         model: GenieModel = machine.model
@@ -133,14 +137,16 @@ class TransitionManager:
         model.actor_input = actor_input
 
         persistence = _determine_persistence(machine, model, event_name)
-        if not persistence & DialoguePersistence.SOURCE:
+        dialogue_element = persistence.render_user(event_name, actor_input)
+        if dialogue_element is None:
             return
 
-        content = persistence.render_user(event_name, actor_input)
         logger.debug(
-            "Adding input '{user_content}' from '{actor}', to dialogue for session {session_id}, "
+            "Adding actor text '{actor_text}' from '{actor}', "
+            "to dialogue for session {session_id}, "
             "from state '{from_state_name}' ({from_state_id}) "
-            "to state '{to_state_name}' ({to_state_id}) with event '{event_id}'",
+            "to state '{to_state_name}' ({to_state_id}), "
+            "with event '{event_id}'",
             session_id=model.session_id,
             from_state_name=event_data.source.name,
             from_state_id=event_data.source.id,
@@ -148,10 +154,9 @@ class TransitionManager:
             to_state_id=event_data.target.id,
             event_id=event_name,
             actor=model.actor,
-            user_content=content[50:],
+            actor_text=dialogue_element.actor_text[50:],
         )
-
-        model.add_dialogue_element(model.actor, event_name, content)
+        model.dialogue.append(dialogue_element)
 
     def after_transition(self, event_data: EventData):
         """
@@ -176,6 +181,9 @@ class TransitionManager:
         machine: GenieStateMachine = event_data.machine
         model: GenieModel = machine.model
         event_name: str = event_data.event.name
+
+        if model.target_type != StateType.RENDERER:
+            return
 
         persistence = _determine_persistence(machine, model, event_name)
         if not persistence & DialoguePersistence.TARGET:

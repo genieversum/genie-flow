@@ -164,24 +164,6 @@ class GenieModel(VersionedModel):
         """
         return DialogueFormat.format(self.dialogue, target_format)
 
-    def add_dialogue_element(
-            self,
-            actor: str,
-            event: Optional[str],
-            actor_text: Optional[str]):
-        """
-        Add a given actor and actor text to the dialogue.
-        :param actor: the name of the actor
-        :param event: the optional name of the event
-        :param actor_text: the optional actor text
-        """
-        element = DialogueElement(
-            actor=actor,
-            event=event,
-            actor_text=actor_text,
-        )
-        self.dialogue.append(element)
-
 
 class GenieStateMachine(StateMachine):
     """
@@ -197,23 +179,6 @@ class GenieStateMachine(StateMachine):
 
     # TEMPLATE mapping that needs to be specified
     templates: dict[str, CompositeTemplateType] = dict()
-
-    # DIALOGUE PERSISTENCE
-    persistence: dict[str, DialoguePersistence] = {
-        "user_input": (
-                DialoguePersistence.SOURCE_CONTENT
-                | DialoguePersistence.TARGET_RENDERED
-        ),
-        "ai_extraction": DialoguePersistence.TARGET_RENDERED,
-        "advance": (
-                DialoguePersistence.SOURCE_EVENT
-                | DialoguePersistence.TARGET_RENDERED
-        ),
-        "file_upload": (
-                DialoguePersistence.SOURCE_EVENT
-                | DialoguePersistence.TARGET_RENDERED
-        )
-    }
 
     def __init__(
         self,
@@ -248,6 +213,15 @@ class GenieStateMachine(StateMachine):
             }
         )
         return render_data
+
+    @property
+    def persistence(self) -> dict[str, DialoguePersistence]:
+        return {
+            "user_input": DialoguePersistence.SOURCE_RAW | DialoguePersistence.TARGET_RENDERED,
+            "ai_extraction": DialoguePersistence.TARGET_RENDERED,
+            "advance": DialoguePersistence.TARGET_RENDERED,
+            "file_upload": DialoguePersistence.SOURCE_EVENT | DialoguePersistence.TARGET_RENDERED,
+        }
 
     def get_template_for_state(self, state: State) -> CompositeTemplateType:
         """

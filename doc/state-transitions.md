@@ -1,3 +1,5 @@
+from genie_flow.genie import GenieStateMachinefrom genie_flow.model.dialogue import DialoguePersistencefrom genie_flow.model.dialogue import DialoguePersistencefrom genie_flow.model.dialogue import DialoguePersistence
+
 # Genie Flow State Transitions
 
 ## Event Flow
@@ -63,11 +65,11 @@ invocation is sent as a parameter.
 construct the output, send it as output to the API and wait for the user to take action.
 
 This means that, from the type of the state, we can induce which party has triggered the
-transition -- which party has sent the event. If the source state is an *invoker*, then we
+transition – which party has sent the event. If the source state is an *invoker*, then we
 know for certain that is was the party "assistant" who triggered the transition. Because
 an invoker has been executed and the Genie engine automatically sends the outgoing event
 to the State Machine. And when the source state is a *renderer* state, we know for sure that
-the event was sent by the "user" -- because a renderer state creates output, sends it as
+the event was sent by the "user" – because a renderer state creates output, sends it as
 output, and then it is up to the user to send a new event.
 
 ### template rendering
@@ -91,7 +93,27 @@ actions the agent should take based during these transitions.
 There are two important moments that the Genie engine hooks into: before and after the
 transition. The agent developer has the ability to hook into different stages of the transition
 to implement the necessary logic. The Genie engine is there to accommodate these actions,
-as well as to record the dialogue correctly. 
+as well as to record the dialogue correctly.
+
+### transition hooks
+The following groups of methods are called in sequence (if they exist). **Note: Within the group
+the order of calling is not defined (and could be in parallel)**.
+
+For [more information, please refer to the original documentation](https://python-statemachine.readthedocs.io/en/latest/actions.html#ordering).
+
+| Group               | Hooks used by Genie   | Transition Hooks  | Event Hooks          | State Hooks                                      | Current state |
+|---------------------|-----------------------|-------------------|----------------------|--------------------------------------------------|---------------|
+| Validators          |                       |                   | `validators()`       |                                                  | `source`      |
+| Conditions          |                       |                   | `cond()`, `unless()` |                                                  | `source`      |
+| Before              | `before_transition()` |                   | `before_<event>()`   |                                                  | `source`      |
+| Exit                |                       |                   |                      | `on_exit_state()`,<br/> `on_exit_<state.id>()`   | `source`      |
+| On                  |                       | `on_transition()` | `on_<event>()`       |                                                  | `source`      |
+| **STATE UPDATE**    |                       |                   |                      |                                                  |               |
+| Enter               |                       |                   |                      | `on_enter_state()`,<br/> `on_enter_<state.id>()` | `destination` |
+| After               | `after_transition()`  |                   | `after_<event>()`    |                                                  | `destination` |
+
+The state machine package makes the machine go through each of these groups and checks if there
+exist any of these hooks and calls them.
 
 ### before transition
 The `before_transition()` hook is executed before any other transition hooks are called. It
@@ -113,13 +135,147 @@ When the transition is concluded, and potentially some actions have been conduct
 by the agent developer, the Genie engine concludes the `after_transition()` hook.
 
 At this point, the dialogue persistence is determined for the target state and appropriately
-handeled.
+handled.
 
-### output
-When user sends an event (including the "poll" event) to the API, the API will respond with either:
-* a list of next actions containing only "poll"
-* the output of the previous state, rendered into the template of the new state and a list of 
-  next actions (events) that can be sent.
+## Dialogue
+Every Genie model contains a property `dialogue`. That property is a list of `DialogeElement`s.
+These are pieces of content, uttered by actors, along the dialogue.
+
+A `DialogueElement` contains
+
+`actor`
+: the string identifying the actor that made the uttering. Can be "user" or "assistant".
+
+`timestamp`
+: a `datetime` timestamp of when the uttering was made
+
+`event`
+: the string name of the event that triggered the uttering
+
+`actor_text`
+: the actual (optional) text that was uttered by the actor 
+
+### what gets recorded
+Not all utterings should be recorded in full. The dialogue is an integral part of the Genie
+model and as such is stored as part of the session. As example: storing the raw `base64`
+encoding of a large file is not the best use of session storage – especially when a parsed
+and cleaned version of that file is also stored in the Genie model.
+
+The Genie engine needs to determine what gets recorded during every transition. Observe the
+following table:
+
+| source   | target   | event         | source store        | target store             |
+|----------|----------|---------------|---------------------|--------------------------|
+| invoker  | renderer | ai_extraction | none                | rendered, as "assistant" |
+| invoker  | invoker  | ai_extraction | none                | none                     |
+| renderer | renderer | advance       | none                | rendered, as "assistant" |
+| renderer | invoker  | advance       | none                | none                     |
+| renderer | renderer | user_input    | store raw as "user" | rendered, as "assistant" |
+| renderer | invoker  | user_input    | store raw as "user" | none                     |
+| renderer | renderer | file_upload   | event only          | rendered, as "assistant" |
+| renderer | invoker  | file_upload   | event only          | none                     |
+
+The logic is:
+* when we transition into a *renderer* state, the Genie agent is going to send some information
+  to the user. That information is the result of rendering the template that belongs to that
+  state.
+* When we transition out of a *renderer* state, this will always be triggered by a user-
+  induced event: a "user_input" or a "file_upload" event. Depending on the event, we may
+  want to store the whole user input, only the event itself or nothing at all
+* When we transition into an *invoker* state, the template is used to render the input to
+  the invoker itself. Nothing is sent to the user and we will not store anything.
+* When we transition out of an *invoker* state, the event carries the raw output of the
+  invoker. We typically do not store that. If the target state happens to be a *renderer*
+  state, the rendered template of that state will be stored as assistant uttering. 
+
+Using the following flags, the Genie engine knows what to store when. These flags can be
+combined.
+
+`NONE`
+: Nothing is recorded during the transition
+
+`SOURCE_EVENT`
+: Only the `event` is recorded, not the content that was passed with it.
+
+`SOURCE_RAW`
+: The `event` as well as the content that came with it is recorded. It will be recorded as
+coming from the actor determined by the type of the source state.
+
+`TARGET_RAW`
+: The raw content is stored and recorded as coming from the actor determined by the type
+of the target state.
+
+`TARGET_RENDERERD`
+: the template of the target state is rendered, and the result is stored as coming from the
+actor determined by the type of the target state. But only if that target is a *renderer*
+state.
+
+To keep the dialogue complete but not store too much data, at every transition, the following
+logic is applied:
+
+#### 1. check for overrides
+When the Genie model contains a (combined) persistence flag in the property `dialogue_persistence`
+then that setting trumps any logic. This property can be used to override any persistence
+logic at run-time.
+
+#### 2. check the type of target state
+If the target state is *not* a renderer state, then nothing gets recorded. This is typically
+the case when the outcome of one invoker is fed into another invoker.
+
+#### 3. check the `persistence` flags
+The Genie State Machine carries a dictionary in the property `persistence`, that defines the
+persistence flags for some of the standard events:
+
+"user_input"
+: Defined as `SOURCE_RAW | TARGET_RENDERED`. This means that the input sent by the user, 
+with their "user_input" event, is stored as an uttering of a "user" actor. It also means that,
+if the target state is a *renderer* state, the template of the target state is rendered and
+the result of that is persisted as uttering of actor "assistant".
+
+"ai_extraction"
+: Defined as `TARGET_RENDERED`. This means that, if the target state is a *renderer* state,
+that the template of the target state is rendered and that the result is then stored as an 
+uttering of the "assistant" actor.
+
+"advance"
+: There is no input received with such event. But, if the target state is a *renderer* state,
+the rendered template of that state will be stored as uttering of actor "assistant".
+
+"file_upload"
+: Defined as `SOURCE_EVENT | TARGET_RENDERED`. As a result, the event will be recorded as an
+event triggered by the "user", but not the content. If the target state is a *renderer* state,
+then the rendition of the template of that target state will be stored as an uttering of
+actor "assistant".
+
+#### 4. fall back to default
+The default is set to `SOURCE_EVENT | TARGET_RENDERED` meaning that only the event is recorded,
+no content, and that will be recorded as being triggered by the actor "user". Then, if the
+target state is a *renderer* state, the rendered template is also stored as uttering by the
+actor "assistant".
+
+### overriding what gets recorded
+If an agent developer wants to override what happens to the dialogue recording when a certain
+event is sent, then the agent developer can ovrride and extend the `persistence` property.
+For example, to include a definition for a new event "get_files", the agent developer can
+implement the following:
+
+```python
+class MyAgentStateMachine(GenieStateMachine):
+    ...
+
+    @property
+    def persistence(self) -> dict[str, DialoguePersistence]:
+        result = super().persistence
+        result["get_files"] = (
+                DialoguePersistence.SOURCE_EVENT 
+                | DialoguePersistence.TARGET_RAW
+        )
+        return result
+```
+
+This would add the event "get_files" as a non-default event that would store the event itself
+as an event sent by the "user" and if the target state is a *renderer* state, then the raw
+content that was sent with the "get_files" event will be stored as 
 
 ## Task Progress 
 Next possible actions will only be "poll" when there is an active Celery DAG running for the
@@ -149,110 +305,3 @@ of tasks and set the number of executed tasks to zero. If these numbers are used
 to the user, this would be unexpected.
 
 > This may be something to fix when we start using these numbers for user feedback.
-
-## Dialogue (a.k.a. Chat History)
-The model object contains a list of utterings of the different parties involved in the dialogue.
-This alternates between "assistant" and "user". The first for output from an invoker, the
-second for output sent through the API.
-
-When strictly alternating between Invoker and User, then we expect this dialogue list to
-contain the alternating utterings, starting with "assistant", followed by "user", then back
-to "assistant", etc.
-
-But exceptions exist. With the wqy the task flow is constructed, we could have user to user
-or invoker to invoker transitions.
-
-Another issue is when a user sends "technical" information, such as a file binary or control
-element (buttons, drop-downs, etc) results. We may not want to record these - or maybe record
-a derivative of them.
-
-### what gets stored
-When the transition is triggered from the API (so that is a user input), the string that accompanied
-that event is stored verbatim. This means that, all user input is stored inside the chat
-history, without interference.
-
-When the transition is triggered by a Celery DAG, the output of that DAG (typically an Invoker)
-is first used to render the template that is connected to the target state. This is the information
-that is going to be sent back to the user, so that is also what is stored as part of the dialogue.
-
-### Invoker to Invoker transitions
-When passing from one Invoker to the next Invoker, the output of the first invoker is passed on
-to the next invoker as `actor_input` but the default pattern is to NOT store this intermediate
-result as part of the dialogue. It is assumed that this intermediate result is technical in
-nature and should not feature as part of the chat history. Only the last Invoker of a sequence
-like this, before control is handed back to the User, is stored. And since this is an Invoker
-output, it is used to render the template of the target state and the result of that is stored
-as part of the dialogue.
-
-### User to User transition
-In case a transition is made from a user state onto the next user state, this is assumed to be
-important for the dialogue. Hence, the default is to store the `actor_input` into the dialogue.
-
-## Advanced
-The above should give you enough to start building Genie Agents. This chapter exists for when
-you want further details on how the internals of Genie Flow work and want to use that information
-to further enhance you flows.
-
-### transition steps
-To fully understand how the transition from one state to another is managed, one needs to
-understand the following sequence. This sequence shows in what order the different "hooks" on
-a state machine are being called during a transition. For [more information, please refer to
-the original documentation](https://python-statemachine.readthedocs.io/en/latest/actions.html#ordering).
-
-The following groups of methods are called in sequence (if they exist). **Note: Within the group
-the order of calling is not defined (and could be in parallel)**.
-
-| Group               | Hooks used by Genie   | Transition Hooks  | Event Hooks          | State Hooks                                      | Current state |
-|---------------------|-----------------------|-------------------|----------------------|--------------------------------------------------|---------------|
-| Validators          |                       |                   | `validators()`       |                                                  | `source`      |
-| Conditions          |                       |                   | `cond()`, `unless()` |                                                  | `source`      |
-| Before              | `before_transition()` |                   | `before_<event>()`   |                                                  | `source`      |
-| Exit                |                       |                   |                      | `on_exit_state()`,<br/> `on_exit_<state.id>()`   | `source`      |
-| On                  |                       | `on_transition()` | `on_<event>()`       |                                                  | `source`      |
-| **STATE UPDATE**    |                       |                   |                      |                                                  |               |
-| Enter               |                       |                   |                      | `on_enter_state()`,<br/> `on_enter_<state.id>()` | `destination` |
-| After               | `after_transition()`  |                   | `after_<event>()`    |                                                  | `destination` |
-
-The state machine package makes the machine go through each of these groups and checks if there
-exist any of these hooks and calls them.
-
-#### Genie Flow Hooks
-In order to manage the Genie internals, the following hooks are implemented:
-
-`before_transition()`
-: this hook determines how the transition will be conducted. It will set the property
-`transition_type` to a tuple containing the source type and the destination type. A type can
-be either "invoker" or "user". So, for example, the tuple `("invoker", "user")` means that
-the source state was an invoker state and the target a user state.
-This hook also sets the `actor`, based on the type of the source state. The actor is either
-"assistant" (source state was invoker type) or "user" (source state was user type).
-And, finally, this hook determines if and how the event argument should be stored as part of
-the dialogue. The property `dialogue_persistance` is set to "NONE", "RAW" or "RENDERED".
-
-`after_transition()`
-: this hook is used to trigger the Celery task, if the target state is an "invoker" state.
-This hook also checks the `dialogue_persistence` property and determines if and what gets added
-to the dialogue.
-
-#### Genie Flow standard behaviour
-The following standard behaviour drives how Genie Flow conducts it's logic:
-
-| `transition_type`  | `agent`   | `dialogue_persistence` | Celery DAG |
-|--------------------|-----------|------------------------|------------|
-| user -> user       | user      | RENDERED               | no         |
-| user -> invoker    | user      | RAW                    | yes        |
-| invoker -> user    | assistant | RENDERED               | no         |
-| invoker -> invoker | assistant | NONE                   | yes        |
-
-#### deviating from the default
-Although the general rules are sensible, and should cater to most of the use cases, one might
-want to deviate from this pattern. The most obvious change is to change the `dialogue_persistence`
-property. This will then influence how `actor_input` is stored as part of the dialogue.
-
-Whatever hook is used by the Agenteer does not really matter. Since this property is set right
-at the start of the transition (on the `before_transition()` hook), any hook after that (but
-before the `after_transition()` hook) would work.
-
-And, because these alterations make most sense for a specific transition rather than generically,
-for all transitions, we suggest using the `on_enter_<state.id>()` hook. Just in time for the
-`after_transition()` hook.
