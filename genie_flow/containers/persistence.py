@@ -61,3 +61,7 @@ class GenieFlowPersistenceContainer(containers.DeclarativeContainer):
         lock_expiration_seconds=config.lock_store.expiration_seconds or 120,
         progress_expiration_seconds=config.progress_store.expiration_seconds or 120,
     )
+
+    permanent_store_manager = providers.Singleton(
+
+    )

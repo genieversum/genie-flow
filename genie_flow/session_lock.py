@@ -8,7 +8,7 @@ from redis import Redis
 from genie_flow.genie import GenieModel
 from genie_flow.model.persistence import PersistenceLevel
 from genie_flow.model.secondary_store import SecondaryStore
-from genie_flow.mongo import retrieve_model
+from genie_flow.permanent_storage import retrieve_model
 from genie_flow.utils import get_class_from_fully_qualified_name, get_fully_qualified_name_from_class
 
 

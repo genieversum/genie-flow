@@ -14,7 +14,7 @@ from genie_flow.model.persistence import PersistenceLevel, Persistence
 from genie_flow.model.secondary_store import SecondaryStore
 from genie_flow.model.types import ModelKeyRegistryType
 from genie_flow.model.api import AIResponse, EventInput, AIStatusResponse, AIProgressResponse
-from genie_flow.mongo import retrieve_user_sessions_mongo
+from genie_flow.permanent_storage import retrieve_user_sessions_mongo
 from genie_flow.session_lock import SessionLockManager
 from genie_flow.model.user import User
 
