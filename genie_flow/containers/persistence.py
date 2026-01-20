@@ -1,7 +1,22 @@
 from dependency_injector import containers, providers
 from redis import Redis, ConnectionPool
 
+from genie_flow.permanent_storage import PermanentStorageManager, PermanentStorageManagerProtocol, \
+    DummyStorageManager
 from genie_flow.session_lock import SessionLockManager
+
+
+def _create_permanent_storage_manager(
+        config: providers.Configuration,
+) -> PermanentStorageManagerProtocol:
+    if not config:
+        return DummyStorageManager()
+    return PermanentStorageManager(
+        database_path=config.database_path(),
+        blob_path=config.blob_path(),
+        compress=config.compress() or False,
+        blob_directory_depth=config.blob_directory_depth() or 2,
+    )
 
 
 class GenieFlowPersistenceContainer(containers.DeclarativeContainer):
@@ -50,6 +65,11 @@ class GenieFlowPersistenceContainer(containers.DeclarativeContainer):
         connection_pool=redis_progress_store_pool,
     )
 
+    permanent_store_manager = providers.Singleton(
+        _create_permanent_storage_manager,
+        config.permanent_store,
+    )
+
     session_lock_manager = providers.Singleton(
         SessionLockManager,
         redis_object_store=redis_object_store,
@@ -62,6 +82,3 @@ class GenieFlowPersistenceContainer(containers.DeclarativeContainer):
         progress_expiration_seconds=config.progress_store.expiration_seconds or 120,
     )
 
-    permanent_store_manager = providers.Singleton(
-
-    )

@@ -2,11 +2,13 @@ import hashlib
 from enum import Enum
 
 from loguru import logger
-from pydantic import BaseModel, Field, RootModel
+from pydantic import Field, RootModel
 
 from genie_flow.model.versioned import VersionedModel
-from genie_flow.utils import get_fully_qualified_name_from_class, \
-    get_class_from_fully_qualified_name
+from genie_flow.utils import (
+    get_fully_qualified_name_from_class,
+    get_class_from_fully_qualified_name,
+)
 
 
 class PersistenceState(Enum):
@@ -48,7 +50,7 @@ class SecondaryStore(RootModel[dict[str, VersionedModel]]):
         Create a SecondaryStore from retrieved values. This ensures that the state of
         all properties is set to RETRIEVED_OBJECT.
 
-        :param retrieved_values: a dictionary that this SecondaryStore should encapsulate
+        :param retrieved_values: A dictionary that this SecondaryStore should encapsulate
         :return: a new SecondaryStore with the retrieved values as root values,
         and all states set to RETRIEVED_OBJECT
         """
@@ -60,10 +62,10 @@ class SecondaryStore(RootModel[dict[str, VersionedModel]]):
     @classmethod
     def from_serialized(cls, payloads: dict[str, bytes]) -> "SecondaryStore":
         """
-        Create a SecondaryStore from serialized values. This ensures that the state of
+        Create a SecondaryStore from serialized values. This ensures that the states of
         all properties states are set to RETRIEVED_OBJECT.
 
-        :param payloads: a dictionary where the values for each key are serialized objects
+        :param payloads: A dictionary of serialized objects
         :return: a new SecondaryStore with the retrieved values as root values,
         and all states set to RETRIEVED_OBJECT
         """

@@ -8,7 +8,7 @@ from redis import Redis
 from genie_flow.genie import GenieModel
 from genie_flow.model.persistence import PersistenceLevel
 from genie_flow.model.secondary_store import SecondaryStore
-from genie_flow.permanent_storage import retrieve_model
+from genie_flow.permanent_storage import PermanentStorageManagerProtocol
 from genie_flow.utils import get_class_from_fully_qualified_name, get_fully_qualified_name_from_class
 
 
@@ -22,6 +22,7 @@ class SessionLockManager:
         redis_object_store: Redis,
         redis_lock_store: Redis,
         redis_progress_store: Redis,
+        permanent_store: PermanentStorageManagerProtocol,
         object_expiration_seconds: int,
         lock_expiration_seconds: int,
         progress_expiration_seconds: int,
@@ -36,6 +37,7 @@ class SessionLockManager:
         :param redis_object_store: The Redis object store
         :param redis_lock_store: The Redis lock store
         :param redis_progress_store: The Redis progress store
+        :param permanent_store: The Permanent store
         :param object_expiration_seconds: The expiration time for objects in seconds
         :param lock_expiration_seconds: The expiration time of the lock in seconds
         :param progress_expiration_seconds: The expiration time of the progress object in seconds
@@ -45,6 +47,7 @@ class SessionLockManager:
         self.redis_object_store = redis_object_store
         self.redis_lock_store = redis_lock_store
         self.redis_progress_store = redis_progress_store
+        self.permanent_store = permanent_store
         self.object_expiration_seconds = object_expiration_seconds
         self.lock_expiration_seconds = lock_expiration_seconds
         self.progress_expiration_seconds = progress_expiration_seconds
@@ -110,17 +113,28 @@ class SessionLockManager:
         """
         model_key = self._create_key("object", model_class, session_id)
         payload = self.redis_object_store.get(model_key)
-        if payload is None:
-            logger.error("No model with id {session_id} found in object store, trying mongodb", session_id=session_id)
-            try:
-                mongo_data = retrieve_model(session_id)
-                payload = mongo_data['model']
-            except:
-                raise KeyError(f"No model with id {session_id}")
+        if payload:
+            model = model_class.deserialize(payload)
+            model.secondary_storage = self._retrieve_secondary_storage(session_id, model_class)
+            return model
 
-        model = model_class.deserialize(payload)
-        model.secondary_storage = self._retrieve_secondary_storage(session_id, model_class)
-        return model
+        logger.info(
+            "No model with id {session_id} found in object store, "
+            "trying permanent storage",
+            session_id=session_id,
+        )
+        try:
+            model = self.permanent_store.retrieve(session_id)
+        except KeyError:
+            logger.error(
+                "Could not find session with id '{session_id}'",
+                session_id,
+            )
+            raise
+        if model.secondary_storage:
+            for item in model.secondary_storage.keys():
+                model.secondary_storage.unpersisted_values
+
 
     def get_model(self, session_id: str, model_class: str | Type[GenieModel]) -> GenieModel:
         """Lock-free read. Safe because writes only happen at state transitions."""

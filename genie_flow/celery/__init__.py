@@ -15,7 +15,6 @@ from genie_flow.celery.transition import TransitionManager
 from genie_flow.environment import GenieEnvironment
 from genie_flow.genie import GenieModel, GenieStateMachine, StateType
 from genie_flow.model.template import CompositeContentType
-from genie_flow.permanent_storage import store_session, store_user
 from genie_flow.session_lock import SessionLockManager
 from genie_flow.utils import get_fully_qualified_name_from_class, \
     get_class_from_fully_qualified_name

@@ -3,7 +3,6 @@ from dependency_injector import containers, providers
 
 from genie_flow.app import create_fastapi_app
 from genie_flow.containers.core import GenieFlowCoreContainer
-from genie_flow.containers.perm_persistence import GenieFlowPermanentPersistenceContainer
 from genie_flow.containers.persistence import GenieFlowPersistenceContainer
 from genie_flow.celery import CeleryManager
 from genie_flow.environment import GenieEnvironment
@@ -30,11 +29,6 @@ class GenieFlowContainer(containers.DeclarativeContainer):
 
     storage = providers.Container(
         GenieFlowPersistenceContainer,
-        config=config.persistence,
-    )
-
-    permanent_storage = providers.Container(
-        GenieFlowPermanentPersistenceContainer,
         config=config.persistence,
     )
 
