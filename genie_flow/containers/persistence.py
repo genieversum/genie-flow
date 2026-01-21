@@ -1,21 +1,24 @@
+from typing import Optional
+
 from dependency_injector import containers, providers
 from redis import Redis, ConnectionPool
 
-from genie_flow.permanent_storage import PermanentStorageManager, PermanentStorageManagerProtocol, \
-    DummyStorageManager
+from genie_flow.permanent_storage import PermanentStorageManager
 from genie_flow.session_lock import SessionLockManager
 
 
 def _create_permanent_storage_manager(
         config: providers.Configuration,
-) -> PermanentStorageManagerProtocol:
-    if not config:
-        return DummyStorageManager()
+) -> Optional[PermanentStorageManager]:
+    permanent_store_config = config.get("permanent_store")
+    if not permanent_store_config:
+        return None
+
     return PermanentStorageManager(
-        database_path=config.database_path(),
-        blob_path=config.blob_path(),
-        compress=config.compress() or False,
-        blob_directory_depth=config.blob_directory_depth() or 2,
+        database_path=permanent_store_config.database_path(),
+        blob_path=permanent_store_config.blob_path(),
+        compress=permanent_store_config.compress() or False,
+        blob_directory_depth=permanent_store_config.blob_directory_depth() or 2,
     )
 
 
@@ -65,9 +68,9 @@ class GenieFlowPersistenceContainer(containers.DeclarativeContainer):
         connection_pool=redis_progress_store_pool,
     )
 
-    permanent_store_manager = providers.Singleton(
+    permanent_store = providers.Singleton(
         _create_permanent_storage_manager,
-        config.permanent_store,
+        config,
     )
 
     session_lock_manager = providers.Singleton(
@@ -75,6 +78,7 @@ class GenieFlowPersistenceContainer(containers.DeclarativeContainer):
         redis_object_store=redis_object_store,
         redis_lock_store=redis_lock_store,
         redis_progress_store=redis_progress_store,
+        permanent_store=permanent_store,
         compression=config.object_store.object_compression or True,
         application_prefix=config.application_prefix or 'genie-flow',
         object_expiration_seconds=config.object_store.expiration_seconds or 120,

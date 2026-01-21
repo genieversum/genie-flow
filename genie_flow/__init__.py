@@ -18,7 +18,6 @@ class GenieFlow:
         container.config.from_yaml(config_file_path, required=True)
         container.wire(packages=["genie_flow"])
         container.storage.container.wire(packages=["genie_flow.celery"])
-        container.permanent_storage.container.wire(packages=["genie_flow.mongo"])
         container.init_resources()
 
         return cls(container)

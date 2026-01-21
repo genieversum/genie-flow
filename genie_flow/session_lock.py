@@ -6,13 +6,13 @@ from loguru import logger
 from redis import Redis
 
 from genie_flow.genie import GenieModel
-from genie_flow.model.persistence import PersistenceLevel
 from genie_flow.model.secondary_store import SecondaryStore
-from genie_flow.permanent_storage import PermanentStorageManagerProtocol
+from genie_flow.permanent_storage import PermanentStorageManager
 from genie_flow.utils import get_class_from_fully_qualified_name, get_fully_qualified_name_from_class
 
 
 StoreType = Literal["object", "secondary", "lock", "progress"]
+_DIRTY_SET_NAME = "_dirty"
 
 
 class SessionLockManager:
@@ -22,7 +22,7 @@ class SessionLockManager:
         redis_object_store: Redis,
         redis_lock_store: Redis,
         redis_progress_store: Redis,
-        permanent_store: PermanentStorageManagerProtocol,
+        permanent_store: Optional[PermanentStorageManager],
         object_expiration_seconds: int,
         lock_expiration_seconds: int,
         progress_expiration_seconds: int,
@@ -37,7 +37,7 @@ class SessionLockManager:
         :param redis_object_store: The Redis object store
         :param redis_lock_store: The Redis lock store
         :param redis_progress_store: The Redis progress store
-        :param permanent_store: The Permanent store
+        :param permanent_store: An optional Permanent store for permanent storage
         :param object_expiration_seconds: The expiration time for objects in seconds
         :param lock_expiration_seconds: The expiration time of the lock in seconds
         :param progress_expiration_seconds: The expiration time of the progress object in seconds
@@ -124,17 +124,15 @@ class SessionLockManager:
             session_id=session_id,
         )
         try:
-            model = self.permanent_store.retrieve(session_id)
+            if self.permanent_store is None:
+                raise KeyError()
+            return self.permanent_store.retrieve(session_id)
         except KeyError:
             logger.error(
-                "Could not find session with id '{session_id}'",
+                "Could not find session with id '{session_id}' in permanent store",
                 session_id,
             )
             raise
-        if model.secondary_storage:
-            for item in model.secondary_storage.keys():
-                model.secondary_storage.unpersisted_values
-
 
     def get_model(self, session_id: str, model_class: str | Type[GenieModel]) -> GenieModel:
         """Lock-free read. Safe because writes only happen at state transitions."""
@@ -196,18 +194,40 @@ class SessionLockManager:
             model.serialize(self.compression, exclude={"secondary_storage"}),
             ex=self.object_expiration_seconds,
         )
-        model_fqn = get_fully_qualified_name_from_class(model)
-        if "persistence" not in  model.secondary_storage or \
-            model.secondary_storage["persistence"].level == PersistenceLevel.LONG_TERM_PERSISTENCE:
+
+        if self.permanent_store is not None:
+            model_fqn = get_fully_qualified_name_from_class(model)
             self.redis_object_store.sadd(
-                self.update_set_key,
-                f"{model_fqn}:{model.session_id}"
+                _DIRTY_SET_NAME,
+                f"{model_fqn}:{model.session_id}",
             )
 
     def store_model(self, model: GenieModel):
         """Store model and invalidate caches across all workers."""
         with self.create_lock_for_session(model.session_id):
             self.persist_model(model)
+
+    def permanent_persist(self):
+        """
+        Clean all 'dirty' sessions by storing them into permanent storage and removing
+        their session id from the list of dirty sessions.
+        """
+        if self.permanent_store is None:
+            return
+
+        logger.info("Starting persisting dirty models")
+        dirty_session = self.redis_object_store.spop(_DIRTY_SET_NAME)
+        while dirty_session is not None:
+            model_fqn, session_id = dirty_session.split(":", 1)
+            logger.debug(
+                "Permanently storing model of class {model_fqn} "
+                "for session {session_id}",
+                model_fqn=model_fqn,
+                session_id=model.session_id,
+            )
+            with self.get_locked_model(session_id, model_fqn) as model:
+                self.permanent_store.store(model)
+            dirty_session = self.redis_object_store.spop(_DIRTY_SET_NAME)
 
     @contextmanager
     def get_locked_model(self, session_id: str, model_class: str | Type[GenieModel]):
