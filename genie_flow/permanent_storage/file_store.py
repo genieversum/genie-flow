@@ -20,8 +20,8 @@ def _serialize_with_type(obj: VersionedModel, compress: bool) -> bytes:
 
 
 def _deserialize_with_type(obj: bytes) -> GenieModel:
-    model_fqn, blob = obj.split(b":", 1)
-    cls = get_class_from_fully_qualified_name(model_fqn)
+    model_fqn_bytes, blob = obj.split(b":", 1)
+    cls = get_class_from_fully_qualified_name(model_fqn_bytes.decode("utf-8"))
     if not issubclass(cls, GenieModel):
         logger.error(
             "Stored model is not a GenieModel subclass, it is a {cls}",
@@ -56,11 +56,16 @@ def read(file_dir: Path, session_id: str) -> GenieModel:
 
     file_path = (file_dir / session_id).with_suffix(".tar")
     with tarfile.open(file_path, "r|") as tar:
-        for member in tar.getmembers():
+        for member in tar:
+            file = tar.extractfile(member)
+            if file is None:
+                continue
+
+            file_bytes = file.read()
             if member.name == "_":
-                model = _deserialize_with_type(tar.extractfile(member))
+                model = _deserialize_with_type(file_bytes)
             else:
-                secondary_storage_blobs[member.name] = tar.extractfile(member)
+                secondary_storage_blobs[member.name] = file_bytes
 
     if model is None:
         logger.error(

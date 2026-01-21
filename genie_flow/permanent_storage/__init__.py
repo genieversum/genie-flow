@@ -132,7 +132,7 @@ class PermanentStorageManager:
                 logger.warning(
                     "Failed to remove file for session {session_id} "
                     "with exception {exc}",
-                    session_id=session_id,
+                    session_id=model.session_id,
                     exc=file_remove_e.__class__.__name__,
                 )
             raise e
