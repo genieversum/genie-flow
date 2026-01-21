@@ -1,5 +1,6 @@
+import os
 import tarfile
-from io import BufferedWriter, BufferedReader, BytesIO
+from io import BytesIO
 from pathlib import Path
 from typing import Optional, Dict
 
@@ -31,7 +32,8 @@ def _deserialize_with_type(obj: bytes) -> GenieModel:
     return cls.deserialize(blob)
 
 
-def write(file_path: Path, model: GenieModel, compress: bool):
+def write(file_dir: Path, model: GenieModel, compress: bool):
+    file_path = file_dir / model.session_id
     tmp_file = file_path.with_suffix(".tmp")
     with tarfile.open(tmp_file, "w") as tar:
         model_blob = _serialize_with_type(model, compress)
@@ -45,12 +47,14 @@ def write(file_path: Path, model: GenieModel, compress: bool):
             info.size = len(blob)
             tar.addfile(info, BytesIO(blob))
 
-    tmp_file.rename(file_path)
+    tmp_file.rename(file_path.with_suffix(".tar"))
 
-def read(file_path: Path) -> GenieModel:
+
+def read(file_dir: Path, session_id: str) -> GenieModel:
     model: Optional[GenieModel] = None
     secondary_storage_blobs: Dict[str, bytes] = dict()
 
+    file_path = (file_dir / session_id).with_suffix(".tar")
     with tarfile.open(file_path, "r|") as tar:
         for member in tar.getmembers():
             if member.name == "_":
@@ -67,3 +71,8 @@ def read(file_path: Path) -> GenieModel:
 
     model.secondary_storage = SecondaryStore.from_serialized(secondary_storage_blobs)
     return model
+
+
+def delete(file_dir: Path, session_id: str) -> bool:
+    file_path = (file_dir / session_id).with_suffix(".tar")
+    os.remove(file_path)

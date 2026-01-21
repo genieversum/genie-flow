@@ -216,18 +216,20 @@ class SessionLockManager:
             return
 
         logger.info("Starting persisting dirty models")
-        dirty_session = self.redis_object_store.spop(_DIRTY_SET_NAME)
+        dirty_session: bytes = self.redis_object_store.spop(_DIRTY_SET_NAME)  # type: ignore[assignment]
         while dirty_session is not None:
-            model_fqn, session_id = dirty_session.split(":", 1)
-            logger.debug(
-                "Permanently storing model of class {model_fqn} "
-                "for session {session_id}",
-                model_fqn=model_fqn,
-                session_id=model.session_id,
-            )
-            with self.get_locked_model(session_id, model_fqn) as model:
+            model_fqn, session_id = dirty_session.decode("utf-8").split(":", 1)
+            model_cls = get_class_from_fully_qualified_name(model_fqn)
+            with self.create_lock_for_session(session_id):
+                model = self.retrieve_model(session_id, model_cls)
+                logger.debug(
+                    "Permanently storing model of class {model_fqn} "
+                    "for session {session_id}",
+                    model_fqn=model_fqn,
+                    session_id=model.session_id,
+                )
                 self.permanent_store.store(model)
-            dirty_session = self.redis_object_store.spop(_DIRTY_SET_NAME)
+            dirty_session = self.redis_object_store.spop(_DIRTY_SET_NAME)  # type: ignore[assignment]
 
     @contextmanager
     def get_locked_model(self, session_id: str, model_class: str | Type[GenieModel]):

@@ -54,7 +54,7 @@ class GenieFlowContainer(containers.DeclarativeContainer):
         celery_app,
         storage.session_lock_manager,
         genie_environment,
-        update_mongo_period = config.celery.update_mongo_period or 60.0
+        permanent_persistence_period = config.celery.permanent_persistence_period or 60.0
     )
 
     session_manager = providers.Singleton(

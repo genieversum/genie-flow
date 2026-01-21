@@ -1,42 +1,19 @@
-import datetime
-import os
 import sqlite3
 from functools import cache
 from pathlib import Path
-from typing import Optional, Protocol, List, Iterator
+from typing import Optional, List
 
 from loguru import logger
-from redis import Redis
 
 from genie_flow.genie import GenieModel
 from genie_flow.model.user import User
-from genie_flow.permanent_storage.file_store import write, read
+from genie_flow.permanent_storage.file_store import write, read, delete
 
 
+_DATABASE_NAME = "permanent_store.db"
 
 
-class PermanentStorageManagerProtocol(Protocol):
-    def store(self, model: GenieModel): ...
-    def retrieve(self, session_id: str) -> GenieModel: ...
-    def get_sessions_for_user(self, user: User) -> List[str]: ...
-
-
-class DummyStorageManager(PermanentStorageManagerProtocol):
-
-    def mark_dirty(self, model: GenieModel):
-        pass
-
-    def store(self, model: GenieModel):
-        pass
-
-    def retrieve(self, session_id: str) -> GenieModel:
-        raise KeyError("Cannot retrieve session with id "+session_id)
-
-    def get_sessions_for_user(self, user: User) -> List[str]:
-        return list()
-
-
-class PermanentStorageManager(PermanentStorageManagerProtocol):
+class PermanentStorageManager:
 
     def __init__(
         self,
@@ -54,8 +31,9 @@ class PermanentStorageManager(PermanentStorageManagerProtocol):
         self._init_database()
 
     def _create_connection(self):
+        self.database_path.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(
-            self.database_path,
+            self.database_path / _DATABASE_NAME,
             timeout=30.0,
             isolation_level=None
         )
@@ -82,8 +60,8 @@ class PermanentStorageManager(PermanentStorageManagerProtocol):
             CREATE TABLE IF NOT EXISTS sessions (
                 session_id TEXT PRIMARY KEY,
                 email_address TEXT NOT NULL,
-                created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
             );
 
             CREATE INDEX IF NOT EXISTS idx_sessions_email 
@@ -94,7 +72,7 @@ class PermanentStorageManager(PermanentStorageManagerProtocol):
         """)
 
     @cache
-    def _get_blob_path(self, session_id: str) -> Path:
+    def _get_blob_dir(self, session_id: str) -> Path:
         # Since session_id is a ULID, we find better sharding entropy from the tail
         session_id_rev = session_id[::-1]
 
@@ -102,12 +80,13 @@ class PermanentStorageManager(PermanentStorageManagerProtocol):
             session_id_rev[(i*2+1)] + session_id_rev[(i*2)]
             for i in range(self.blob_directory_depth)
         )
-        return self.blob_path / shards / f"{session_id}"
+        file_dir = self.blob_path / shards
+        if not file_dir.exists():
+            file_dir.mkdir(parents=True, exist_ok=True)
+        return file_dir
 
     def _upsert_session_index(self, model: GenieModel):
-        now = datetime.datetime.now(tz=datetime.timezone.utc).timestamp()
         session_id = model.session_id
-
         user_info: Optional[User] = model.secondary_storage.get("user_info", None)
         email_address = user_info.email if user_info else "dummy@dummy.com"
 
@@ -118,23 +97,18 @@ class PermanentStorageManager(PermanentStorageManagerProtocol):
                         email_address,
                         created_at,
                         updated_at
-                    ) VALUES (?, ?, ?, ?)
+                    ) VALUES (?, ?, datetime('now'), datetime('now'))
                     ON CONFLICT(session_id) DO
-                        UPDATE SET updated_at = excluded.updated_at
+                        UPDATE SET updated_at = datetime('now')
               """,
-            (
-                session_id,
-                email_address,
-                now,
-                now,
-            ),
+            (session_id, email_address),
         )
 
     def store(self, model: GenieModel):
-        file_path = self._get_blob_path(model.session_id)
+        file_dir = self._get_blob_dir(model.session_id)
 
         try:
-            write(file_path, model, self.compress)
+            write(file_dir, model, self.compress)
         except Exception as e:
             logger.error(
                 "Failed to store model for session {session_id}, with exception {exc}",
@@ -148,24 +122,24 @@ class PermanentStorageManager(PermanentStorageManagerProtocol):
         except Exception as e:
             logger.error(
                 "Failed to upsert session {session_id}, with exception {exc}, "
-                "deleting file {file_path}",
+                "deleting file",
                 session_id=model.session_id,
                 exc=e.__class__.__name__,
-                file_path=file_path,
             )
             try:
-                os.remove(file_path)
+                delete(file_dir, model.session_id)
             except Exception as file_remove_e:
                 logger.warning(
-                    "Failed to remove file {file_path} with exception {exc}",
-                    file_path=file_path,
+                    "Failed to remove file for session {session_id} "
+                    "with exception {exc}",
+                    session_id=session_id,
                     exc=file_remove_e.__class__.__name__,
                 )
             raise e
 
     def retrieve(self, session_id: str) -> GenieModel:
-        file_path = self._get_blob_path(session_id)
-        return read(file_path)
+        file_path = self._get_blob_dir(session_id)
+        return read(file_path, session_id)
 
     def get_sessions_for_user(self, user: Optional[User]) -> List[str]:
         if not user or not user.email:

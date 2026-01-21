@@ -1,5 +1,6 @@
 import hashlib
 from enum import Enum
+from typing import Iterator
 
 from loguru import logger
 from pydantic import Field, RootModel
@@ -17,7 +18,41 @@ class PersistenceState(Enum):
     DELETED_OBJECT = 2  # old object that should be removed
 
 
-class SecondaryStore(RootModel[dict[str, VersionedModel]]):
+class DictMethodsMixin:
+    """Mixin to forward common dict methods to self.root"""
+
+    def __getitem__(self, key):
+        return self.root[key]
+
+    def __contains__(self, key):
+        return key in self.root
+
+    def __iter__(self) -> Iterator:
+        return iter(self.root)
+
+    def __len__(self) -> int:
+        return len(self.root)
+
+    def get(self, key, default=None):
+        return self.root.get(key, default)
+
+    def items(self):
+        return self.root.items()
+
+    def keys(self):
+        return self.root.keys()
+
+    def values(self):
+        return self.root.values()
+
+    def pop(self, key, *args):
+        return self.root.pop(key, *args)
+
+    def setdefault(self, key, default):
+        return self.root.setdefault(key, default)
+
+
+class SecondaryStore(DictMethodsMixin, RootModel[dict[str, VersionedModel]]):
     """
     Represents a secondary data storage model that acts as a dict of str to `VersionedModel`
     instances. It tracks the state of its items for persistence purposes, ensuring that only

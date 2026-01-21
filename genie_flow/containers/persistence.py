@@ -15,10 +15,10 @@ def _create_permanent_storage_manager(
         return None
 
     return PermanentStorageManager(
-        database_path=permanent_store_config.database_path(),
-        blob_path=permanent_store_config.blob_path(),
-        compress=permanent_store_config.compress() or False,
-        blob_directory_depth=permanent_store_config.blob_directory_depth() or 2,
+        database_path=permanent_store_config.get("database_path"),
+        blob_path=permanent_store_config.get("blob_path"),
+        compress=permanent_store_config.get("compress", False),
+        blob_directory_depth=permanent_store_config.get("blob_directory_depth", 2),
     )
 
 
@@ -38,6 +38,7 @@ class GenieFlowPersistenceContainer(containers.DeclarativeContainer):
     redis_object_store = providers.Singleton(
         Redis,
         connection_pool=redis_object_store_pool,
+        decode_responses=False,
     )
 
     redis_lock_store_pool = providers.Singleton(

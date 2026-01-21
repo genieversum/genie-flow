@@ -1,5 +1,4 @@
 import json
-import uuid
 from typing import Optional, List
 
 import ulid
@@ -11,11 +10,11 @@ from genie_flow.celery.transition import TransitionManager
 from genie_flow.environment import GenieEnvironment
 from genie_flow.genie import GenieModel, StateType
 from genie_flow.model.persistence import PersistenceLevel, Persistence
-from genie_flow.model.secondary_store import SecondaryStore
 from genie_flow.model.types import ModelKeyRegistryType
 from genie_flow.model.api import AIResponse, EventInput, AIStatusResponse, AIProgressResponse
 from genie_flow.session_lock import SessionLockManager
 from genie_flow.model.user import User
+
 
 class SessionManager:
     """
