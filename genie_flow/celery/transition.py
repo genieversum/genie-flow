@@ -133,7 +133,7 @@ class TransitionManager:
 
         model.source_type = source_type
         model.target_type = target_type
-        model.actor = "user" if source_type.RENDERER else "assistant"
+        model.actor = "user" if source_type == StateType.RENDERER else "assistant"
         model.actor_input = actor_input
 
         persistence = _determine_persistence(machine, model, event_name)
