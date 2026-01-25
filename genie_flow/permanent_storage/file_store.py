@@ -47,7 +47,7 @@ def write(file_dir: Path, model: GenieModel, compress: bool):
             info.size = len(blob)
             tar.addfile(info, BytesIO(blob))
 
-    tmp_file.rename(file_path.with_suffix(".tar"))
+    tmp_file.replace(file_path.with_suffix(".tar"))
 
 
 def read(file_dir: Path, session_id: str) -> GenieModel:
