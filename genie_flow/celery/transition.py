@@ -179,8 +179,10 @@ class TransitionManager:
             event_id=event_data.event.name,
         )
 
-        if not isinstance(event_data.machine, GenieStateMachine):
-            raise ValueError("State Machine is not a Genie state machine")
+        assert (
+            isinstance(event_data.machine, GenieStateMachine),
+            "State Machine is not a Genie state machine"
+        )
 
         machine: GenieStateMachine = event_data.machine
         model: GenieModel = machine.model
