@@ -78,7 +78,7 @@ class DialogueFormat(Enum):
                 raise NotImplementedError()
 
 
-class StateType(enum.IntEnum):
+class StateType(enum.Enum):
     RENDERER = 0
     INVOKER = 1
 
