@@ -7,17 +7,6 @@ from genie_flow.permanent_storage.file_store import FileStorageManager
 from genie_flow.session_lock import SessionLockManager
 
 
-def _create_permanent_storage_manager(
-        config: providers.Configuration,
-) -> Optional[FileStorageManager]:
-    permanent_store_config = config.get("permanent_store")
-    if not permanent_store_config:
-        return None
-
-    return FileStorageManager(
-    )
-
-
 class GenieFlowPersistenceContainer(containers.DeclarativeContainer):
 
     config = providers.Configuration()
@@ -66,14 +55,14 @@ class GenieFlowPersistenceContainer(containers.DeclarativeContainer):
     )
 
     permanent_store = providers.Selector(
-        config.persistence.permanent_store.type,
+        config.permanent_store.type,
         none=providers.Object(None),
         file=providers.Singleton(
             FileStorageManager,
-            database_path=config.persistence.permanent_store.config.database_path,
-            blob_path=config.persistence.permanent_store.config.blob_path,
-            compress=config.persistence.permanent_store.config.compress or False,
-            blob_directory_depth=config.persistence.permanent_store.config.blob_directory_depth or 2,
+            database_path=config.permanent_store.config.database_path,
+            blob_path=config.permanent_store.config.blob_path,
+            compress=config.permanent_store.config.compress or False,
+            blob_directory_depth=config.permanent_store.config.blob_directory_depth or 2,
         )
     )
 
