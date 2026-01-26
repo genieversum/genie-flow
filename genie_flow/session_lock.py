@@ -7,7 +7,7 @@ from redis import Redis
 
 from genie_flow.genie import GenieModel
 from genie_flow.model.secondary_store import SecondaryStore
-from genie_flow.permanent_storage import PermanentStorageManager
+from genie_flow.permanent_storage.file_store import FileStorageManager
 from genie_flow.utils import get_class_from_fully_qualified_name, get_fully_qualified_name_from_class
 
 
@@ -22,7 +22,7 @@ class SessionLockManager:
         redis_object_store: Redis,
         redis_lock_store: Redis,
         redis_progress_store: Redis,
-        permanent_store: Optional[PermanentStorageManager],
+        permanent_store: Optional[FileStorageManager],
         object_expiration_seconds: int,
         lock_expiration_seconds: int,
         progress_expiration_seconds: int,

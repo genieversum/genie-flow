@@ -3,22 +3,18 @@ from typing import Optional
 from dependency_injector import containers, providers
 from redis import Redis, ConnectionPool
 
-from genie_flow.permanent_storage import PermanentStorageManager
+from genie_flow.permanent_storage.file_store import FileStorageManager
 from genie_flow.session_lock import SessionLockManager
 
 
 def _create_permanent_storage_manager(
         config: providers.Configuration,
-) -> Optional[PermanentStorageManager]:
+) -> Optional[FileStorageManager]:
     permanent_store_config = config.get("permanent_store")
     if not permanent_store_config:
         return None
 
-    return PermanentStorageManager(
-        database_path=permanent_store_config.get("database_path"),
-        blob_path=permanent_store_config.get("blob_path"),
-        compress=permanent_store_config.get("compress", False),
-        blob_directory_depth=permanent_store_config.get("blob_directory_depth", 2),
+    return FileStorageManager(
     )
 
 
@@ -69,9 +65,16 @@ class GenieFlowPersistenceContainer(containers.DeclarativeContainer):
         connection_pool=redis_progress_store_pool,
     )
 
-    permanent_store = providers.Singleton(
-        _create_permanent_storage_manager,
-        config,
+    permanent_store = providers.Selector(
+        config.persistence.permanent_store.type,
+        none=providers.Object(None),
+        file=providers.Singleton(
+            FileStorageManager,
+            database_path=config.persistence.permanent_store.config.database_path,
+            blob_path=config.persistence.permanent_store.config.blob_path,
+            compress=config.persistence.permanent_store.config.compress or False,
+            blob_directory_depth=config.persistence.permanent_store.config.blob_directory_depth or 2,
+        )
     )
 
     session_lock_manager = providers.Singleton(

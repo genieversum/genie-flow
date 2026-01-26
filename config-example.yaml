@@ -20,10 +20,12 @@ persistence:
     max_connections: 200
     expiration_seconds: 120
   permanent_store:
-    database_path: ./permanent/db
-    blob_path: ./permanent/blob
-    compress: false
-    blob_directory_depth: 2
+    type: file
+    config:
+      database_path: ./permanent/db
+      blob_path: ./permanent/blob
+      compress: false
+      blob_directory_depth: 2
 celery:
   broker: redis://localhost:6379/0
   backend: redis://localhost:6379/0
