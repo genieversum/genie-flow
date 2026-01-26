@@ -41,11 +41,13 @@ class CeleryManager:
         session_lock_manager: SessionLockManager,
         genie_environment: GenieEnvironment,
         permanent_persistence_period: float,
+        permanent_persistence_queue: Optional[str],
     ):
         self.celery_app = celery
         self.session_lock_manager = session_lock_manager
         self.genie_environment = genie_environment
         self.permanent_persistence_period = permanent_persistence_period
+        self.permanent_persistence_queue = permanent_persistence_queue
 
         self._add_error_handler()
         self._add_trigger_ai_event_task()
@@ -564,5 +566,8 @@ class CeleryManager:
             "add-permanent-persist": {
                 "task": "genie_flow.scheduler.permanent_persistence",
                 "schedule": self.permanent_persistence_period,
+                "options": {
+                    "queue": self.permanent_persistence_queue or "celery",
+                }
             },
         }

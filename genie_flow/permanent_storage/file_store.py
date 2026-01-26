@@ -50,7 +50,37 @@ class FileStorageManager(PermanentStorageManager):
         blob_directory_depth: int = 2
     ):
         """
-        This perma
+        Permanently store GenieModel objects in tar files and keep an index of persisted
+        records in a SQLite database.
+
+        The tar files consist of one or more files (members), containing the serialisation of
+        components of a GenieModel.
+
+        The member "_" contains the serialization of the GenieModel itself.
+        For every key in the secondary store of a GenieModel, a member of the tar file is
+        created that has the name of the key and content being the serialized data of the
+        secondary store value.
+
+        Configuration is done on the `config.yaml`, for example:
+        ```yaml
+        persistence:
+          permanent_store:
+            type: file
+            config:
+              database_path: ./permanent/db
+              blob_path: ./permanent/blob
+              compress: false
+              blob_directory_depth: 2
+        ```
+        This will create a directory tree of two levels and store files at the lowest level
+        of that tree. These files will be named `<session_id>.tar`. The directory tree is
+        constructed by the last (highest level) and penultimate bytes (second level) of the
+        session_id. So a file "019be56e-ad36-f9b5-a63a-557a98e8f71d.tar" will be stored in
+        ./permanent/blob/1d/f7/019be56e-ad36-f9b5-a63a-557a98e8f71d.tar
+
+        For this file, a record is created in the database "permanent_store.db" which will
+        be stored in ./permanent/db/permanent_store.db
+
 
         :param database_path: Path to the database file. Accepts a string or Path object.
             Can be None if no database is required.
@@ -230,7 +260,7 @@ class FileStorageManager(PermanentStorageManager):
     def retrieve(self, session_id: str) -> GenieModel:
         return self._read_tar(session_id)
 
-    def get_sessions_for_user(self, user: Optional[User]) -> List[str]:
+    def get_sessions_for_user(self, user: User) -> List[str]:
         if not user or not user.email:
             return list()
 

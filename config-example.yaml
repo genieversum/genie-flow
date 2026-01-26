@@ -32,6 +32,7 @@ celery:
   redis_socket_timeout: 4.0
   redis_socket_connect_timeout: 4.0
   permanent_persistence_period: 30.0
+  permanent_persistence_queue: permanent_store
 api:
   debug: true
   root_path: /api/v1
