@@ -55,7 +55,7 @@ class GenieFlowContainer(containers.DeclarativeContainer):
         storage.session_lock_manager,
         genie_environment,
         config.celery.permanent_persistence_period or 60.0,
-        config.celery.permanent_persistence_queue,
+        config.celery.permanent_persistence_queue or "celery",
     )
 
     session_manager = providers.Singleton(
