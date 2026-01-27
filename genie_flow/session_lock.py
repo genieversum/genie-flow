@@ -234,60 +234,78 @@ class SessionLockManager:
         with self.create_lock_for_session(model.session_id):
             self.persist_model(model)
 
+    def _permanent_persist_session(self, session_id: str, model_cls: Type[GenieModel]):
+            try:
+                with self.create_lock_for_session(session_id):
+                    model = self._get_model_from_redis(session_id, model_cls)
+            except KeyError:
+                logger.error(
+                    "Dirty session {session_id} for class {cls} could not be "
+                    "retrieved from Redis; possibly too late persisting it",
+                    session_id=session_id,
+                    cls=model_cls.__name__,
+                )
+                raise
+
+            logger.debug(
+                "Permanently storing model of class {cls} "
+                "for session {session_id}",
+                cls=model_cls.__name__,
+                session_id=session_id,
+            )
+            self.permanent_store.store(model)
+
+    def _get_dirty_session(self) -> Tuple[Optional[str], Optional[Type[GenieModel]]]:
+        dirty_sessions: List[Tuple[bytes, float]] = self.redis_object_store.zpopmin(
+            _DIRTY_SET_NAME,
+            count=1,
+        )
+        if not dirty_sessions:
+            return None, None
+
+        dirty_session_bytes, _ = dirty_sessions.pop()
+        dirty_session = dirty_session_bytes.decode("utf-8")
+        model_fqn, session_id = dirty_session.split(":", 1)
+        model_cls = get_class_from_fully_qualified_name(model_fqn)
+        assert issubclass(model_cls, GenieModel), "Not a GenieModel"
+
+        return session_id, model_cls
+
     def permanent_persist(self):
         """
         Clean all 'dirty' sessions by storing them into permanent storage and removing
-        their session id from the list of dirty sessions.
+        their session id from the list of dirty sessions. Will write all critical models
+        and potentially more if there is room for more.
         """
         if self.permanent_store is None:
             return
 
         logger.info("Starting persisting dirty models")
-        dirty_sessions: List[Tuple[bytes, float]] = self.redis_object_store.zpopmin(
-            _DIRTY_SET_NAME,
-            count=1,
-        )
+        session_id, model_cls = self._get_dirty_session()
         nr_persisted = 0
-        while dirty_sessions:
-            dirty_session_bytes, _ = dirty_sessions.pop()
-            dirty_session = dirty_session_bytes.decode("utf-8")
-            model_fqn, session_id = dirty_session.split(":", 1)
-            model_cls = get_class_from_fully_qualified_name(model_fqn)
+        while session_id is not None:
+            try:
+                self._permanent_persist_session(session_id, model_cls)
+            except KeyError:
+                session_id, model_cls = self._get_dirty_session()
+                continue
 
-            model: Optional[GenieModel] = None
-            with self.create_lock_for_session(session_id):
-                try:
-                    model = self._get_model_from_redis(session_id, model_cls)
-                except KeyError:
-                    logger.error(
-                        "Dirty session {session_id} for class {cls} could not be "
-                        "retrieved from Redis; possibly too late persisting it",
-                        session_id=session_id,
-                        cls=model_fqn,
-                    )
-
-            time_to_live = 0
-            if model is not None:
-                logger.debug(
-                    "Permanently storing model of class {model_fqn} "
-                    "for session {session_id}",
-                    model_fqn=model_fqn,
-                    session_id=model.session_id,
-                )
-                self.permanent_store.store(model)
-                nr_persisted += 1
-
-                model_key = self._create_key("object", model_cls, session_id)
-                time_to_live = self.redis_object_store.ttl(model_key)
-
+            nr_persisted += 1
+            model_key = self._create_key("object", model_cls, session_id)
+            time_to_live = self.redis_object_store.ttl(model_key)
             if (
                 self.permanent_store.is_critical(time_to_live)
                 or self.permanent_store.remaining_room(nr_persisted) > 0
             ):
-                dirty_sessions = self.redis_object_store.zpopmin(
-                    _DIRTY_SET_NAME,
-                    count=1,
-                )
+                session_id, model_cls = self._get_dirty_session()
+            else:
+                session_id = None
+
+        logger.info(
+            "Permanently persisted {nr_persisted} models with room for {remaining} more",
+            nr_persisted=nr_persisted,
+            remaining=self.permanent_store.remaining_room(nr_persisted)
+        )
 
     @contextmanager
     def get_locked_model(self, session_id: str, model_class: str | Type[GenieModel]):
