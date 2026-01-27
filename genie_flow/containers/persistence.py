@@ -64,7 +64,6 @@ class GenieFlowPersistenceContainer(containers.DeclarativeContainer):
             compress=config.permanent_store.config.compress or False,
             blob_directory_depth=config.permanent_store.config.blob_directory_depth or 2,
             critical_watermark=config.permanent_store.config.critical_watermark or 120,
-            urgent_watermark=config.permanent_store.config.urgent_watermark or 300,
             max_writes=config.permanent_store.config.max_writes or 32,
         )
     )

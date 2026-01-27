@@ -25,9 +25,9 @@ persistence:
       database_path: ./permanent/db
       blob_path: ./permanent/blob
       compress: false
+      database_retries: 5
       blob_directory_depth: 2
       critical_watermark: 120
-      urgent_watermark: 300
       max_writes: 32
 celery:
   broker: redis://localhost:6379/0
