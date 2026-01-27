@@ -55,7 +55,7 @@ class GenieFlowPersistenceContainer(containers.DeclarativeContainer):
     )
 
     permanent_store = providers.Selector(
-        config.permanent_store.type,
+        config.permanent_store.type or "none",
         none=providers.Object(None),
         file=providers.Singleton(
             FileStorageManager,
