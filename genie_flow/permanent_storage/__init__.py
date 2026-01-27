@@ -1,10 +1,11 @@
-from typing import Protocol, Optional
+from abc import ABC
+from typing import Protocol, Optional, NamedTuple, List, Tuple
 
 from genie_flow.genie import GenieModel
 from genie_flow.model.user import User
 
 
-class PermanentStorageManager(Protocol):
+class PermanentStorageManager(ABC):
 
     def store(self, model: GenieModel):
         """
@@ -30,6 +31,24 @@ class PermanentStorageManager(Protocol):
         :raises: KeyError if no GenieModel with the given session_id exists
         """
         pass
+
+    def is_critical(self, ttl: int|float) -> bool:
+        """
+        Return a boolean indicating if an object with the given ttl is critical.
+
+        :param ttl: an int or float for the time to live of a given object.
+        :return: True when the ttl is within the critical watermark
+        """
+        ...
+
+    def remaining_room(self, already_persisted: int) -> int:
+        """
+        Returns the number of objects that can still be persisted.
+
+        :param already_persisted: the number of objects already persisted
+        :return: the number of objects that can still be persisted, zero or more
+        """
+        ...
 
     def get_sessions_for_user(self, user: User) -> list[str]:
         """

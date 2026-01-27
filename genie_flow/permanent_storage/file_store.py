@@ -5,7 +5,7 @@ import time
 from functools import cache
 from io import BytesIO
 from pathlib import Path
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
 
 from loguru import logger
 
@@ -14,8 +14,10 @@ from genie_flow.model.secondary_store import SecondaryStore
 from genie_flow.model.user import User
 from genie_flow.model.versioned import VersionedModel
 from genie_flow.permanent_storage import PermanentStorageManager
-from genie_flow.utils import get_fully_qualified_name_from_class, \
-    get_class_from_fully_qualified_name
+from genie_flow.utils import (
+    get_fully_qualified_name_from_class,
+    get_class_from_fully_qualified_name,
+)
 
 
 _DATABASE_NAME = "permanent_store.db"
@@ -47,40 +49,13 @@ class FileStorageManager(PermanentStorageManager):
         database_path: str | Path | None,
         blob_path: str | Path | None,
         compress: bool = False,
-        blob_directory_depth: int = 2
+        blob_directory_depth: int = 2,
+        critical_watermark: int | float = 120,
+        max_writes: int = 32,
     ):
         """
         Permanently store GenieModel objects in tar files and keep an index of persisted
-        records in a SQLite database.
-
-        The tar files consist of one or more files (members), containing the serialisation of
-        components of a GenieModel.
-
-        The member "_" contains the serialization of the GenieModel itself.
-        For every key in the secondary store of a GenieModel, a member of the tar file is
-        created that has the name of the key and content being the serialized data of the
-        secondary store value.
-
-        Configuration is done on the `config.yaml`, for example:
-        ```yaml
-        persistence:
-          permanent_store:
-            type: file
-            config:
-              database_path: ./permanent/db
-              blob_path: ./permanent/blob
-              compress: false
-              blob_directory_depth: 2
-        ```
-        This will create a directory tree of two levels and store files at the lowest level
-        of that tree. These files will be named `<session_id>.tar`. The directory tree is
-        constructed by the last (highest level) and penultimate bytes (second level) of the
-        session_id. So a file "019be56e-ad36-f9b5-a63a-557a98e8f71d.tar" will be stored in
-        ./permanent/blob/1d/f7/019be56e-ad36-f9b5-a63a-557a98e8f71d.tar
-
-        For this file, a record is created in the database "permanent_store.db" which will
-        be stored in ./permanent/db/permanent_store.db
-
+        records in an SQLite database.
 
         :param database_path: Path to the database file. Accepts a string or Path object.
             Can be None if no database is required.
@@ -89,11 +64,15 @@ class FileStorageManager(PermanentStorageManager):
         :param compress: Boolean flag to enable or disable compression for blob storage.
         :param blob_directory_depth: Integer specifying the depth of the directory
             structure for organizing blob storage. Defaults to 2.
+        :param critical_watermark: the number of seconds of time-to-live, below which
+            an object becomes critical to persist permanently
         """
         self.database_path = Path(database_path)
         self.blob_path = Path(blob_path)
         self.compress = compress
         self.blob_directory_depth = blob_directory_depth
+        self.critical_watermark = critical_watermark
+        self.max_writes = max_writes
 
         self.conn = self._create_connection()
         self._init_database()
@@ -259,6 +238,12 @@ class FileStorageManager(PermanentStorageManager):
 
     def retrieve(self, session_id: str) -> GenieModel:
         return self._read_tar(session_id)
+
+    def is_critical(self, ttl: int|float) -> bool:
+        return ttl <= self.critical_watermark
+
+    def remaining_room(self, already_persisted: int) -> int:
+        return max(self.max_writes - already_persisted, 0)
 
     def get_sessions_for_user(self, user: User) -> List[str]:
         if not user or not user.email:
