@@ -62,6 +62,7 @@ class GenieFlowPersistenceContainer(containers.DeclarativeContainer):
             database_path=config.permanent_store.config.database_path,
             blob_path=config.permanent_store.config.blob_path,
             compress=config.permanent_store.config.compress or False,
+            database_retries=config.permanent_store.config.database_retries or 5,
             blob_directory_depth=config.permanent_store.config.blob_directory_depth or 2,
             critical_watermark=config.permanent_store.config.critical_watermark or 120,
             max_writes=config.permanent_store.config.max_writes or 32,

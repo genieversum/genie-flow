@@ -21,6 +21,7 @@ from genie_flow.utils import (
 
 
 _DATABASE_NAME = "permanent_store.db"
+_RETRYABLE_ERRORS = {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}
 
 
 def _serialize_with_type(obj: VersionedModel, compress: bool) -> bytes:
@@ -49,6 +50,7 @@ class FileStorageManager(PermanentStorageManager):
         database_path: str | Path | None,
         blob_path: str | Path | None,
         compress: bool = False,
+        database_retries: int = 5,
         blob_directory_depth: int = 2,
         critical_watermark: int | float = 120,
         max_writes: int = 32,
@@ -62,6 +64,7 @@ class FileStorageManager(PermanentStorageManager):
         :param blob_path: Path to the blob storage directory. Accepts a string or Path
             object. Can be None if no blob storage is required.
         :param compress: Boolean flag to enable or disable compression for blob storage.
+        :param database_retries: Int indicating the max retries for accessing the database
         :param blob_directory_depth: Integer specifying the depth of the directory
             structure for organizing blob storage. Defaults to 2.
         :param critical_watermark: the number of seconds of time-to-live, below which
@@ -70,6 +73,7 @@ class FileStorageManager(PermanentStorageManager):
         self.database_path = Path(database_path)
         self.blob_path = Path(blob_path)
         self.compress = compress
+        self.database_retries = database_retries
         self.blob_directory_depth = blob_directory_depth
         self.critical_watermark = critical_watermark
         self.max_writes = max_writes
@@ -186,24 +190,55 @@ class FileStorageManager(PermanentStorageManager):
         file_path = (file_dir / session_id).with_suffix(".tar")
         os.remove(file_path)
 
-    def _upsert_session_index(self, model: GenieModel):
+    def _execute_upsert(self, model: GenieModel):
         session_id = model.session_id
         user_info: Optional[User] = model.secondary_storage.get("user_info", None)
         email_address = user_info.email if user_info else "dummy@dummy.com"
 
         self.conn.execute(
             """
-                    INSERT INTO sessions (
-                        session_id,
-                        email_address,
-                        created_at,
-                        updated_at
-                    ) VALUES (?, ?, datetime('now'), datetime('now'))
-                    ON CONFLICT(session_id) DO
-                        UPDATE SET updated_at = datetime('now')
-              """,
+                INSERT INTO sessions (session_id,
+                                      email_address,
+                                      created_at,
+                                      updated_at)
+                VALUES (?, ?, datetime('now'), datetime('now'))
+                ON CONFLICT(session_id) DO UPDATE SET updated_at = datetime('now')
+            """,
             (session_id, email_address),
         )
+
+    def _handle_upsert_error(
+            self,
+            e: sqlite3.OperationalError,
+            attempt: int,
+    ):
+        if (
+                e.sqlite_errorcode in _RETRYABLE_ERRORS
+                and attempt < self.database_retries - 1
+        ):
+            logger.warning(
+                "Database contention (error {code}), retry {attempt}/{max}",
+                code=e.sqlite_errorname or e.sqlite_errorcode,
+                attempt=attempt + 1,
+                max=self.database_retries,
+            )
+            time.sleep(0.1 * (2 ** attempt))
+        else:
+            logger.error(
+                "Failed to upsert session after {attempts} attempts: {error}",
+                attempts=attempt + 1,
+                error=e.sqlite_errorname or str(e)
+            )
+            raise
+
+    def _upsert_session_index(self, model: GenieModel):
+        for attempt in range(self.database_retries):
+            try:
+                self._execute_upsert(model)
+            except sqlite3.OperationalError as e:
+                self._handle_upsert_error(e, attempt)
+            else:
+                return
 
     def store(self, model: GenieModel):
         try:
