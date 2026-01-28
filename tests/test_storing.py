@@ -8,7 +8,6 @@ from snappy import snappy
 
 from genie_flow.genie import GenieModel
 from genie_flow.model.dialogue import DialogueElement
-from genie_flow.permanent_storage import retrieve_model, store_session, store_user
 from genie_flow.utils import get_fully_qualified_name_from_class
 
 
