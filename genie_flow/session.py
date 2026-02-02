@@ -188,21 +188,23 @@ class SessionManager:
                 )
             )
 
-        actor_response = ""
         with self.session_lock_manager.get_locked_model(session_id, model_cls) as model:
             state_machine = model.get_state_machine_class()(model)
+            next_actions = state_machine.current_state.transitions.unique_events
+
             if model.has_errors:
                 return AIResponse(
                     session_id=model.session_id,
                     error=model.task_error,
-                    next_actions=state_machine.current_state.transitions.unique_events,
+                    next_actions=next_actions,
                 )
+
             actor_response = model.current_response.actor_text
 
         return AIResponse(
-            session_id=model.session_id,
+            session_id=session_id,
             response=actor_response,
-            next_actions=state_machine.current_state.transitions.unique_events,
+            next_actions=next_actions,
         )
 
     def _handle_event(
@@ -233,8 +235,13 @@ class SessionManager:
             state_machine = model.get_state_machine_class()(model)
             state_machine.add_listener(TransitionManager(self.celery_manager))
             state_machine.send(event.event, event.event_input)
+
             target_type = model.target_type
             actor_response = model.current_response.actor_text
+            model_fqn = get_fully_qualified_name_from_class(model)
+            state_template = state_machine.get_template_for_state(state_machine.current_state)
+            state_name = state_machine.current_state.id
+            event_to_send_after = state_machine.current_state.transitions.unique_events[0]
 
         if target_type == StateType.INVOKER:
             logger.info(
@@ -243,9 +250,12 @@ class SessionManager:
             )
             self.celery_manager.enqueue_task(
                 session_id,
-                get_fully_qualified_name_from_class(model_cls),
-                state_machine,
+                model_fqn,
+                state_template,
+                state_name,
+                event_to_send_after,
             )
+
             return AIResponse(session_id=session_id, next_actions=["poll"])
 
         return AIResponse(

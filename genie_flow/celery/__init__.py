@@ -7,7 +7,6 @@ from celery.app.task import Context
 from celery.canvas import chord, group, Signature
 from celery.result import AsyncResult
 from loguru import logger
-from statemachine import State
 
 from genie_flow.celery.compiler import TaskCompiler
 from genie_flow.celery.progress import ProgressLoggingTask
@@ -17,8 +16,7 @@ from genie_flow.genie import GenieModel, GenieStateMachine, StateType
 from genie_flow.model.template import CompositeContentType
 from genie_flow.mongo import store_session, store_user
 from genie_flow.session_lock import SessionLockManager
-from genie_flow.utils import get_fully_qualified_name_from_class, \
-    get_class_from_fully_qualified_name
+from genie_flow.utils import get_class_from_fully_qualified_name
 
 
 def parse_if_json(s: str) -> Any:
@@ -176,47 +174,54 @@ class CeleryManager:
             form the store, creates the state machine for it and sends that state machine
             the event that was given.
 
+            If the target state is an INVOKER, this task enqueues the task to make that
+            invocation -- this is so invoker states can be linked without the outside world
+            having to trigger a progression.
+
             :param task_instance: Celery Task instance - a reference to this task itself (bound)
             :param response: The response from the previous task
             :param event_name: The name of the event that needs to be sent to the state machine
             :param session_id: The session id for which this task is executed
             :param model_fqn: The fully qualified name of the class of the model
+            :param invocation_id: a unique id for the invocation
             """
-            lock = self.session_lock_manager.create_lock_for_session(session_id)
-            lock.acquire()
-
-            try:
-                model_class = get_class_from_fully_qualified_name(model_fqn)
-                model = self.session_lock_manager.retrieve_model(session_id, model_class)
+            with self.session_lock_manager.get_locked_model(session_id, model_fqn) as model:
                 self.session_lock_manager.progress_tombstone(session_id, invocation_id)
 
                 state_machine = model.get_state_machine_class()(model)
                 state_machine.add_listener(TransitionManager(self))
                 state_machine.send(event_name, response)
 
-                self.session_lock_manager.persist_model(model)
+                target_type = model.target_type
+                actor_response = model.current_response.actor_input
+                state_template = state_machine.get_template_for_state(state_machine.current_state)
+                state_name = state_machine.current_state.id
+                event_to_send_after = state_machine.current_state.transitions.unique_events[0]
 
-                if model.target_type == StateType.INVOKER:
-                    logger.info(
-                        "enqueueing task for session {session_id}",
-                        session_id=model.session_id,
-                    )
-                    self.enqueue_task(session_id, model_fqn, state_machine)
+            if target_type == StateType.INVOKER:
+                logger.info(
+                    "enqueueing task for session {session_id}",
+                    session_id=model.session_id,
+                )
+                self.enqueue_task(
+                    session_id,
+                    model_fqn,
+                    state_template,
+                    state_name,
+                    event_to_send_after,
+                )
 
-                if model.actor_input is None:
-                    logger.debug("actor input is None")
-                else:
-                    logger.debug(
-                        "actor input is now '{actor_input}'",
-                        actor_input=(
-                            model.actor_input
-                            if len(model.actor_input) < 50
-                            else model.actor_input[:50] + "..."
-                        ),
-                    )
-            finally:
-                lock.release()
-
+            if actor_response is None:
+                logger.debug("actor input is None")
+            else:
+                logger.debug(
+                    "actor input is now '{actor_response}'",
+                    actor_response=(
+                        actor_response
+                        if len(actor_response) < 50
+                        else actor_response[:50] + "..."
+                    ),
+                )
 
         return trigger_ai_event
 
@@ -505,7 +510,9 @@ class CeleryManager:
             self,
             session_id: str,
             model_fqn: str,
-            state_machine: GenieStateMachine,
+            state_template: CompositeContentType,
+            state_name: str,
+            event_to_send_after: str,
     ):
         """
         Create a new Celery DAG and place it on the Celery queue.
@@ -521,7 +528,7 @@ class CeleryManager:
         :param model_fqn: the fully qualified model name of the agent
         :param state_machine: the active state machine to use
         """
-        event_to_send_after = state_machine.current_state.transitions.unique_events[0]
+        # event_to_send_after = state_machine.current_state.transitions.unique_events[0]
         task_compiler = TaskCompiler(
             self.celery_app,
             state_machine.get_template_for_state(state_machine.current_state),
