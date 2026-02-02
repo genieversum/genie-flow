@@ -259,8 +259,7 @@ class SessionManager:
 
     def process_event(self, model_key: str, event: EventInput) -> AIResponse:
         """
-        Process incoming events. Claims a lock to the model instance that the event refers to
-        and checks the event. If the event is a `poll` event, handling is performed by the
+        Process incoming events. If the event is a `poll` event, handling is performed by the
         `_handle_poll` method. If not, this method returns the result of processing the event.
 
         :param model_key: the key under which the model class is registered

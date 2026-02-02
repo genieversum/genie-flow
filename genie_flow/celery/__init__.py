@@ -205,15 +205,15 @@ class CeleryManager:
                     state_machine.current_state.transitions.unique_events[0],
                 )
 
-            if model.current_response.actor_input is None:
+            if model.current_response.actor_text is None:
                 logger.debug("actor response is None")
             else:
                 logger.debug(
                     "actor response is now '{actor_response}'",
                     actor_response=(
-                        model.current_response.actor_input
-                        if len(model.current_response.actor_input) < 50
-                        else model.current_response.actor_input[:50] + "..."
+                        model.current_response.actor_text
+                        if len(model.current_response.actor_text) < 50
+                        else model.current_response.actor_text[:50] + "..."
                     ),
                 )
 
@@ -520,15 +520,17 @@ class CeleryManager:
 
         :param session_id: the session_id for which to enqueue a task
         :param model_fqn: the fully qualified model name of the agent
-        :param state_machine: the active state machine to use
+        :param state_template: the template to use to compile
+        :param state_name: the name of the state we are in
+        :param event_to_send_after: the event to send after the task
         """
         # event_to_send_after = state_machine.current_state.transitions.unique_events[0]
         task_compiler = TaskCompiler(
             self.celery_app,
-            state_machine.get_template_for_state(state_machine.current_state),
+            state_template,
             session_id,
             model_fqn,
-            state_machine.current_state.id,
+            state_name,
             event_to_send_after,
         )
         task_compiler.task.on_error(
