@@ -130,7 +130,7 @@ class CeleryManager:
             )
             logger.exception(traceback)
 
-            with self.session_lock_manager.get_locked_model(session_id, cls_fqn) as model:
+            with self.session_lock_manager.checkout_model(session_id, cls_fqn) as model:
                 self._process_model_event(
                     event_argument="",
                     model=model,
@@ -185,20 +185,14 @@ class CeleryManager:
             :param model_fqn: The fully qualified name of the class of the model
             :param invocation_id: a unique id for the invocation
             """
-            with self.session_lock_manager.get_locked_model(session_id, model_fqn) as model:
+            with self.session_lock_manager.checkout_model(session_id, model_fqn) as model:
                 self.session_lock_manager.progress_tombstone(session_id, invocation_id)
 
                 state_machine = model.get_state_machine_class()(model)
                 state_machine.add_listener(TransitionManager(self))
                 state_machine.send(event_name, response)
 
-                target_type = model.target_type
-                actor_response = model.current_response.actor_input
-                state_template = state_machine.get_template_for_state(state_machine.current_state)
-                state_name = state_machine.current_state.id
-                event_to_send_after = state_machine.current_state.transitions.unique_events[0]
-
-            if target_type == StateType.INVOKER:
+            if model.target_type == StateType.INVOKER:
                 logger.info(
                     "enqueueing task for session {session_id}",
                     session_id=model.session_id,
@@ -206,20 +200,20 @@ class CeleryManager:
                 self.enqueue_task(
                     session_id,
                     model_fqn,
-                    state_template,
-                    state_name,
-                    event_to_send_after,
+                    state_machine.get_template_for_state(state_machine.current_state),
+                    state_machine.current_state.id,
+                    state_machine.current_state.transitions.unique_events[0],
                 )
 
-            if actor_response is None:
-                logger.debug("actor input is None")
+            if model.current_response.actor_input is None:
+                logger.debug("actor response is None")
             else:
                 logger.debug(
-                    "actor input is now '{actor_response}'",
+                    "actor response is now '{actor_response}'",
                     actor_response=(
-                        actor_response
-                        if len(actor_response) < 50
-                        else actor_response[:50] + "..."
+                        model.current_response.actor_input
+                        if len(model.current_response.actor_input) < 50
+                        else model.current_response.actor_input[:50] + "..."
                     ),
                 )
 
@@ -568,7 +562,7 @@ class CeleryManager:
             )
             for session_item in updated_sessions:
                 fqn, session_id = session_item.decode().rsplit(':', 1)
-                with self.session_lock_manager.get_locked_model(
+                with self.session_lock_manager.checkout_model(
                         session_id=session_id,
                         model_class=fqn
                 ) as model:

@@ -188,7 +188,7 @@ class SessionManager:
                 )
             )
 
-        with self.session_lock_manager.get_locked_model(session_id, model_cls) as model:
+        with self.session_lock_manager.checkout_model(session_id, model_cls) as model:
             state_machine = model.get_state_machine_class()(model)
             next_actions = state_machine.current_state.transitions.unique_events
 
@@ -231,36 +231,29 @@ class SessionManager:
         :param event: the event to process
         :return: an instance of `AIResponse` with the appropriate values
         """
-        with self.session_lock_manager.get_locked_model(session_id, model_cls) as model:
+        with self.session_lock_manager.checkout_model(session_id, model_cls) as model:
             state_machine = model.get_state_machine_class()(model)
             state_machine.add_listener(TransitionManager(self.celery_manager))
             state_machine.send(event.event, event.event_input)
 
-            target_type = model.target_type
-            actor_response = model.current_response.actor_text
-            model_fqn = get_fully_qualified_name_from_class(model)
-            state_template = state_machine.get_template_for_state(state_machine.current_state)
-            state_name = state_machine.current_state.id
-            event_to_send_after = state_machine.current_state.transitions.unique_events[0]
-
-        if target_type == StateType.INVOKER:
+        if model.target_type == StateType.INVOKER:
             logger.info(
                 "enqueueing task for session {session_id}",
                 session_id=session_id,
             )
             self.celery_manager.enqueue_task(
                 session_id,
-                model_fqn,
-                state_template,
-                state_name,
-                event_to_send_after,
+                get_fully_qualified_name_from_class(model),
+                state_machine.get_template_for_state(state_machine.current_state),
+                state_machine.current_state.id,
+                state_machine.current_state.transitions.unique_events[0],
             )
 
             return AIResponse(session_id=session_id, next_actions=["poll"])
 
         return AIResponse(
             session_id=event.session_id,
-            response=actor_response,
+            response=model.current_response.actor_text,
             next_actions=state_machine.current_state.transitions.unique_events,
         )
 

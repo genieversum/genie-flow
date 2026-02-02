@@ -196,18 +196,34 @@ class SessionLockManager:
             self.persist_model(model)
 
     @contextmanager
-    def get_locked_model(self, session_id: str, model_class: str | Type[GenieModel]):
+    def checkout_model(self, session_id: str, model_class: str | Type[GenieModel]):
+        """
+        Check out a locked copy of the model that gets written back to Redis when the
+        context manager exits.
+
+        :param session_id: the session_id of the model to checkout
+        :param model_class: the class of the model to checkout
+        :return: a copy of the model as it exists in Redis with a lock against it
+        """
         if isinstance(model_class, str):
             model_class = get_class_from_fully_qualified_name(model_class)
 
         lock = self.create_lock_for_session(session_id)
         lock.acquire()
 
+        model: Optional[GenieModel] = None
         try:
             model = self.retrieve_model(session_id, model_class)
             yield model
+        except Exception as e:
+            logger.error(
+                "Failed to retrieve model for session {session_id} with exception {exc}",
+                session_id=session_id,
+                exc=f"{e.__class__.__name__}: {e}",
+            )
         finally:
-            self.persist_model(model)
+            if model is not None:
+                self.persist_model(model)
             lock.release()
 
     @staticmethod
