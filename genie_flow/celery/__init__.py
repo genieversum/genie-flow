@@ -201,7 +201,7 @@ class CeleryManager:
                         "enqueueing task for session {session_id}",
                         session_id=model.session_id,
                     )
-                    self.enqueue_task(state_machine, model, state_machine.current_state)
+                    self.enqueue_task(session_id, model_fqn, state_machine)
 
                 if model.actor_input is None:
                     logger.debug("actor input is None")
@@ -503,9 +503,9 @@ class CeleryManager:
 
     def enqueue_task(
             self,
+            session_id: str,
+            model_fqn: str,
             state_machine: GenieStateMachine,
-            model: GenieModel,
-            target_state: State,
     ):
         """
         Create a new Celery DAG and place it on the Celery queue.
@@ -517,24 +517,23 @@ class CeleryManager:
         `render_data` property of the machine) and therefore frozen. That then becomes
         the `render_data` that is used inside the DAG.
 
+        :param session_id: the session_id for which to enqueue a task
+        :param model_fqn: the fully qualified model name of the agent
         :param state_machine: the active state machine to use
-        :param model: the data model
-        :param target_state: the state we will transition into
         """
-        model_fqn = get_fully_qualified_name_from_class(model)
-        event_to_send_after = target_state.transitions.unique_events[0]
+        event_to_send_after = state_machine.current_state.transitions.unique_events[0]
         task_compiler = TaskCompiler(
             self.celery_app,
-            state_machine.get_template_for_state(target_state),
-            model.session_id,
+            state_machine.get_template_for_state(state_machine.current_state),
+            session_id,
             model_fqn,
-            target_state.id,
+            state_machine.current_state.id,
             event_to_send_after,
         )
         task_compiler.task.on_error(
             task_compiler.error_handler.s(
                 model_fqn,
-                model.session_id,
+                session_id,
                 task_compiler.invocation_id,
                 event_to_send_after,
             )
@@ -542,7 +541,7 @@ class CeleryManager:
 
         # enqueuing the compiled task with an empty drag_net dictionary
         self.session_lock_manager.progress_start(
-            session_id=model.session_id,
+            session_id=session_id,
             invocation_id=task_compiler.invocation_id,
             nr_tasks_todo=task_compiler.nr_tasks,
         )
