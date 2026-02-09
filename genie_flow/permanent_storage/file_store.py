@@ -1,11 +1,12 @@
 import os
 import sqlite3
 import tarfile
+from threading import local
 import time
 from functools import cache
 from io import BytesIO
 from pathlib import Path
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List, Tuple, Type
 
 from loguru import logger
 
@@ -13,7 +14,7 @@ from genie_flow.genie import GenieModel
 from genie_flow.model.secondary_store import SecondaryStore
 from genie_flow.model.user import User
 from genie_flow.model.versioned import VersionedModel
-from genie_flow.permanent_storage import PermanentStorageManager
+from genie_flow.permanent_storage import PermanentStorageManager, RetrievableModel
 from genie_flow.utils import (
     get_fully_qualified_name_from_class,
     get_class_from_fully_qualified_name,
@@ -22,6 +23,12 @@ from genie_flow.utils import (
 
 _DATABASE_NAME = "permanent_store.db"
 _RETRYABLE_ERRORS = {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}
+
+_UPSERT_SQL = """
+    INSERT INTO sessions (session_id, email_address, created_at, updated_at)
+    VALUES (?, ?, datetime('now'), datetime('now'))
+    ON CONFLICT(session_id) DO UPDATE SET updated_at = datetime('now')
+"""
 
 
 def _serialize_with_type(obj: VersionedModel, compress: bool) -> bytes:
@@ -44,6 +51,7 @@ def _deserialize_with_type(obj: bytes) -> GenieModel:
 
 
 class FileStorageManager(PermanentStorageManager):
+    _thread_local = local()
 
     def __init__(
         self,
@@ -78,26 +86,32 @@ class FileStorageManager(PermanentStorageManager):
         self.critical_watermark = critical_watermark
         self.max_writes = max_writes
 
-        self.conn = self._create_connection()
         self._init_database()
+
+    def _get_connection(self):
+        if not hasattr(self._thread_local, 'conn'):
+            self._thread_local.conn = self._create_connection()
+        return self._thread_local.conn
 
     def _create_connection(self):
         self.database_path.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(
             self.database_path / _DATABASE_NAME,
             timeout=30.0,
-            isolation_level=None
+            check_same_thread=False,
         )
         conn.executescript("""
             PRAGMA journal_mode = WAL;
             PRAGMA synchronous = NORMAL;
             PRAGMA cache_size = -64000;
+            PRAGMA busy_timeout = 30000;
+            PRAGMA temp_store = MEMORY;
         """)
         return conn
 
     def _init_database(self):
         """Initialize the database with WAL mode and proper settings"""
-        self.conn.executescript("""
+        self._get_connection().executescript("""
             -- Enable WAL mode (allows concurrent reads + single writer)
             PRAGMA journal_mode = WAL;
 
@@ -195,17 +209,10 @@ class FileStorageManager(PermanentStorageManager):
         user_info: Optional[User] = model.secondary_storage.get("user_info", None)
         email_address = user_info.email if user_info else "dummy@dummy.com"
 
-        self.conn.execute(
-            """
-                INSERT INTO sessions (session_id,
-                                      email_address,
-                                      created_at,
-                                      updated_at)
-                VALUES (?, ?, datetime('now'), datetime('now'))
-                ON CONFLICT(session_id) DO UPDATE SET updated_at = datetime('now')
-            """,
-            (session_id, email_address),
-        )
+        conn = self._get_connection()
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(_UPSERT_SQL, (session_id, email_address))
+        conn.commit()
 
     def _handle_upsert_error(
             self,
@@ -229,7 +236,7 @@ class FileStorageManager(PermanentStorageManager):
                 attempts=attempt + 1,
                 error=e.sqlite_errorname or str(e)
             )
-            raise
+            raise e
 
     def _upsert_session_index(self, model: GenieModel):
         for attempt in range(self.database_retries):
@@ -240,36 +247,103 @@ class FileStorageManager(PermanentStorageManager):
             else:
                 return
 
-    def store(self, model: GenieModel):
-        try:
-            self._write_tar(model)
-        except Exception as e:
-            logger.error(
-                "Failed to store model for session {session_id}, with exception {exc}",
-                session_id=model.session_id,
-                exc=e.__class__.__name__,
-            )
-            raise e
+    def _write_multi(
+            self,
+            models: List[GenieModel | RetrievableModel],
+    ) -> Tuple[List[Tuple[str, str]], List[str]]:
+        """
+        Write a list of GenieModel or RetrievableModel objects to files. Returns
+        a tuple of lists. The first of that tuple being a list of tuples containing
+        session_id and email address of the succeeded file writes. The second list being
+        a list of string session id's.
 
-        try:
-            self._upsert_session_index(model)
-        except Exception as e:
-            logger.error(
-                "Failed to upsert session {session_id}, with exception {exc}, "
-                "deleting file",
-                session_id=model.session_id,
-                exc=e.__class__.__name__,
-            )
+        :param models: a list of GenieModel or RetrievableModel objects
+        :return: a tuple of lists, succeeded and failed writes
+        """
+        succeeded: List[Tuple[str, str]] = list()
+        failed: List[str] = list()
+
+        for model in models:
             try:
-                self._delete_tar(model.session_id)
-            except Exception as file_remove_e:
-                logger.warning(
-                    "Failed to remove file for session {session_id} "
+                if isinstance(model, RetrievableModel):
+                    model = model.retriever()
+                self._write_tar(model)
+            except KeyError as e:
+                logger.error(
+                    "Failed to retrieve model for session {session_id}",
+                    session_id=model.session_id,
+                )
+                failed.append(model.session_id)
+            except Exception as e:
+                logger.error(
+                    "Failed to store file for model of session {session_id}, "
                     "with exception {exc}",
                     session_id=model.session_id,
-                    exc=file_remove_e.__class__.__name__,
+                    exc=e.__class__.__name__,
                 )
-            raise e
+                failed.append(model.session_id)
+            else:
+                user_info: Optional[User] = model.secondary_storage.get("user_info", None)
+                email_address = user_info.email if user_info else "dummy@dummy.com"
+                succeeded.append((model.session_id, email_address))
+
+        logger.debug(
+            "Written {nr_succeeded} files; failed {nr_failed} write attempts",
+            nr_succeeded=len(succeeded),
+            nr_failed=len(failed),
+        )
+        return succeeded, failed
+
+    def store_multi(
+            self,
+            serializations: List[GenieModel | RetrievableModel],
+    ) -> Tuple[List[str], List[str]]:
+        """
+        Persist a list of GenieModel or RetrievableModel objects. Returns a tuple of a
+        list of succeeded session_ids and a list of failed session ids.
+
+        First, writes all files for the supplied models. All succeeded writes will then
+        be recorded into the database. If writing any to the database fails, attempts to
+        remove any files written.
+
+        :param serializations: a list of GenieModel or RetrievableModel objects
+        :return: a tuple with succeeded, failed session ids
+        """
+        succeeded, failed = self._write_multi(serializations)
+        if not succeeded:
+            return [], [model.session_id for model in serializations]
+
+        conn = self._get_connection()
+        for attempt in range(self.database_retries):
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                conn.executemany(_UPSERT_SQL, succeeded)
+                conn.commit()
+                return [s[0] for s in succeeded], failed
+            except sqlite3.OperationalError as e:
+                conn.rollback()
+                try:
+                    self._handle_upsert_error(e, attempt)
+                except Exception as e:
+                    logger.error(
+                        "Failed to upsert {nr_sessions} sessions with error {exc}, "
+                        "removing files",
+                        nr_sessions=len(succeeded),
+                        exc=f"{e.__class__.__name__}: {e}",
+                    )
+                    for session_id, _ in succeeded:
+                        try:
+                            self._delete_tar(session_id)
+                        except Exception as e:
+                            logger.warning(
+                                "Failed to remove file for session {session_id}, "
+                                "with error {exc}; ignoring",
+                                session_id=session_id,
+                                exc=f"{e.__class__.__name__}: {e}"
+                            )
+                    break
+
+        return [], [model.session_id for model in serializations]
 
     def retrieve(self, session_id: str) -> GenieModel:
         return self._read_tar(session_id)
@@ -284,7 +358,7 @@ class FileStorageManager(PermanentStorageManager):
         if not user or not user.email:
             return list()
 
-        cursor = self.conn.execute(
+        cursor = self._get_connection().execute(
             "SELECT session_id FROM sessions WHERE email_address = ?",
             (user.email, ),
         )

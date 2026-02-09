@@ -1,25 +1,38 @@
 from abc import ABC
-from typing import Protocol, Optional, NamedTuple, List, Tuple
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import List, Tuple, Type, Dict
 
 from genie_flow.genie import GenieModel
 from genie_flow.model.user import User
 
 
+@dataclass
+class RetrievableModel:
+    """
+    A reference to a GenieModel with a session. The reference will have a Callable
+    that will retrieve the object from an external source.
+    """
+    session_id: str
+    model_cls: Type[GenieModel]
+    retriever: Callable[[], Dict[str, bytes]]
+
+
 class PermanentStorageManager(ABC):
 
-    def store(self, model: GenieModel):
+    def store_multi(
+            self,
+            serializations: List[Dict[str, bytes] | RetrievableModel],
+    ) -> Tuple[List[str], List[str]]:
         """
-        Permanently persist the model.
+        Permanently store multiple models.
 
-        Persisting is idempotent and atomic; only the most recent version of the model
-        will be stored.
-
-        :param model: the GenieModel to persist
-        :return:
+        :param serializations: A list of serialized GenieModel objects
+        :return: a tuple of lists, succeeded and failed session id's
         """
         pass
 
-    def retrieve(self, session_id: str):
+    def retrieve(self, session_id: str) -> GenieModel:
         """
         Retrieve a model from permanent storage. Will retrieve a subclass of a GenieModel,
         with the correct type. Will also retrieve and restore the secondary storage values.
