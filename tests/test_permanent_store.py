@@ -1,5 +1,6 @@
 import shutil
 import tempfile
+import uuid
 from pathlib import Path
 
 import pytest
@@ -38,6 +39,24 @@ def test_store(file_store_manager, genie_model):
         (genie_model.session_id,)
     )
     assert len(cursor.fetchall())== 1
+
+
+def test_store_multiple(file_store_manager, genie_model):
+    genie_model2 = genie_model.__class__.model_validate(
+        genie_model.model_dump(exclude="secondary_store")
+    )
+    genie_model2.session_id = uuid.uuid4().hex
+    genie_model2.secondary_storage = genie_model.secondary_storage
+
+    file_store_manager.store_multi([genie_model, genie_model2])
+    cursor = file_store_manager._get_connection().execute(
+        """
+            SELECT * FROM sessions
+            WHERE session_id = ? OR session_id = ?
+        """,
+        (genie_model.session_id, genie_model2.session_id)
+    )
+    assert len(cursor.fetchall()) == 2
 
 
 def test_get_sessions_for_user(file_store_manager, genie_model):
