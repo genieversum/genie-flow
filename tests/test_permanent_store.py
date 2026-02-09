@@ -19,7 +19,7 @@ def file_store_manager():
 
 
 def test_store(file_store_manager, genie_model):
-    file_store_manager.store(genie_model)
+    file_store_manager.store_multi([genie_model])
 
     db_path = file_store_manager.database_path / "permanent_store.db"
     assert db_path.exists()
@@ -30,7 +30,7 @@ def test_store(file_store_manager, genie_model):
         / f"{genie_model.session_id}.tar"
     )
     assert blob_path.exists()
-    cursor = file_store_manager.conn.execute(
+    cursor = file_store_manager._get_connection().execute(
         """
             SELECT * FROM sessions
             WHERE session_id = ?
@@ -41,7 +41,7 @@ def test_store(file_store_manager, genie_model):
 
 
 def test_get_sessions_for_user(file_store_manager, genie_model):
-    file_store_manager.store(genie_model)
+    file_store_manager.store_multi([genie_model])
     user = genie_model.secondary_storage["user_info"]
     user_sessions = file_store_manager.get_sessions_for_user(user)
 
@@ -49,7 +49,7 @@ def test_get_sessions_for_user(file_store_manager, genie_model):
 
 
 def test_retrieve(file_store_manager, genie_model):
-    file_store_manager.store(genie_model)
+    file_store_manager.store_multi([genie_model])
     restored = file_store_manager.retrieve(genie_model.session_id)
     restored_dict = restored.model_dump()
 
