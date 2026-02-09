@@ -6,7 +6,7 @@ import time
 from functools import cache
 from io import BytesIO
 from pathlib import Path
-from typing import Optional, Dict, List, Tuple, Type
+from typing import Optional, Dict, List, Tuple, Type, NamedTuple
 
 from loguru import logger
 
@@ -29,6 +29,11 @@ _UPSERT_SQL = """
     VALUES (?, ?, datetime('now'), datetime('now'))
     ON CONFLICT(session_id) DO UPDATE SET updated_at = datetime('now')
 """
+
+
+class _WriteResult(NamedTuple):
+    succeeded: List[Tuple[str, str]]  # (session_id, email)
+    failed: List[str]  # session_ids
 
 
 def _serialize_with_type(obj: VersionedModel, compress: bool) -> bytes:
@@ -250,7 +255,7 @@ class FileStorageManager(PermanentStorageManager):
     def _write_multi(
             self,
             models: List[GenieModel | RetrievableModel],
-    ) -> Tuple[List[Tuple[str, str]], List[str]]:
+    ) -> _WriteResult:
         """
         Write a list of GenieModel or RetrievableModel objects to files. Returns
         a tuple of lists. The first of that tuple being a list of tuples containing
@@ -258,7 +263,7 @@ class FileStorageManager(PermanentStorageManager):
         a list of string session id's.
 
         :param models: a list of GenieModel or RetrievableModel objects
-        :return: a tuple of lists, succeeded and failed writes
+        :return: a _WriteResult representing succeeded and failed writes
         """
         succeeded: List[Tuple[str, str]] = list()
         failed: List[str] = list()
@@ -292,11 +297,11 @@ class FileStorageManager(PermanentStorageManager):
             nr_succeeded=len(succeeded),
             nr_failed=len(failed),
         )
-        return succeeded, failed
+        return _WriteResult(succeeded, failed)
 
     def store_multi(
             self,
-            serializations: List[GenieModel | RetrievableModel],
+            models: List[GenieModel | RetrievableModel],
     ) -> Tuple[List[str], List[str]]:
         """
         Persist a list of GenieModel or RetrievableModel objects. Returns a tuple of a
@@ -306,12 +311,12 @@ class FileStorageManager(PermanentStorageManager):
         be recorded into the database. If writing any to the database fails, attempts to
         remove any files written.
 
-        :param serializations: a list of GenieModel or RetrievableModel objects
+        :param models: a list of GenieModel or RetrievableModel objects
         :return: a tuple with succeeded, failed session ids
         """
-        succeeded, failed = self._write_multi(serializations)
+        succeeded, failed = self._write_multi(models)
         if not succeeded:
-            return [], [model.session_id for model in serializations]
+            return [], [model.session_id for model in models]
 
         conn = self._get_connection()
         for attempt in range(self.database_retries):
@@ -343,7 +348,10 @@ class FileStorageManager(PermanentStorageManager):
                             )
                     break
 
-        return [], [model.session_id for model in serializations]
+        return [], [model.session_id for model in models]
+
+    def checkpoint(self):
+        self._get_connection().execute("PRAGMA wal_checkpoint(PASSIVE)")
 
     def retrieve(self, session_id: str) -> GenieModel:
         return self._read_tar(session_id)

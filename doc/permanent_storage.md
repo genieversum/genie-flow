@@ -103,7 +103,7 @@ as `./permanent/blob/1d/f7/019be56e-ad36-f9b5-a63a-557a98e8f71d.tar`
 For every tar file, a record is created in the database `permanent_store.db` which will
 be stored as `./permanent/db/permanent_store.db`.
 
-This database contains the table `session`, which is defined as:
+This database contains the table `sessions`, which is defined as:
 ```sql
 CREATE TABLE IF NOT EXISTS sessions (
     session_id TEXT PRIMARY KEY,
@@ -125,5 +125,38 @@ processes. Either because they all run on the same machine and storage is config
 on a local disk on that machine - or a network share of these files is mounted onto the
 worker and API processes.
 
+### concurrent access and robustness
+The SQLite database implementation is designed to handle multiple concurrent readers 
+alongside a single writer process efficiently and reliably.
+
+* [Write-Ahead Logging (WAL mode)](https://www.sqlite.org/wal.html) is enabled, which allows
+readers to access the database without blocking the writer, and vice versa.
+* Each process maintains its own thread-local database connection to ensure thread safety 
+in multi-threaded environments like Celery workers.
+* Write operations are wrapped in explicit transactions with immediate lock acquisition
+(`BEGIN IMMEDIATE`) and include automatic retry logic with exponential backoff for transient
+lock contention.
+* Batch writes are used whenever possible to minimize transaction overhead and maximize
+throughput.
+* After each batch write cycle, a passive checkpoint is performed to keep the WAL size
+manageable without blocking concurrent readers.
+
+This architecture ensures that the permanent storage system remains responsive and reliable
+even under heavy concurrent read load from multiple Celery Workers while a dedicated worker
+process handles all write operations.
+
 > For production deployments, it is recommended to run a separate permanent storage worker
 > that listens on a dedicated permanent storage queue
+
+### network filesystem limitation
+The `FileStorageManager` implementation uses SQLite with Write-Ahead Logging (WAL mode) for
+the session index, which enables efficient concurrent access from multiple readers and a 
+single writer. However, **WAL mode requires all processes to share memory-mapped files and
+is therefore incompatible with network filesystems** (NFS, SMB, CIFS, etc.). This means 
+`FileStorageManager` can only be used when all processes (API processes and workers) run on 
+the same physical machine with local access to the database file. For distributed deployments
+where processes run on multiple machines, and storage must be accessed over a network 
+filesystem, use `PostgresStorageManager` instead, which stores the session index in PostgreSQL
+while keeping tar files on shared storage.
+
+**NB: The PostgresStorageManager is @TODO**

@@ -1,7 +1,7 @@
 from abc import ABC
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import List, Tuple, Type, Dict
+from typing import List, Tuple, Type, Dict, NamedTuple
 
 from genie_flow.genie import GenieModel
 from genie_flow.model.user import User
@@ -22,13 +22,20 @@ class PermanentStorageManager(ABC):
 
     def store_multi(
             self,
-            serializations: List[Dict[str, bytes] | RetrievableModel],
+            models: List[GenieModel | RetrievableModel],
     ) -> Tuple[List[str], List[str]]:
         """
         Permanently store multiple models.
 
-        :param serializations: A list of serialized GenieModel objects
+        :param models: A list of GenieModel or RetrievableModel objects
         :return: a tuple of lists, succeeded and failed session id's
+        """
+        pass
+
+    def checkpoint(self):
+        """
+        Signal a checkpoint to the underlying system. This should indicate: we are done
+        with a batch now, do some cleanup if you want before we come with a next batch.
         """
         pass
 

@@ -335,6 +335,8 @@ class SessionLockManager:
             remaining=self.permanent_store.remaining_room(len(to_persist)),
         )
         succeeded, failed = self.permanent_store.store_multi(to_persist)
+        self.permanent_store.checkpoint()
+
         logger.info(
             "Permanently persisted successfully {nr_succeeded} models",
             nr_succeeded=len(succeeded),
