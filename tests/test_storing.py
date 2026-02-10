@@ -136,7 +136,7 @@ def test_not_persisting_secondary_store(session_lock_manager_connected, genie_mo
 
     session_lock_manager_connected.store_model(genie_model)
 
-    with session_lock_manager_connected.get_locked_model(
+    with session_lock_manager_connected.checkout_model(
             genie_model.session_id,
             genie_model.__class__
     ) as model:
@@ -167,7 +167,7 @@ def test_locked_model(session_lock_manager_connected, genie_model):
 
     def parallel_lock_getter(wait_indicator: Value):
         wait_indicator.value = True
-        with session_lock_manager_connected.get_locked_model(
+        with session_lock_manager_connected.checkout_model(
             genie_model.session_id,
             genie_model.__class__
         ) as mm_p:
@@ -179,7 +179,7 @@ def test_locked_model(session_lock_manager_connected, genie_model):
     session_lock_manager_connected.store_model(genie_model)
 
     waiting_for_lock = Value(c_bool, False)
-    with session_lock_manager_connected.get_locked_model(
+    with session_lock_manager_connected.checkout_model(
             genie_model.session_id,
             genie_model.__class__
     ) as mm:
@@ -202,7 +202,7 @@ def test_locked_model(session_lock_manager_connected, genie_model):
 
 def test_auto_save(session_lock_manager_connected, genie_model):
     session_lock_manager_connected.store_model(genie_model)
-    with session_lock_manager_connected.get_locked_model(
+    with session_lock_manager_connected.checkout_model(
             genie_model.session_id,
             genie_model.__class__
     ) as mm:
