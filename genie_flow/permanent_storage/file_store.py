@@ -1,12 +1,13 @@
 import os
 import sqlite3
 import tarfile
+from abc import ABC
 from threading import local
 import time
 from functools import cache
 from io import BytesIO
 from pathlib import Path
-from typing import Optional, Dict, List, Tuple, Type, NamedTuple
+from typing import Optional, Dict, List, Tuple, NamedTuple
 
 from loguru import logger
 
@@ -55,91 +56,19 @@ def _deserialize_with_type(obj: bytes) -> GenieModel:
     return cls.deserialize(blob)
 
 
-class FileStorageManager(PermanentStorageManager):
-    _thread_local = local()
-
+class AbstractFileStorageManager(PermanentStorageManager, ABC):
     def __init__(
         self,
-        database_path: str | Path | None,
+        critical_watermark: int | float,
+        max_writes: int,
         blob_path: str | Path | None,
         compress: bool = False,
-        database_retries: int = 5,
         blob_directory_depth: int = 2,
-        critical_watermark: int | float = 120,
-        max_writes: int = 32,
     ):
-        """
-        Permanently store GenieModel objects in tar files and keep an index of persisted
-        records in an SQLite database.
-
-        :param database_path: Path to the database file. Accepts a string or Path object.
-            Can be None if no database is required.
-        :param blob_path: Path to the blob storage directory. Accepts a string or Path
-            object. Can be None if no blob storage is required.
-        :param compress: Boolean flag to enable or disable compression for blob storage.
-        :param database_retries: Int indicating the max retries for accessing the database
-        :param blob_directory_depth: Integer specifying the depth of the directory
-            structure for organizing blob storage. Defaults to 2.
-        :param critical_watermark: the number of seconds of time-to-live, below which
-            an object becomes critical to persist permanently
-        """
-        self.database_path = Path(database_path)
+        super().__init__(critical_watermark, max_writes)
+        self.blob_directory_depth = blob_directory_depth
         self.blob_path = Path(blob_path)
         self.compress = compress
-        self.database_retries = database_retries
-        self.blob_directory_depth = blob_directory_depth
-        self.critical_watermark = critical_watermark
-        self.max_writes = max_writes
-
-        self._init_database()
-
-    def _get_connection(self):
-        if not hasattr(self._thread_local, 'conn'):
-            self._thread_local.conn = self._create_connection()
-        return self._thread_local.conn
-
-    def _create_connection(self):
-        self.database_path.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(
-            self.database_path / _DATABASE_NAME,
-            timeout=30.0,
-            check_same_thread=False,
-        )
-        conn.executescript("""
-            PRAGMA journal_mode = WAL;
-            PRAGMA synchronous = NORMAL;
-            PRAGMA cache_size = -64000;
-            PRAGMA busy_timeout = 30000;
-            PRAGMA temp_store = MEMORY;
-        """)
-        return conn
-
-    def _init_database(self):
-        """Initialize the database with WAL mode and proper settings"""
-        self._get_connection().executescript("""
-            -- Enable WAL mode (allows concurrent reads + single writer)
-            PRAGMA journal_mode = WAL;
-
-            -- Safer durability for batch writes
-            PRAGMA synchronous = NORMAL;
-
-            -- Larger cache
-            PRAGMA cache_size = -64000;
-
-            -- Create schema if not exists
-            CREATE TABLE IF NOT EXISTS sessions (
-                session_id TEXT PRIMARY KEY,
-                email_address TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_sessions_email 
-            ON sessions(email_address);
-
-            CREATE INDEX IF NOT EXISTS idx_sessions_updated_at 
-            ON sessions(updated_at);
-        """)
 
     @cache
     def _get_blob_dir(self, session_id: str) -> Path:
@@ -209,49 +138,6 @@ class FileStorageManager(PermanentStorageManager):
         file_path = (file_dir / session_id).with_suffix(".tar")
         os.remove(file_path)
 
-    def _execute_upsert(self, model: GenieModel):
-        session_id = model.session_id
-        user_info: Optional[User] = model.secondary_storage.get("user_info", None)
-        email_address = user_info.email if user_info else "dummy@dummy.com"
-
-        conn = self._get_connection()
-        conn.execute("BEGIN IMMEDIATE")
-        conn.execute(_UPSERT_SQL, (session_id, email_address))
-        conn.commit()
-
-    def _handle_upsert_error(
-            self,
-            e: sqlite3.OperationalError,
-            attempt: int,
-    ):
-        if (
-                e.sqlite_errorcode in _RETRYABLE_ERRORS
-                and attempt < self.database_retries - 1
-        ):
-            logger.warning(
-                "Database contention (error {code}), retry {attempt}/{max}",
-                code=e.sqlite_errorname or e.sqlite_errorcode,
-                attempt=attempt + 1,
-                max=self.database_retries,
-            )
-            time.sleep(0.1 * (2 ** attempt))
-        else:
-            logger.error(
-                "Failed to upsert session after {attempts} attempts: {error}",
-                attempts=attempt + 1,
-                error=e.sqlite_errorname or str(e)
-            )
-            raise e
-
-    def _upsert_session_index(self, model: GenieModel):
-        for attempt in range(self.database_retries):
-            try:
-                self._execute_upsert(model)
-            except sqlite3.OperationalError as e:
-                self._handle_upsert_error(e, attempt)
-            else:
-                return
-
     def _write_multi(
             self,
             models: List[GenieModel | RetrievableModel],
@@ -298,6 +184,139 @@ class FileStorageManager(PermanentStorageManager):
             nr_failed=len(failed),
         )
         return _WriteResult(succeeded, failed)
+
+
+class FileStorageManager(AbstractFileStorageManager):
+    _thread_local = local()
+
+    def __init__(
+        self,
+        critical_watermark: int | float,
+        max_writes: int,
+        blob_path: str | Path | None,
+        compress: bool,
+        blob_directory_depth: int,
+        database_path: str | Path | None,
+        database_retries: int,
+    ):
+        """
+        Permanently store GenieModel objects in tar files and keep an index of persisted
+        records in an SQLite database.
+
+        :param database_path: Path to the database file. Accepts a string or Path object.
+            Can be None if no database is required.
+        :param blob_path: Path to the blob storage directory. Accepts a string or Path
+            object. Can be None if no blob storage is required.
+        :param compress: Boolean flag to enable or disable compression for blob storage.
+        :param database_retries: Int indicating the max retries for accessing the database
+        :param blob_directory_depth: Integer specifying the depth of the directory
+            structure for organizing blob storage. Defaults to 2.
+        :param critical_watermark: the number of seconds of time-to-live, below which
+            an object becomes critical to persist permanently
+        """
+        super().__init__(
+            critical_watermark,
+            max_writes,
+            blob_path,
+            compress,
+            blob_directory_depth,
+        )
+
+        self.database_path = Path(database_path)
+        self.database_retries = database_retries
+
+        self._init_database()
+
+    def _get_connection(self):
+        if not hasattr(self._thread_local, 'conn'):
+            self._thread_local.conn = self._create_connection()
+        return self._thread_local.conn
+
+    def _create_connection(self):
+        self.database_path.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(
+            self.database_path / _DATABASE_NAME,
+            timeout=30.0,
+            check_same_thread=False,
+        )
+        conn.executescript("""
+            PRAGMA journal_mode = WAL;
+            PRAGMA synchronous = NORMAL;
+            PRAGMA cache_size = -64000;
+            PRAGMA busy_timeout = 30000;
+            PRAGMA temp_store = MEMORY;
+        """)
+        return conn
+
+    def _init_database(self):
+        """Initialize the database with WAL mode and proper settings"""
+        self._get_connection().executescript("""
+            -- Enable WAL mode (allows concurrent reads + single writer)
+            PRAGMA journal_mode = WAL;
+
+            -- Safer durability for batch writes
+            PRAGMA synchronous = NORMAL;
+
+            -- Larger cache
+            PRAGMA cache_size = -64000;
+
+            -- Create schema if not exists
+            CREATE TABLE IF NOT EXISTS sessions (
+                session_id TEXT PRIMARY KEY,
+                email_address TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_sessions_email 
+            ON sessions(email_address);
+
+            CREATE INDEX IF NOT EXISTS idx_sessions_updated_at 
+            ON sessions(updated_at);
+        """)
+
+    def _execute_upsert(self, model: GenieModel):
+        session_id = model.session_id
+        user_info: Optional[User] = model.secondary_storage.get("user_info", None)
+        email_address = user_info.email if user_info else "dummy@dummy.com"
+
+        conn = self._get_connection()
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(_UPSERT_SQL, (session_id, email_address))
+        conn.commit()
+
+    def _handle_upsert_error(
+            self,
+            e: sqlite3.OperationalError,
+            attempt: int,
+    ):
+        if (
+                e.sqlite_errorcode in _RETRYABLE_ERRORS
+                and attempt < self.database_retries - 1
+        ):
+            logger.warning(
+                "Database contention (error {code}), retry {attempt}/{max}",
+                code=e.sqlite_errorname or e.sqlite_errorcode,
+                attempt=attempt + 1,
+                max=self.database_retries,
+            )
+            time.sleep(0.1 * (2 ** attempt))
+        else:
+            logger.error(
+                "Failed to upsert session after {attempts} attempts: {error}",
+                attempts=attempt + 1,
+                error=e.sqlite_errorname or str(e)
+            )
+            raise e
+
+    def _upsert_session_index(self, model: GenieModel):
+        for attempt in range(self.database_retries):
+            try:
+                self._execute_upsert(model)
+            except sqlite3.OperationalError as e:
+                self._handle_upsert_error(e, attempt)
+            else:
+                return
 
     def store_multi(
             self,
@@ -355,12 +374,6 @@ class FileStorageManager(PermanentStorageManager):
 
     def retrieve(self, session_id: str) -> GenieModel:
         return self._read_tar(session_id)
-
-    def is_critical(self, ttl: int|float) -> bool:
-        return ttl <= self.critical_watermark
-
-    def remaining_room(self, already_persisted: int) -> int:
-        return max(self.max_writes - already_persisted, 0)
 
     def get_sessions_for_user(self, user: User) -> List[str]:
         if not user or not user.email:

@@ -20,6 +20,14 @@ class RetrievableModel:
 
 class PermanentStorageManager(ABC):
 
+    def __init__(
+        self,
+        critical_watermark: int | float,
+        max_writes: int,
+     ):
+        self.max_writes = max_writes
+        self.critical_watermark = critical_watermark
+
     def store_multi(
             self,
             models: List[GenieModel | RetrievableModel],
@@ -52,24 +60,6 @@ class PermanentStorageManager(ABC):
         """
         pass
 
-    def is_critical(self, ttl: int|float) -> bool:
-        """
-        Return a boolean indicating if an object with the given ttl is critical.
-
-        :param ttl: an int or float for the time to live of a given object.
-        :return: True when the ttl is within the critical watermark
-        """
-        ...
-
-    def remaining_room(self, already_persisted: int) -> int:
-        """
-        Returns the number of objects that can still be persisted.
-
-        :param already_persisted: the number of objects already persisted
-        :return: the number of objects that can still be persisted, zero or more
-        """
-        ...
-
     def get_sessions_for_user(self, user: User) -> list[str]:
         """
         Returns a list of session_id's that are recorded in secondary storage as
@@ -81,3 +71,21 @@ class PermanentStorageManager(ABC):
         :return: a list of session ids
         """
         pass
+
+    def is_critical(self, ttl: int|float) -> bool:
+        """
+        Return a boolean indicating if an object with the given ttl is critical.
+
+        :param ttl: an int or float for the time to live of a given object.
+        :return: True when the ttl is within the critical watermark
+        """
+        return ttl <= self.critical_watermark
+
+    def remaining_room(self, already_persisted: int) -> int:
+        """
+        Returns the number of objects that can still be persisted.
+
+        :param already_persisted: the number of objects already persisted
+        :return: the number of objects that can still be persisted, zero or more
+        """
+        return max(self.max_writes - already_persisted, 0)
