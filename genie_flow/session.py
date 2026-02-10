@@ -14,6 +14,8 @@ from genie_flow.model.types import ModelKeyRegistryType
 from genie_flow.model.api import AIResponse, EventInput, AIStatusResponse, AIProgressResponse
 from genie_flow.session_lock import SessionLockManager
 from genie_flow.model.user import User
+from genie_flow.utils import get_fully_qualified_name_from_class
+
 
 
 class SessionManager:
@@ -159,7 +161,7 @@ class SessionManager:
             )
         )
 
-    def _handle_poll(self, model: GenieModel) -> AIResponse:
+    def _handle_poll(self, session_id: str , model_cls: type[GenieModel]) -> AIResponse:
         """
         This method handles polling from the client. As long as the model instance has a value
         for `running_task_id`, this method returns an AIResponse object with the only possible
@@ -169,13 +171,14 @@ class SessionManager:
         an AIResponse object is created with the session id, the most recently recorded actor
         text and the events that can be sent from the current state.
 
-        :param model: the model that needs to be polled
+        :param session_id: the session_id to check
+        :param model_cls: the type of GenieModel for the agent
         :return: an instance of `AIResponse` with the appropriate values
         """
-        if self.session_lock_manager.progress_exists(model.session_id):
-            todo, done = self.session_lock_manager.progress_status(model.session_id)
+        if self.session_lock_manager.progress_exists(session_id):
+            todo, done = self.session_lock_manager.progress_status(session_id)
             return AIResponse(
-                session_id=model.session_id,
+                session_id=session_id,
                 next_actions=["poll"],
                 progress=AIProgressResponse(
                     total_number_of_subtasks=todo,
@@ -183,70 +186,78 @@ class SessionManager:
                 )
             )
 
-        state_machine = model.get_state_machine_class()(model)
-        if model.has_errors:
-            return AIResponse(
-                session_id=model.session_id,
-                error=model.task_error,
-                next_actions=state_machine.current_state.transitions.unique_events,
-            )
-        try:
-            actor_response = state_machine.model.current_response.actor_text
-        except AttributeError:
-            logger.warning(
-                "There is no recorded actor response for session {session_id}",
-            )
-            actor_response = ""
+        with self.session_lock_manager.checkout_model(session_id, model_cls) as model:
+            state_machine = model.get_state_machine_class()(model)
+            next_actions = state_machine.current_state.transitions.unique_events
+
+            if model.has_errors:
+                return AIResponse(
+                    session_id=model.session_id,
+                    error=model.task_error,
+                    next_actions=next_actions,
+                )
+
+            actor_response = model.current_response.actor_text
 
         return AIResponse(
-            session_id=model.session_id,
+            session_id=session_id,
             response=actor_response,
-            next_actions=state_machine.current_state.transitions.unique_events,
+            next_actions=next_actions,
         )
 
-    def _handle_event(self, event: EventInput, model: GenieModel) -> AIResponse:
+    def _handle_event(
+            self,
+            session_id: str,
+            model_cls: type[GenieModel],
+            event: EventInput,
+    ) -> AIResponse:
         """
-        This method handels events from the client. It creates the state machine instance for the
+        This method handles events from the client. It creates the state machine instance for the
         given object and sends the event to it. It then stores the model instance back into Redis.
 
-        If the state machine, after processing the given event, has a currently running task,
+        If the target state is an INVOKER state (and therefore background processing happens),
         this method returns an AIResponse object with the only next actions to be `poll`.
 
-        If the processing of the event by the state machine has not resulted in a task, this method
-        returns an AIResponse object with the most recently recorded actor text and the events that
-        can be sent from the current state.
+        If the target state is a RENDERER state (and therefore needs to send the actor response
+        back to the user, this method returns an AIResponse object with the most recently
+        recorded actor text and the events that can be sent from the current state.
 
-        Session locking, saving and storing of the model object needs to happen outside of
-        this method.
+        Session locking, saving and storing of the model object happens inside of this method.
 
+        :param session_id: the session_id to check
+        :param model_cls: the type of GenieModel for the agent
         :param event: the event to process
-        :param model: the model to process the event against
         :return: an instance of `AIResponse` with the appropriate values
         """
-        state_machine = model.get_state_machine_class()(model)
-        state_machine.add_listener(TransitionManager(self.celery_manager))
-        state_machine.send(event.event, event.event_input)
-
-        self.session_lock_manager.persist_model(model)
+        with self.session_lock_manager.checkout_model(session_id, model_cls) as model:
+            state_machine = model.get_state_machine_class()(model)
+            state_machine.add_listener(TransitionManager(self.celery_manager))
+            state_machine.send(event.event, event.event_input)
 
         if model.target_type == StateType.INVOKER:
             logger.info(
                 "enqueueing task for session {session_id}",
-                session_id=model.session_id,
+                session_id=session_id,
             )
-            self.celery_manager.enqueue_task(state_machine, model, state_machine.current_state)
-            return AIResponse(session_id=event.session_id, next_actions=["poll"])
+            self.celery_manager.enqueue_task(
+                session_id,
+                get_fully_qualified_name_from_class(model),
+                state_machine.get_template_for_state(state_machine.current_state),
+                state_machine.current_state.id,
+                state_machine.current_state.transitions.unique_events[0],
+            )
+
+            return AIResponse(session_id=session_id, next_actions=["poll"])
 
         return AIResponse(
             session_id=event.session_id,
-            response=state_machine.model.current_response.actor_text,
+            response=model.current_response.actor_text,
             next_actions=state_machine.current_state.transitions.unique_events,
         )
 
     def process_event(self, model_key: str, event: EventInput) -> AIResponse:
         """
-        Process incoming events. Claims a lock to the model instance that the event refers to
-        and checks the event. If the event is a `poll` event, handling is performed by the
+        Process incoming events. If the event is a `poll` event, handling is performed by the
         `_handle_poll` method. If not, this method returns the result of processing the event.
 
         :param model_key: the key under which the model class is registered
@@ -254,28 +265,22 @@ class SessionManager:
         :return: an instance of `AIResponse` with the appropriate values
         """
         model_class = self.model_key_registry[model_key]
-        with self.session_lock_manager.get_locked_model(event.session_id, model_class) as model:
-            if event.event == "poll":
-                return self._handle_poll(model)
+        if event.event == "poll":
+            return self._handle_poll(event.session_id, model_class)
 
-            try:
-                return self._handle_event(event, model)
-            except TransitionNotAllowed:
-                state_machine = model.get_state_machine_class()(model)
-                return AIResponse(
-                    session_id=event.session_id,
-                    error=json.dumps(
-                        dict(
-                            session_id=model.session_id,
-                            current_state=dict(
-                                id=state_machine.current_state.id,
-                                name=state_machine.current_state.name,
-                            ),
-                            possible_events=state_machine.current_state.transitions.unique_events,
-                            received_event=event.event,
-                        )
+        try:
+            return self._handle_event(event.session_id, model_class, event)
+        except TransitionNotAllowed as e:
+            return AIResponse(
+                session_id=event.session_id,
+                error=json.dumps(
+                    dict(
+                        session_id=event.session_id,
+                        received_event=event.event,
+                        error=f"{type(e).__name__}: {e}",
                     )
                 )
+            )
 
     def get_task_state(self, model_key: str, session_id: str) -> AIStatusResponse:
         """
