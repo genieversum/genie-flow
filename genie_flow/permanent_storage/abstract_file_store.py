@@ -5,7 +5,7 @@ import os
 import tarfile
 import time
 from abc import ABC
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from functools import cache
 from io import BytesIO
 from typing import Optional, Dict, List, Tuple, NamedTuple
@@ -68,6 +68,14 @@ class Manifest:
     hash: str
     members: List[ManifestMember]
 
+    @classmethod
+    def from_dict(cls, data: dict):
+        return cls(
+            timestamp=data['timestamp'],
+            hash=data['hash'],
+            members=[ManifestMember(**m) for m in data['members']]
+        )
+
 
 class AbstractFileStorageManager(PermanentStorageManager, ABC):
 
@@ -82,26 +90,26 @@ class AbstractFileStorageManager(PermanentStorageManager, ABC):
     ):
         if fsspec is None:
             raise ImportError(
-                "Permanent Storage uses fstab. Install using `genie-flow[permanent]"
+                "Permanent Storage uses fsspec. Install using `genie-flow[permanent]"
             )
 
         super().__init__(critical_watermark, max_writes)
         self.blob_directory_depth = blob_directory_depth
-        self.blob_url = blob_url
         self.compress = compress
         self.blob_directory_depth = blob_directory_depth
-        self.fs = fsspec.url_to_fs(self.blob_url, **(blob_storage_options or {}))
+        self.fs, self.blob_base_path = fsspec.url_to_fs(
+            blob_url,
+            **(blob_storage_options or {})
+        )
 
     @cache
     def _get_file_url(self, session_id: str) -> str:
-        # Since session_id is a ULID, we find better sharding entropy from the tail
         session_id_rev = session_id[::-1]
-
         shards = "/".join(
             session_id_rev[(i*2+1)] + session_id_rev[(i*2)]
             for i in range(self.blob_directory_depth)
         )
-        return f"{self.blob_url}/{shards}/{session_id}.tar"
+        return f"{self.blob_base_path}/{shards}/{session_id}.tar"
 
     def _write_tar(self, model: GenieModel):
         file_url = self._get_file_url(model.session_id)
@@ -128,7 +136,7 @@ class AbstractFileStorageManager(PermanentStorageManager, ABC):
                 tar.addfile(info, BytesIO(b))
 
                 manifest_members.append(
-                    ManifestMember(name="_", size=len(b))
+                    ManifestMember(name=name, size=len(b))
                 )
 
             # stream tar directly to destination
@@ -145,31 +153,45 @@ class AbstractFileStorageManager(PermanentStorageManager, ABC):
                     members=manifest_members,
                     hash=content_hash.hexdigest(),
                 )
-                blob = json.dumps(manifest).encode()
+                blob = json.dumps(asdict(manifest)).encode()
                 addfile(_MANIFEST_NAME, blob)
 
     def _read_tar(self, session_id: str) -> GenieModel:
         file_url = self._get_file_url(session_id)
 
-        for attempt in range(3):
+        for attempt in range(_READ_ATTEMPTS):
+            if attempt > 0:
+                time.sleep(0.1 * 2**attempt)
+
+            backlog: Optional[Dict[str, bytes]] = dict()
             model: Optional[GenieModel] = None
-            other_members: Dict[str, bytes] = dict()
+            manifest: Optional[Manifest] = None
 
             content_hash = hashlib.sha256()
-            with tarfile.open(file_url, "r|") as tar:
-                for member in tar:
-                    file = tar.extractfile(member)
-                    if file is None:
-                        continue
+            with self.fs.open(file_url, 'rb') as f:
+                with tarfile.open(fileobj=f, mode='r|') as tar:
+                    for member in tar:
+                        file = tar.extractfile(member)
+                        if file is None:
+                            continue
 
-                    blob = file.read()
-                    if member.name != _MANIFEST_NAME:
+                        blob = file.read()
+                        if member.name == _MANIFEST_NAME:
+                            manifest = Manifest.from_dict(json.loads(blob.decode()))
+                            continue
+
                         content_hash.update(blob)
 
-                    if member.name == "_":
-                        model = _deserialize_with_type(blob)
-                    else:
-                        other_members[member.name] = blob
+                        if member.name == "_":
+                            model = _deserialize_with_type(blob)
+                            if backlog:
+                                model.secondary_storage = SecondaryStore.from_serialized(backlog)
+                                backlog = None
+                        else:
+                            if model is None:
+                                backlog[member.name] = blob
+                            else:
+                                model.secondary_storage[member.name] = _deserialize_with_type(blob)
 
             if model is None:
                 logger.warning(
@@ -179,18 +201,13 @@ class AbstractFileStorageManager(PermanentStorageManager, ABC):
                 )
                 continue
 
-            try:
-                manifest_blob = other_members.pop(_MANIFEST_NAME)
-            except KeyError:
+            if manifest is None:
                 logger.warning(
                     "Attempt {attempt}; file '{file_url}' does not contain manifest",
                     attempt=attempt + 1,
                     file_url=file_url,
                 )
                 continue
-
-            manifest_dict = json.loads(manifest_blob.decode())
-            manifest = Manifest(**manifest_dict)
 
             if content_hash.hexdigest() != manifest.hash:
                 logger.warning(
@@ -201,11 +218,11 @@ class AbstractFileStorageManager(PermanentStorageManager, ABC):
                 )
                 continue
 
-            model.secondary_storage = SecondaryStore.from_serialized(other_members)
             return model
 
         logger.error(
-            "Failed to read from file {file_path} after {attempt} attempts",
+            "Failed to read from file {file_url} after {attempt} attempts",
+            file_url=file_url,
             attempt=_READ_ATTEMPTS,
         )
         raise ValueError("Failed to read file")
