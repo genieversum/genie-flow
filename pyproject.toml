@@ -62,3 +62,10 @@ test = [
     "pytest",
     "pytest-docker",
 ]
+permanent = [
+    "fsspec~=2026.2.0",
+]
+permanent_postgres = [
+    "psycopg[binary]~=3.3.2",
+    "psycopg-pool~=3.3.0",
+]

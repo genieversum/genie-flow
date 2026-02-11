@@ -39,7 +39,7 @@ class FileStorageManager(AbstractFileStorageManager):
         records in an SQLite database.
 
         :param database_path: Path to the database file. Accepts a string or Path object.
-            Can be None if no database is required.
+            Can be None and will then be set to blob_path.
         :param blob_path: Path to the blob storage directory. Accepts a string or Path
             object. Can be None if no blob storage is required.
         :param compress: Boolean flag to enable or disable compression for blob storage.
@@ -57,7 +57,7 @@ class FileStorageManager(AbstractFileStorageManager):
             blob_directory_depth,
         )
 
-        self.database_path = Path(database_path)
+        self.database_path = Path(database_path) if database_path else self.blob_path
         self.database_retries = database_retries
 
         self._init_database()
@@ -206,9 +206,6 @@ class FileStorageManager(AbstractFileStorageManager):
 
     def checkpoint(self):
         self._get_connection().execute("PRAGMA wal_checkpoint(PASSIVE)")
-
-    def retrieve(self, session_id: str) -> GenieModel:
-        return self._read_tar(session_id)
 
     def get_sessions_for_user(self, user: User) -> List[str]:
         if not user or not user.email:

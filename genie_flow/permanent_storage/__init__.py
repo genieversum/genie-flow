@@ -1,7 +1,7 @@
-from abc import ABC
+from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import List, Tuple, Type, Dict, NamedTuple
+from typing import List, Tuple, Type, Dict
 
 from genie_flow.genie import GenieModel
 from genie_flow.model.user import User
@@ -28,6 +28,7 @@ class PermanentStorageManager(ABC):
         self.max_writes = max_writes
         self.critical_watermark = critical_watermark
 
+    @abstractmethod
     def store_multi(
             self,
             models: List[GenieModel | RetrievableModel],
@@ -38,15 +39,17 @@ class PermanentStorageManager(ABC):
         :param models: A list of GenieModel or RetrievableModel objects
         :return: a tuple of lists, succeeded and failed session id's
         """
-        pass
+        raise NotImplementedError("Should be implemented by subclass")
 
+    @abstractmethod
     def checkpoint(self):
         """
         Signal a checkpoint to the underlying system. This should indicate: we are done
         with a batch now, do some cleanup if you want before we come with a next batch.
         """
-        pass
+        raise NotImplementedError("Should be implemented by subclass")
 
+    @abstractmethod
     def retrieve(self, session_id: str) -> GenieModel:
         """
         Retrieve a model from permanent storage. Will retrieve a subclass of a GenieModel,
@@ -58,8 +61,9 @@ class PermanentStorageManager(ABC):
         :return: an instantiated GenieModel object
         :raises: KeyError if no GenieModel with the given session_id exists
         """
-        pass
+        raise NotImplementedError("Should be implemented by subclass")
 
+    @abstractmethod
     def get_sessions_for_user(self, user: User) -> list[str]:
         """
         Returns a list of session_id's that are recorded in secondary storage as
@@ -70,7 +74,7 @@ class PermanentStorageManager(ABC):
         :param user: the User to retrieve the session ids for
         :return: a list of session ids
         """
-        pass
+        raise NotImplementedError("Should be implemented by subclass")
 
     def is_critical(self, ttl: int|float) -> bool:
         """

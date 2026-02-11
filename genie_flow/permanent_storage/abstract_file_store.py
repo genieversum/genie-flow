@@ -20,6 +20,30 @@ from genie_flow.utils import (
 )
 
 
+def _serialize_with_type(obj: VersionedModel, compress: bool) -> bytes:
+    model_fqn = get_fully_qualified_name_from_class(obj)
+    value_serialized = obj.serialize(compression=compress)
+    return model_fqn.encode("utf-8") + b":" + value_serialized
+
+
+def _deserialize_with_type(obj: bytes) -> GenieModel:
+    model_fqn_bytes, blob = obj.split(b":", 1)
+    cls = get_class_from_fully_qualified_name(model_fqn_bytes.decode("utf-8"))
+    if not issubclass(cls, GenieModel):
+        logger.error(
+            "Stored model is not a GenieModel subclass, it is a {cls}",
+            cls=cls.__name__,
+        )
+        raise ValueError("Stored model is not a GenieModel subclass")
+
+    return cls.deserialize(blob)
+
+
+class WriteResult(NamedTuple):
+    succeeded: List[Tuple[str, str]]  # (session_id, email)
+    failed: List[str]  # session_ids
+
+
 class AbstractFileStorageManager(PermanentStorageManager, ABC):
 
     def __init__(
@@ -106,7 +130,7 @@ class AbstractFileStorageManager(PermanentStorageManager, ABC):
     def _write_multi(
             self,
             models: List[GenieModel | RetrievableModel],
-    ) -> _WriteResult:
+    ) -> WriteResult:
         """
         Write a list of GenieModel or RetrievableModel objects to files. Returns
         a tuple of lists. The first of that tuple being a list of tuples containing
@@ -148,28 +172,7 @@ class AbstractFileStorageManager(PermanentStorageManager, ABC):
             nr_succeeded=len(succeeded),
             nr_failed=len(failed),
         )
-        return _WriteResult(succeeded, failed)
+        return WriteResult(succeeded, failed)
 
-
-class _WriteResult(NamedTuple):
-    succeeded: List[Tuple[str, str]]  # (session_id, email)
-    failed: List[str]  # session_ids
-
-
-def _serialize_with_type(obj: VersionedModel, compress: bool) -> bytes:
-    model_fqn = get_fully_qualified_name_from_class(obj)
-    value_serialized = obj.serialize(compression=compress)
-    return model_fqn.encode("utf-8") + b":" + value_serialized
-
-
-def _deserialize_with_type(obj: bytes) -> GenieModel:
-    model_fqn_bytes, blob = obj.split(b":", 1)
-    cls = get_class_from_fully_qualified_name(model_fqn_bytes.decode("utf-8"))
-    if not issubclass(cls, GenieModel):
-        logger.error(
-            "Stored model is not a GenieModel subclass, it is a {cls}",
-            cls=cls.__name__,
-        )
-        raise ValueError("Stored model is not a GenieModel subclass")
-
-    return cls.deserialize(blob)
+    def retrieve(self, session_id: str) -> GenieModel:
+        return self._read_tar(session_id)
