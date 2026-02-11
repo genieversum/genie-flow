@@ -309,7 +309,7 @@ class SessionLockManager:
             retrievable_model = RetrievableModel(
                 session_id=session_id,
                 model_cls=model_cls,
-                retriever=partial(self._locked_retriever, session_id, model_cls)
+                retrieve=partial(self._locked_retriever, session_id, model_cls)
             )
             to_persist.append(retrievable_model)
 

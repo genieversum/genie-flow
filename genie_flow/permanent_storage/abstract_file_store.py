@@ -1,7 +1,6 @@
 import datetime
 import hashlib
 import json
-import os
 import tarfile
 import time
 from abc import ABC
@@ -94,7 +93,6 @@ class AbstractFileStorageManager(PermanentStorageManager, ABC):
             )
 
         super().__init__(critical_watermark, max_writes)
-        self.blob_directory_depth = blob_directory_depth
         self.compress = compress
         self.blob_directory_depth = blob_directory_depth
         self.fs, self.blob_base_path = fsspec.url_to_fs(
@@ -231,6 +229,12 @@ class AbstractFileStorageManager(PermanentStorageManager, ABC):
         file_url = self._get_file_url(session_id)
         if self.fs.exists(file_url):
             self.fs.rm(file_url)
+        else:
+            logger.error(
+                "No file exists to delete, for session {session_id}",
+                session_id=session_id,
+            )
+            FileNotFoundError(f"There is no file for session {session_id}")
 
     def _write_multi(
             self,
@@ -251,7 +255,7 @@ class AbstractFileStorageManager(PermanentStorageManager, ABC):
         for model in models:
             try:
                 if isinstance(model, RetrievableModel):
-                    model = model.retriever()
+                    model = model.retrieve()
                 self._write_tar(model)
             except KeyError as e:
                 logger.error(
