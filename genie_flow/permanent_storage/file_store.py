@@ -28,7 +28,7 @@ class FileStorageManager(AbstractFileStorageManager):
         self,
         critical_watermark: int | float,
         max_writes: int,
-        blob_path: str | Path | None,
+        blob_url: str | Path | None,
         compress: bool,
         blob_directory_depth: int,
         database_path: str | Path | None,
@@ -40,7 +40,7 @@ class FileStorageManager(AbstractFileStorageManager):
 
         :param database_path: Path to the database file. Accepts a string or Path object.
             Can be None and will then be set to blob_path.
-        :param blob_path: Path to the blob storage directory. Accepts a string or Path
+        :param blob_url: Path to the blob storage directory. Accepts a string or Path
             object. Can be None if no blob storage is required.
         :param compress: Boolean flag to enable or disable compression for blob storage.
         :param database_retries: Int indicating the max retries for accessing the database
@@ -52,7 +52,7 @@ class FileStorageManager(AbstractFileStorageManager):
         super().__init__(
             critical_watermark,
             max_writes,
-            blob_path,
+            blob_url,
             compress,
             blob_directory_depth,
         )

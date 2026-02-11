@@ -14,7 +14,7 @@ def file_store_manager():
         tmpdir_path = Path(tmpdir)
         yield FileStorageManager(
             database_path=tmpdir_path / "db",
-            blob_path=tmpdir_path / "blob",
+            blob_url=tmpdir_path / "blob",
             compress=False,
         )
 

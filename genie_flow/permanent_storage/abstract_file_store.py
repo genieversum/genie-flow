@@ -1,13 +1,21 @@
+import datetime
+import hashlib
+import json
 import os
 import tarfile
 import time
 from abc import ABC
+from dataclasses import dataclass
 from functools import cache
 from io import BytesIO
-from pathlib import Path
 from typing import Optional, Dict, List, Tuple, NamedTuple
 
 from loguru import logger
+try:
+    import fsspec
+    from fsspec.utils import get_parent
+except ImportError:
+    fsspec = None
 
 from genie_flow.genie import GenieModel
 from genie_flow.model.secondary_store import SecondaryStore
@@ -18,6 +26,10 @@ from genie_flow.utils import (
     get_fully_qualified_name_from_class,
     get_class_from_fully_qualified_name,
 )
+
+
+_READ_ATTEMPTS = 3
+_MANIFEST_NAME = "MANIFEST.json"
 
 
 def _serialize_with_type(obj: VersionedModel, compress: bool) -> bytes:
@@ -44,23 +56,44 @@ class WriteResult(NamedTuple):
     failed: List[str]  # session_ids
 
 
+@dataclass
+class ManifestMember:
+    name: str
+    size: int
+
+
+@dataclass
+class Manifest:
+    timestamp: str
+    hash: str
+    members: List[ManifestMember]
+
+
 class AbstractFileStorageManager(PermanentStorageManager, ABC):
 
     def __init__(
         self,
         critical_watermark: int | float,
         max_writes: int,
-        blob_path: str | Path | None,
+        blob_url: str,
         compress: bool,
         blob_directory_depth: int,
+        blob_storage_options: Optional[Dict] = None,
     ):
+        if fsspec is None:
+            raise ImportError(
+                "Permanent Storage uses fstab. Install using `genie-flow[permanent]"
+            )
+
         super().__init__(critical_watermark, max_writes)
         self.blob_directory_depth = blob_directory_depth
-        self.blob_path = Path(blob_path)
+        self.blob_url = blob_url
         self.compress = compress
+        self.blob_directory_depth = blob_directory_depth
+        self.fs = fsspec.url_to_fs(self.blob_url, **(blob_storage_options or {}))
 
     @cache
-    def _get_blob_dir(self, session_id: str) -> Path:
+    def _get_file_url(self, session_id: str) -> str:
         # Since session_id is a ULID, we find better sharding entropy from the tail
         session_id_rev = session_id[::-1]
 
@@ -68,64 +101,119 @@ class AbstractFileStorageManager(PermanentStorageManager, ABC):
             session_id_rev[(i*2+1)] + session_id_rev[(i*2)]
             for i in range(self.blob_directory_depth)
         )
-        file_dir = self.blob_path / shards
-        if not file_dir.exists():
-            file_dir.mkdir(parents=True, exist_ok=True)
-        return file_dir
+        return f"{self.blob_url}/{shards}/{session_id}.tar"
 
     def _write_tar(self, model: GenieModel):
-        file_dir = self._get_blob_dir(model.session_id)
-        file_path = file_dir / model.session_id
-        tmp_file = file_path.with_suffix(".tmp")
+        file_url = self._get_file_url(model.session_id)
         now = time.time()
-        with tarfile.open(tmp_file, "w") as tar:
-            model_blob = _serialize_with_type(model, self.compress)
-            info = tarfile.TarInfo(name="_")
-            info.size = len(model_blob)
-            info.mtime = now
-            tar.addfile(info, BytesIO(model_blob))
 
-            for key, value in model.secondary_storage.root.items():
-                blob = _serialize_with_type(value, self.compress)
-                info = tarfile.TarInfo(name=key)
-                info.size = len(blob)
+        parent = self.fs.dirname(file_url)
+        if parent:
+            try:
+                self.fs.makedirs(parent, exist_ok=True)
+            except (NotImplementedError, OSError, IOError):
+                pass
+
+        with self.fs.open(file_url, "wb") as out_f:
+            content_hash = hashlib.sha256()
+            manifest_members: List[ManifestMember] = list()
+
+            def addfile(name: str, b: bytes):
+                content_hash.update(b)
+
+                info = tarfile.TarInfo(name=name)
+                info.size = len(b)
                 info.mtime = now
-                tar.addfile(info, BytesIO(blob))
 
-        tmp_file.replace(file_path.with_suffix(".tar"))
+                tar.addfile(info, BytesIO(b))
+
+                manifest_members.append(
+                    ManifestMember(name="_", size=len(b))
+                )
+
+            # stream tar directly to destination
+            with tarfile.open(fileobj=out_f, mode="w|") as tar:
+                blob = _serialize_with_type(model, self.compress)
+                addfile("_", blob)
+
+                for key, value in model.secondary_storage.root.items():
+                    blob = _serialize_with_type(value, self.compress)
+                    addfile(key, blob)
+
+                manifest = Manifest(
+                    timestamp=datetime.datetime.fromtimestamp(now).isoformat(),
+                    members=manifest_members,
+                    hash=content_hash.hexdigest(),
+                )
+                blob = json.dumps(manifest).encode()
+                addfile(_MANIFEST_NAME, blob)
 
     def _read_tar(self, session_id: str) -> GenieModel:
-        model: Optional[GenieModel] = None
-        secondary_storage_blobs: Dict[str, bytes] = dict()
+        file_url = self._get_file_url(session_id)
 
-        file_dir = self._get_blob_dir(session_id)
-        file_path = (file_dir / session_id).with_suffix(".tar")
-        with tarfile.open(file_path, "r|") as tar:
-            for member in tar:
-                file = tar.extractfile(member)
-                if file is None:
-                    continue
+        for attempt in range(3):
+            model: Optional[GenieModel] = None
+            other_members: Dict[str, bytes] = dict()
 
-                file_bytes = file.read()
-                if member.name == "_":
-                    model = _deserialize_with_type(file_bytes)
-                else:
-                    secondary_storage_blobs[member.name] = file_bytes
+            content_hash = hashlib.sha256()
+            with tarfile.open(file_url, "r|") as tar:
+                for member in tar:
+                    file = tar.extractfile(member)
+                    if file is None:
+                        continue
 
-        if model is None:
-            logger.error(
-                "File '{file_path}' does not contain data of the GenieModel",
-                file_path=file_path,
-            )
-            raise ValueError("No GenieModel in file")
+                    blob = file.read()
+                    if member.name != _MANIFEST_NAME:
+                        content_hash.update(blob)
 
-        model.secondary_storage = SecondaryStore.from_serialized(secondary_storage_blobs)
-        return model
+                    if member.name == "_":
+                        model = _deserialize_with_type(blob)
+                    else:
+                        other_members[member.name] = blob
+
+            if model is None:
+                logger.warning(
+                    "Attempt {attempt}; file '{file_url}' does not contain GenieModel",
+                    attempt=attempt + 1,
+                    file_url=file_url,
+                )
+                continue
+
+            try:
+                manifest_blob = other_members.pop(_MANIFEST_NAME)
+            except KeyError:
+                logger.warning(
+                    "Attempt {attempt}; file '{file_url}' does not contain manifest",
+                    attempt=attempt + 1,
+                    file_url=file_url,
+                )
+                continue
+
+            manifest_dict = json.loads(manifest_blob.decode())
+            manifest = Manifest(**manifest_dict)
+
+            if content_hash.hexdigest() != manifest.hash:
+                logger.warning(
+                    "Attempt {attempt}; manifest hash of file {file_url} "
+                    "does not correspond to file hash",
+                    attempt=attempt + 1,
+                    file_url=file_url,
+                )
+                continue
+
+            model.secondary_storage = SecondaryStore.from_serialized(other_members)
+            return model
+
+        logger.error(
+            "Failed to read from file {file_path} after {attempt} attempts",
+            attempt=_READ_ATTEMPTS,
+        )
+        raise ValueError("Failed to read file")
 
     def _delete_tar(self, session_id: str):
-        file_dir = self._get_blob_dir(session_id)
-        file_path = (file_dir / session_id).with_suffix(".tar")
-        os.remove(file_path)
+        file_url = self._get_file_url(session_id)
+        if self.fs.exists(file_url):
+            self.fs.rm(file_url)
 
     def _write_multi(
             self,

@@ -51,7 +51,7 @@ class PostgresFileStoreManager(AbstractFileStorageManager):
         self,
         critical_watermark: int | float,
         max_writes: int,
-        blob_path: str | Path | None,
+        blob_url: str | Path | None,
         compress: bool,
         blob_directory_depth: int,
         db_pool: ConnectionPool,
@@ -65,7 +65,7 @@ class PostgresFileStoreManager(AbstractFileStorageManager):
         super().__init__(
             critical_watermark,
             max_writes,
-            blob_path,
+            blob_url,
             compress,
             blob_directory_depth,
         )
