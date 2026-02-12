@@ -15,7 +15,10 @@ class RetrievableModel:
     """
     session_id: str
     model_cls: Type[GenieModel]
-    retrieve: Callable[[], Dict[str, bytes]]
+    retriever: Callable[[], Dict[str, bytes]]
+
+    def retrieve(self) -> Dict[str, bytes]:
+        return self.retriever()
 
 
 class PermanentStorageManager(ABC):
