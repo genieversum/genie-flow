@@ -28,7 +28,7 @@ class FileStorageManager(AbstractFileStorageManager):
         self,
         critical_watermark: int | float,
         max_writes: int,
-        blob_url: str | Path | None,
+        blob_url: str,
         compress: bool,
         blob_directory_depth: int,
         database_path: str | Path | None,

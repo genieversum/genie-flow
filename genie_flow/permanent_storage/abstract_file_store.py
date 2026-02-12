@@ -12,7 +12,6 @@ from typing import Optional, Dict, List, Tuple, NamedTuple
 from loguru import logger
 try:
     import fsspec
-    from fsspec.utils import get_parent
 except ImportError:
     fsspec = None
 
@@ -37,15 +36,15 @@ def _serialize_with_type(obj: VersionedModel, compress: bool) -> bytes:
     return model_fqn.encode("utf-8") + b":" + value_serialized
 
 
-def _deserialize_with_type(obj: bytes) -> GenieModel:
+def _deserialize_with_type(obj: bytes) -> VersionedModel:
     model_fqn_bytes, blob = obj.split(b":", 1)
     cls = get_class_from_fully_qualified_name(model_fqn_bytes.decode("utf-8"))
-    if not issubclass(cls, GenieModel):
+    if not issubclass(cls, VersionedModel):
         logger.error(
-            "Stored model is not a GenieModel subclass, it is a {cls}",
+            "Stored model is not a VersionedModel subclass, it is a {cls}",
             cls=cls.__name__,
         )
-        raise ValueError("Stored model is not a GenieModel subclass")
+        raise ValueError("Stored model is not a VersionedModel subclass")
 
     return cls.deserialize(blob)
 
@@ -113,12 +112,13 @@ class AbstractFileStorageManager(PermanentStorageManager, ABC):
         file_url = self._get_file_url(model.session_id)
         now = time.time()
 
-        parent = self.fs.dirname(file_url)
-        if parent:
-            try:
+        try:
+            parent = "/".join(file_url.split("/")[:-1])
+            if parent:
                 self.fs.makedirs(parent, exist_ok=True)
-            except (NotImplementedError, OSError, IOError):
-                pass
+        except (NotImplementedError, OSError, IOError):
+            # Some backends don't need explicit directory creation
+            pass
 
         with self.fs.open(file_url, "wb") as out_f:
             content_hash = hashlib.sha256()

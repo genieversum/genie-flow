@@ -13,9 +13,13 @@ def file_store_manager():
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir_path = Path(tmpdir)
         yield FileStorageManager(
-            database_path=tmpdir_path / "db",
-            blob_url=tmpdir_path / "blob",
+            critical_watermark=30,
+            max_writes=32,
+            blob_url=f"file://{tmpdir_path}/blob",
             compress=False,
+            blob_directory_depth=2,
+            database_path=tmpdir_path / "db",
+            database_retries=3,
         )
 
 
@@ -24,13 +28,15 @@ def test_store(file_store_manager, genie_model):
 
     db_path = file_store_manager.database_path / "permanent_store.db"
     assert db_path.exists()
-    blob_path = (
-        file_store_manager.blob_path
-        / genie_model.session_id[-2:]
-        / genie_model.session_id[-4:-2]
-        / f"{genie_model.session_id}.tar"
+    blob_path = "/".join(
+        [
+            file_store_manager.blob_base_path,
+            genie_model.session_id[-2:],
+            genie_model.session_id[-4:-2],
+            f"{genie_model.session_id}.tar",
+        ]
     )
-    assert blob_path.exists()
+    assert file_store_manager.fs.exists(blob_path)
     cursor = file_store_manager._get_connection().execute(
         """
             SELECT * FROM sessions
