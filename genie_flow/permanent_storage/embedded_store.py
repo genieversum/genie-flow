@@ -9,7 +9,10 @@ from loguru import logger
 from genie_flow.genie import GenieModel
 from genie_flow.model.user import User
 from genie_flow.permanent_storage import RetrievableModel
-from genie_flow.permanent_storage.abstract_file_store import AbstractFileStorageManager
+from genie_flow.permanent_storage.abstract_file_store import (
+    AbstractFileStorageManager,
+    FileStorageConfig,
+)
 
 _DATABASE_NAME = "permanent_store.db"
 _RETRYABLE_ERRORS = {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}
@@ -28,10 +31,8 @@ class EmbeddedStorageManager(AbstractFileStorageManager):
         self,
         critical_watermark: int | float,
         max_writes: int,
-        blob_url: str,
-        compress: bool,
-        blob_directory_depth: int,
-        database_path: str | Path | None,
+        file_storage_config: FileStorageConfig,
+        database_path: str | Path,
         database_retries: int,
     ):
         """
@@ -40,24 +41,12 @@ class EmbeddedStorageManager(AbstractFileStorageManager):
 
         :param database_path: Path to the database file. Accepts a string or Path object.
             Can be None and will then be set to blob_path.
-        :param blob_url: Path to the blob storage directory. Accepts a string or Path
-            object. Can be None if no blob storage is required.
-        :param compress: Boolean flag to enable or disable compression for blob storage.
         :param database_retries: Int indicating the max retries for accessing the database
-        :param blob_directory_depth: Integer specifying the depth of the directory
-            structure for organizing blob storage. Defaults to 2.
         :param critical_watermark: the number of seconds of time-to-live, below which
             an object becomes critical to persist permanently
         """
-        super().__init__(
-            critical_watermark,
-            max_writes,
-            blob_url,
-            compress,
-            blob_directory_depth,
-        )
-
-        self.database_path = Path(database_path) if database_path else self.blob_path
+        super().__init__(critical_watermark, max_writes, file_storage_config)
+        self.database_path = Path(database_path)
         self.database_retries = database_retries
 
         self._init_database()

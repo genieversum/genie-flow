@@ -15,8 +15,8 @@ except ImportError:
     psycopg = None
     ConnectionPool = None
 
-from genie_flow.permanent_storage.abstract_file_store import AbstractFileStorageManager
-
+from genie_flow.permanent_storage.abstract_file_store import AbstractFileStorageManager, \
+    FileStorageConfig
 
 _UPSERT_SQL = """
     INSERT INTO sessions (session_id, email_address, created_at, updated_at)
@@ -51,9 +51,7 @@ class PostgresFileStoreManager(AbstractFileStorageManager):
         self,
         critical_watermark: int | float,
         max_writes: int,
-        blob_url: str | Path | None,
-        compress: bool,
-        blob_directory_depth: int,
+        file_storage_config: FileStorageConfig,
         db_pool: ConnectionPool,
     ):
         if psycopg is None:
@@ -62,13 +60,7 @@ class PostgresFileStoreManager(AbstractFileStorageManager):
                 "Install with: pip install genie-flow[postgres]"
             )
 
-        super().__init__(
-            critical_watermark,
-            max_writes,
-            blob_url,
-            compress,
-            blob_directory_depth,
-        )
+        super().__init__(critical_watermark, max_writes, file_storage_config)
         self.db_pool = db_pool
 
         self._init_database()
@@ -78,9 +70,7 @@ class PostgresFileStoreManager(AbstractFileStorageManager):
         cls,
         critical_watermark: int | float,
         max_writes: int,
-        blob_path: str | Path | None,
-        compress: bool,
-        blob_directory_depth: int,
+        file_storage_config: FileStorageConfig,
         database_config: PostgresConfig,
     ):
         if psycopg is None:
@@ -96,14 +86,7 @@ class PostgresFileStoreManager(AbstractFileStorageManager):
             timeout=database_config.timeout,
         )
 
-        return cls(
-            critical_watermark,
-            max_writes,
-            blob_path,
-            compress,
-            blob_directory_depth,
-            db_pool
-        )
+        return cls(critical_watermark, max_writes, file_storage_config, db_pool)
 
     def _init_database(self):
         with self.db_pool.connection() as conn:

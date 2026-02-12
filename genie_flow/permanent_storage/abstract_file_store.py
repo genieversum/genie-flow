@@ -75,16 +75,21 @@ class Manifest:
         )
 
 
+@dataclass
+class FileStorageConfig:
+    file_storage_url: str
+    compress: bool
+    shard_depth: int
+    file_storage_options: Optional[Dict]
+
+
 class AbstractFileStorageManager(PermanentStorageManager, ABC):
 
     def __init__(
         self,
         critical_watermark: int | float,
         max_writes: int,
-        blob_url: str,
-        compress: bool,
-        blob_directory_depth: int,
-        blob_storage_options: Optional[Dict] = None,
+        file_storage_config: FileStorageConfig,
     ):
         if fsspec is None:
             raise ImportError(
@@ -92,11 +97,11 @@ class AbstractFileStorageManager(PermanentStorageManager, ABC):
             )
 
         super().__init__(critical_watermark, max_writes)
-        self.compress = compress
-        self.blob_directory_depth = blob_directory_depth
-        self.fs, self.blob_base_path = fsspec.url_to_fs(
-            blob_url,
-            **(blob_storage_options or {})
+        self.compress = file_storage_config.compress
+        self.shard_depth = file_storage_config.shard_depth
+        self.fs, self.file_storage_base_path = fsspec.url_to_fs(
+            file_storage_config.file_storage_url,
+            **(file_storage_config.file_storage_options or {})
         )
 
     @cache
@@ -104,9 +109,9 @@ class AbstractFileStorageManager(PermanentStorageManager, ABC):
         session_id_rev = session_id[::-1]
         shards = "/".join(
             session_id_rev[(i*2+1)] + session_id_rev[(i*2)]
-            for i in range(self.blob_directory_depth)
+            for i in range(self.shard_depth)
         )
-        return f"{self.blob_base_path}/{shards}/{session_id}.tar"
+        return f"{self.file_storage_base_path}/{shards}/{session_id}.tar"
 
     def _write_tar(self, model: GenieModel):
         file_url = self._get_file_url(model.session_id)

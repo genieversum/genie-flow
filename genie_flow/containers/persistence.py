@@ -3,9 +3,48 @@ from typing import Optional
 from dependency_injector import containers, providers
 from redis import Redis, ConnectionPool
 
+from genie_flow.permanent_storage.abstract_file_store import FileStorageConfig
 from genie_flow.permanent_storage.embedded_store import EmbeddedStorageManager
-from genie_flow.permanent_storage.postgres_store import PostgresFileStoreManager
+from genie_flow.permanent_storage.postgres_store import PostgresFileStoreManager, PostgresConfig
 from genie_flow.session_lock import SessionLockManager
+
+
+def _create_file_storage_config(file_storage_config):
+    return FileStorageConfig(
+        file_storage_url=file_storage_config.file_storage_url,
+        compress=file_storage_config.compress or False,
+        shard_depth=file_storage_config.shard_depth or 2,
+        file_storage_options=file_storage_config.options or {},
+    )
+
+
+def _create_embedded_file_store(store_config):
+    return EmbeddedStorageManager(
+        critical_watermark =store_config.critical_watermark or 120,
+        max_writes =store_config.max_writes or 32,
+        file_storage_config = _create_file_storage_config(store_config.file_storage_config),
+        database_path = store_config.database_config.path,
+        database_retries = store_config.database_config.retries or 5,
+    )
+
+
+def _create_postgres_file_store(store_config):
+    pg_config = store_config.postgres_config
+    database_config = PostgresConfig(
+        host=pg_config.host,
+        port=pg_config.port,
+        database=pg_config.database,
+        user=pg_config.user,
+        password=pg_config.password,
+        max_pool_size=pg_config.max_pool_size,
+        timeout=pg_config.timeout,
+    )
+    return PostgresFileStoreManager.from_config(
+        critical_watermark =store_config.critical_watermark or 120,
+        max_writes =store_config.max_writes or 32,
+        file_storage_config = _create_file_storage_config(store_config.file_storage_config),
+        database_config=database_config,
+    )
 
 
 class GenieFlowPersistenceContainer(containers.DeclarativeContainer):
@@ -59,17 +98,12 @@ class GenieFlowPersistenceContainer(containers.DeclarativeContainer):
         config.permanent_store.type or "none",
         none=providers.Object(None),
         embedded=providers.Singleton(
-            EmbeddedStorageManager,
-            database_path=config.permanent_store.config.database_path,
-            blob_path=config.permanent_store.config.blob_path,
-            compress=config.permanent_store.config.compress or False,
-            database_retries=config.permanent_store.config.database_retries or 5,
-            blob_directory_depth=config.permanent_store.config.blob_directory_depth or 2,
-            critical_watermark=config.permanent_store.config.critical_watermark or 120,
-            max_writes=config.permanent_store.config.max_writes or 32,
+            _create_embedded_file_store,
+            config.permanent_store.config,
         ),
         postgres=providers.Singleton(
-            PostgresFileStoreManager,
+            _create_postgres_file_store,
+            config.permanent_store.config,
         )
     )
 

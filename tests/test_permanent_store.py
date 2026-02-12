@@ -29,7 +29,7 @@ def test_store(file_store_manager, genie_model):
     assert db_path.exists()
     blob_path = "/".join(
         [
-            file_store_manager.blob_base_path,
+            file_store_manager.file_storage_base_path,
             genie_model.session_id[-2:],
             genie_model.session_id[-4:-2],
             f"{genie_model.session_id}.tar",

@@ -24,12 +24,12 @@ persistence:
     config:
       critical_watermark: 30
       max_writes: 128
-      blob_config:
-        blob_url: file://./permanent/blob
-        blob_directory_depth: 2
+      file_storage_config:
+        file_storage_url: file://./permanent/blob
+        shard_depth: 2
       database_config:
-        database_path: ./permanent/db
-        database_retries: 5
+        path: ./permanent/db
+        retries: 5
 celery:
   broker: redis://localhost:6379/0
   backend: redis://localhost:6379/0
