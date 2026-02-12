@@ -15,7 +15,11 @@ class GenieFlow:
     @classmethod
     def from_yaml(cls, config_file_path: str | PathLike) -> "GenieFlow":
         container = GenieFlowContainer()
-        container.config.from_yaml(config_file_path, required=True)
+        container.config.from_yaml(
+            config_file_path,
+            required=True,
+            envs_required=True,
+        )
         container.wire(packages=["genie_flow"])
         container.storage.container.wire(packages=["genie_flow.celery"])
         container.init_resources()
