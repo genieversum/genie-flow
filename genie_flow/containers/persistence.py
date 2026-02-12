@@ -3,7 +3,8 @@ from typing import Optional
 from dependency_injector import containers, providers
 from redis import Redis, ConnectionPool
 
-from genie_flow.permanent_storage.file_store import FileStorageManager
+from genie_flow.permanent_storage.embedded_store import EmbeddedStorageManager
+from genie_flow.permanent_storage.postgres_store import PostgresFileStoreManager
 from genie_flow.session_lock import SessionLockManager
 
 
@@ -57,8 +58,8 @@ class GenieFlowPersistenceContainer(containers.DeclarativeContainer):
     permanent_store = providers.Selector(
         config.permanent_store.type or "none",
         none=providers.Object(None),
-        file=providers.Singleton(
-            FileStorageManager,
+        embedded=providers.Singleton(
+            EmbeddedStorageManager,
             database_path=config.permanent_store.config.database_path,
             blob_path=config.permanent_store.config.blob_path,
             compress=config.permanent_store.config.compress or False,
@@ -66,6 +67,9 @@ class GenieFlowPersistenceContainer(containers.DeclarativeContainer):
             blob_directory_depth=config.permanent_store.config.blob_directory_depth or 2,
             critical_watermark=config.permanent_store.config.critical_watermark or 120,
             max_writes=config.permanent_store.config.max_writes or 32,
+        ),
+        postgres=providers.Singleton(
+            PostgresFileStoreManager,
         )
     )
 

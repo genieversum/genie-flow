@@ -1,18 +1,17 @@
-import shutil
 import tempfile
 import uuid
 from pathlib import Path
 
 import pytest
 
-from genie_flow.permanent_storage.file_store import FileStorageManager
+from genie_flow.permanent_storage.embedded_store import EmbeddedStorageManager
 
 
 @pytest.fixture(scope="session")
 def file_store_manager():
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir_path = Path(tmpdir)
-        yield FileStorageManager(
+        yield EmbeddedStorageManager(
             critical_watermark=30,
             max_writes=32,
             blob_url=f"file://{tmpdir_path}/blob",

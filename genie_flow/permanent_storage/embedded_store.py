@@ -21,7 +21,7 @@ _UPSERT_SQL = """
 """
 
 
-class FileStorageManager(AbstractFileStorageManager):
+class EmbeddedStorageManager(AbstractFileStorageManager):
     _thread_local = local()
 
     def __init__(
