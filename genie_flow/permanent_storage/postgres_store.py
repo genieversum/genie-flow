@@ -28,6 +28,17 @@ _UPSERT_SQL = """
 
 @dataclass
 class PostgresConfig:
+    """
+    A Configuration object to set parameters for creating a Connection Pool.
+
+    :param host: the hostname of the PostgreSQL database server
+    :param port: the port of the PostgreSQL database server
+    :param database: the database name
+    :param user: the username
+    :param password: the password
+    :param max_pool_size: the maximum number of connections to put into the pool
+    :param timeout: the time to wait for the PostgreSQL server to respond
+    """
     host: str
     port: int
     database: str
@@ -38,6 +49,10 @@ class PostgresConfig:
 
     @property
     def conninfo(self):
+        """
+        Return the connection info in a way the Connection Pool expects.
+        :return: a string containing the details for a Connection Pool
+        """
         return (
             f"host={self.host} port={self.port} "
             f"dbname={self.database} "
@@ -54,6 +69,21 @@ class PostgresFileStoreManager(AbstractFileStorageManager):
         file_storage_config: FileStorageConfig,
         db_pool: ConnectionPool,
     ):
+        """
+        Permanently store GenieModel objects in tar files and keep an index of persistent
+        records in a PostgreSQL database table.
+
+        To instantiate from configuration, use the class method from_config.
+
+        For small deployments, where all workers can access a local file system, consider
+        using the EmbeddedStorageManager.
+
+        :param critical_watermark: A time to live below the watermark indicates it
+            is critical to persist an object
+        :param max_writes: the maximum number of objects to store in one batch
+        :param file_storage_config: Configuration on where and how to store the files
+        :param db_pool: a postgresql ConnectionPool
+        """
         if psycopg is None:
             raise ImportError(
                 "PostgreSQL support requires psycopg. "
@@ -73,6 +103,17 @@ class PostgresFileStoreManager(AbstractFileStorageManager):
         file_storage_config: FileStorageConfig,
         database_config: PostgresConfig,
     ):
+        """
+        Create a new instance from config. Creates a ConnectionPool from a
+        PostgresConfig object.
+
+        :param critical_watermark: A time to live below the watermark indicates it
+            is critical to persist an object
+        :param max_writes: the maximum number of objects to store in one batch
+        :param file_storage_config: Configuration on where and how to store the files
+        :param database_config: the PostgresConfig object that configures the ConnectionPool
+        :return: a new instance
+        """
         if psycopg is None:
             raise ImportError(
                 "PostgreSQL support requires psycopg. "

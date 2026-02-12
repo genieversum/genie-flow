@@ -39,11 +39,17 @@ class EmbeddedStorageManager(AbstractFileStorageManager):
         Permanently store GenieModel objects in tar files and keep an index of persisted
         records in an SQLite database.
 
+        The SQLite database uses WAL to maximize effectiveness. Caveat is that all workers
+        need to have access to the SQLite database file on **local filesystem** since WAL
+        will break across network access. For large deployments, spanning workers across
+        multiple machines, consider using the PostgresFileStoreManager.
+
+        :param critical_watermark: A time to live below the watermark indicates it
+            is critical to persist an object
+        :param max_writes: the maximum number of objects to store in one batch
+        :param file_storage_config: Configuration on where and how to store the files
         :param database_path: Path to the database file. Accepts a string or Path object.
-            Can be None and will then be set to blob_path.
         :param database_retries: Int indicating the max retries for accessing the database
-        :param critical_watermark: the number of seconds of time-to-live, below which
-            an object becomes critical to persist permanently
         """
         super().__init__(critical_watermark, max_writes, file_storage_config)
         self.database_path = Path(database_path)

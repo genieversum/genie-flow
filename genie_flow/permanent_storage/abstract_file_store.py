@@ -77,6 +77,14 @@ class Manifest:
 
 @dataclass
 class FileStorageConfig:
+    """
+    Configuration on how to store files.
+
+    :param file_storage_url: URL to the place to store the files (using fsspec)
+    :param compress: Whether or not to compress the content in the file
+    :param shard_depth: How deep sharding directories should be created
+    :param file_storage_options: a dictionary of additional storage options for the fs backend
+    """
     file_storage_url: str
     compress: bool
     shard_depth: int
@@ -91,6 +99,14 @@ class AbstractFileStorageManager(PermanentStorageManager, ABC):
         max_writes: int,
         file_storage_config: FileStorageConfig,
     ):
+        """
+        Abstract Permanent Store Manager that stores Genie Model objects into tar files.
+
+        :param critical_watermark: A time to live below the watermark indicates it
+            is critical to persist an object
+        :param max_writes: the maximum number of objects to store in one batch
+        :param file_storage_config: the configuration of where and how to store tar files
+        """
         if fsspec is None:
             raise ImportError(
                 "Permanent Storage uses fsspec. Install using `genie-flow[permanent]"

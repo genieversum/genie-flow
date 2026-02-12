@@ -28,6 +28,20 @@ class PermanentStorageManager(ABC):
         critical_watermark: int | float,
         max_writes: int,
      ):
+        """
+        Abstract class for permanently storing Genie Model objects. Is aimed to be
+        periodically run to offload multiple Genie Model objects in one batch.
+
+        Keeps accounting on if saving an object is critical (ttl is beyond a certain
+        watermark) and if there is still room in a batch.
+
+        Subclasses should persist at least all critical objects in a batch, and more if
+        there is still room in the batch.
+
+        :param critical_watermark: A time to live below the watermark indicates it
+            is critical to persist an object
+        :param max_writes: the maximum number of objects to store in one batch
+        """
         self.max_writes = max_writes
         self.critical_watermark = critical_watermark
 
