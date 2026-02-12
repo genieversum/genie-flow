@@ -168,15 +168,13 @@ lowest level.
 
 Files are named `<session_id>.tar`. The directory tree is constructed using the last
 (highest level) and penultimate bytes (second level) of the session_id in reverse order.
+This is because session id's are constructed as `ULID`s meaning that there is very low
+entropy in the first bytes.
 
 **Example:** A session with ID `019be56e-ad36-f9b5-a63a-557a98e8f71d` will be stored as:
 ```
 ./permanent/blobs/d1/7f/019be56e-ad36-f9b5-a63a-557a98e8f71d.tar
 ```
-
-The reversed session ID is `d17f8e89a755a3a5b9f63da65eb9610`, so:
-- First shard level: `d1` (characters at positions 0-1 reversed)
-- Second shard level: `7f` (characters at positions 2-3 reversed)
 
 This sharding approach distributes files evenly across directories, preventing any single
 directory from becoming too large.

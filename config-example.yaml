@@ -30,6 +30,26 @@ persistence:
       database_config:
         path: ./permanent/db
         retries: 5
+#  permanent_store:
+#    type: postgres
+#    config:
+#      critical_watermark: 120
+#      max_writes: 32
+#      file_storage_config:
+#        file_storage_url: s3://my-bucket/genie-sessions
+#        compress: false
+#        shard_depth: 2
+#        options:
+#          key: ${AWS_ACCESS_KEY}
+#          secret: ${AWS_SECRET_KEY}
+#      database_config:
+#        host: postgres.example.com
+#        port: 5432
+#        database: genie_sessions
+#        user: genie
+#        password: ${POSTGRES_PASSWORD}
+#        max_pool_size: 10
+#        timeout: 30.0
 celery:
   broker: redis://localhost:6379/0
   backend: redis://localhost:6379/0
