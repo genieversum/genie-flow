@@ -12,25 +12,200 @@ of an agent:
 ```yaml
 persistence:
   permanent_store:
-    type: file
+    type: embedded
     config:
-      database_path: ./permanent/db
-      blob_path: ./permanent/blob
-      compress: false
-      blob_directory_depth: 2
+      critical_watermark: 120
+      max_writes: 32
+      file_storage_config:
+        file_storage_url: file://./permanent/blobs
+        compress: false
+        shard_depth: 2
+        options: null
+      database_config:
+        path: ./permanent/db
+        retries: 5
 ```
 
-Here a permanent store of type "file" has been configured. This means that a permanently
-stored version of the session will be created. In this case using "files".
+Here a permanent store of type "embedded" has been configured. This means that a permanently
+stored version of the session will be created using an embedded SQLite database for the
+session index and tar files for the actual session data.
 
 To date, the options for `type` are:
 
 `none`
 : no permanent storage is configured and expired sessions are lost indefinitely
 
-`file`
-: sessions are permanently stored in tar files and an index or sessions is kept in an
-  SQLite database. See [File Permanent Store](#File-Permanent-Store) below for details.
+`embedded`
+: sessions are permanently stored in tar files and an index of sessions is kept in an
+  embedded SQLite database. See [Embedded Storage Manager](#embedded-storage-manager) below for details.
+
+`postgres`
+: sessions are permanently stored in tar files and an index of sessions is kept in a
+  PostgreSQL database. See [PostgreSQL Storage Manager](#postgresql-storage-manager) below for details.
+
+## Configuration Structure
+Permanent storage configuration is organized into three levels:
+
+### 1. General Permanent Storage Configuration
+These parameters apply to all storage manager types and control the persistence behavior:
+
+`critical_watermark`
+: Time-to-live threshold (in seconds) below which a session is considered critical to persist.
+  Sessions with TTL below this value will be prioritized for persistence. (default: 120)
+
+`max_writes`
+: Maximum number of sessions to persist in a single batch. This limits the work done in each
+  periodic persistence cycle. (default: 32)
+
+### 2. File Storage Configuration
+All storage managers use tar files for storing session data. These parameters control how
+and where those tar files are stored:
+
+`file_storage_config.file_storage_url`
+: URL or path for blob storage. Uses [fsspec](https://filesystem-spec.readthedocs.io/) for
+  flexible backend support. Examples: `file://./data` (local), `s3://bucket/path` (S3),
+  `gs://bucket/path` (GCS), `az://container/path` (Azure), `sftp://host/path` (SFTP)
+
+`file_storage_config.compress`
+: Whether to compress the content within tar files. Set to `true` to save storage space at
+  the cost of CPU time. (default: false)
+
+`file_storage_config.shard_depth`
+: Depth of the directory tree for organizing tar files. A depth of 2 creates a two-level
+  directory structure based on the session ID for better filesystem performance. (default: 2)
+
+`file_storage_config.options`
+: Backend-specific storage options as a dictionary. Used for credentials, endpoints, and
+  other backend-specific parameters. Set to `null` for local filesystem.
+
+### 3. Storage Manager-Specific Configuration
+Each storage manager type has its own configuration section under `database_config`. See the
+specific sections below for [Embedded Storage Manager](#embedded-storage-manager) and
+[PostgreSQL Storage Manager](#postgresql-storage-manager) configuration details.
+
+## Tar File Structure and Storage
+Both storage managers use the same tar file format for storing session data. Understanding
+this structure helps with debugging and troubleshooting.
+
+### Flexible Blob Storage with fsspec
+Both storage managers use [fsspec](https://filesystem-spec.readthedocs.io/) for
+blob storage, which provides a unified interface to many storage backends. This means you
+can store tar files on local disk, network filesystems, or cloud object storage without
+changing your code.
+
+**Example configurations:**
+
+Local filesystem:
+```yaml
+file_storage_config:
+  file_storage_url: file:///mnt/shared/genie-sessions
+  compress: false
+  shard_depth: 2
+  options: null
+```
+
+AWS S3:
+```yaml
+file_storage_config:
+  file_storage_url: s3://my-bucket/genie-sessions
+  compress: true
+  shard_depth: 2
+  options:
+    key: ${AWS_ACCESS_KEY}
+    secret: ${AWS_SECRET_KEY}
+```
+
+Google Cloud Storage:
+```yaml
+file_storage_config:
+  file_storage_url: gs://my-bucket/genie-sessions
+  compress: true
+  shard_depth: 2
+  options:
+    token: ${GCS_TOKEN}
+```
+
+Azure Blob Storage:
+```yaml
+file_storage_config:
+  file_storage_url: az://my-container/genie-sessions
+  compress: true
+  shard_depth: 2
+  options:
+    account_name: ${AZURE_ACCOUNT}
+    account_key: ${AZURE_KEY}
+```
+
+SFTP:
+```yaml
+file_storage_config:
+  file_storage_url: sftp://storage-host/data/genie-sessions
+  compress: false
+  shard_depth: 2
+  options:
+    username: ${SFTP_USER}
+    password: ${SFTP_PASSWORD}
+```
+
+### Tar File Contents
+Each tar file contains one or more members representing the serialized components of a GenieModel:
+
+**Main model member (`_`)**
+: Contains the serialization of the GenieModel itself
+
+**Secondary storage members**
+: For each key in the secondary store of a GenieModel, a member is created with the name
+  of the key and content being the serialized data of that secondary store value
+
+**Manifest member (`MANIFEST.json`)**
+: Contains metadata about the tar file including a SHA-256 hash of all content for
+  corruption detection
+
+### File Organization and Sharding
+Tar files are organized in a sharded directory structure for better filesystem performance.
+Using `shard_depth: 2`, a directory tree of two levels is created, with files stored at the
+lowest level.
+
+Files are named `<session_id>.tar`. The directory tree is constructed using the last
+(highest level) and penultimate bytes (second level) of the session_id in reverse order.
+
+**Example:** A session with ID `019be56e-ad36-f9b5-a63a-557a98e8f71d` will be stored as:
+```
+./permanent/blobs/d1/7f/019be56e-ad36-f9b5-a63a-557a98e8f71d.tar
+```
+
+The reversed session ID is `d17f8e89a755a3a5b9f63da65eb9610`, so:
+- First shard level: `d1` (characters at positions 0-1 reversed)
+- Second shard level: `7f` (characters at positions 2-3 reversed)
+
+This sharding approach distributes files evenly across directories, preventing any single
+directory from becoming too large.
+
+### Manifest and Corruption Detection
+Each tar file includes a `MANIFEST.json` file containing:
+- Timestamp of when the tar was created
+- SHA-256 hash of all data members (excluding the manifest itself)
+- List of members with their names and sizes
+
+When reading a tar file, the implementation:
+1. Reads all members and computes a running SHA-256 hash
+2. Reads the manifest
+3. Compares the computed hash with the manifest hash
+4. If hashes don't match, retries the read (up to 3 attempts with exponential backoff)
+
+This manifest-based approach is particularly important for cloud storage backends like S3,
+where atomic file operations are expensive. The hash verification ensures data integrity
+even when reads might overlap with writes or experience eventual consistency delays.
+
+### Concurrent Access Pattern
+With a single writer and multiple readers, the following scenario is possible:
+- A reader opens a tar file and begins streaming its contents
+- The writer updates the same tar file with new data
+- The reader detects a hash mismatch and automatically retries
+
+This is an acceptable trade-off for archival storage, occurring in approximately 1 in 100,000
+reads under heavy load. The retry mechanism ensures readers eventually get consistent data,
+though it might be from a slightly older version of the session.
 
 
 # Keeping Permanent Storage up to date
@@ -80,28 +255,55 @@ celery:
   permanent_persistence_queue: permanent_store
 ```
 
-## File Permanent Store
-Permanently store GenieModel objects in tar files and keep an index of persisted
-records in an SQLite database.
+## Embedded Storage Manager
+The `EmbeddedStorageManager` permanently stores GenieModel objects in tar files and keeps 
+an index of persisted records in an embedded SQLite database. This is the recommended option
+for small to medium deployments where all processes can access a shared local filesystem.
 
-### tar files
-The tar files consist of one or more files (members), containing the serialization of
-components of a GenieModel.
+### Installation
 
-The member "_" contains the serialization of the GenieModel itself.
-For every key in the secondary store of a GenieModel, a member of the tar file is
-created that has the name of the key and content being the serialized data of the
-secondary store value.
+To use the embedded storage manager, install genie-flow with the `permanent` extra:
 
-Using the example configuration above, this will create a directory tree of two levels and 
-store files at the lowest level of that tree. These files will be named `<session_id>.tar`.
-The directory tree is constructed by the last (highest level) and penultimate bytes (second 
-level) of the session_id. So a file `019be56e-ad36-f9b5-a63a-557a98e8f71d.tar` will be stored 
-as `./permanent/blob/1d/f7/019be56e-ad36-f9b5-a63a-557a98e8f71d.tar`
+```bash
+pip install genie-flow[permanent]
+```
+
+This installs the required `fsspec` dependency for flexible blob storage backends.
+
+### Configuration Example
+```yaml
+persistence:
+  permanent_store:
+    type: embedded
+    config:
+      critical_watermark: 120
+      max_writes: 32
+      file_storage_config:
+        file_storage_url: file://./permanent/blobs
+        compress: false
+        shard_depth: 2
+        options: null
+      database_config:
+        path: ./permanent/db
+        retries: 5
+```
+
+See [Configuration Structure](#configuration-structure) above for `critical_watermark`, 
+`max_writes`, and `file_storage_config` parameter descriptions.
+
+### Database Configuration Parameters
+
+`database_config.path`
+: Path to the directory where the SQLite database file will be stored. The database file
+  `permanent_store.db` will be created in this directory.
+
+`database_config.retries`
+: Maximum number of retry attempts for database operations in case of lock contention. The
+  implementation uses exponential backoff between retries. (default: 5)
 
 ### database index
 For every tar file, a record is created in the database `permanent_store.db` which will
-be stored as `./permanent/db/permanent_store.db`.
+be stored in the configured `database_config.path`.
 
 This database contains the table `sessions`, which is defined as:
 ```sql
@@ -112,18 +314,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     updated_at TEXT NOT NULL
 );
 ```
-This index is used to be able to retrieve sessions belonging to a specific user, identified
+This index is used to retrieve sessions belonging to a specific user, identified
 by their email address.
-
-### access to the central blob store
-Storing these files is done by the Celery worker that picks up the periodic tasks called
-"genie_flow.scheduler.permanent_persistence". Retrieval of permanently stored objects is
-conducted by the API process.
-
-This means that access to the blob files and database needs to be provided to these
-processes. Either because they all run on the same machine and storage is configured to be
-on a local disk on that machine - or a network share of these files is mounted onto the
-worker and API processes.
 
 ### concurrent access and robustness
 The SQLite database implementation is designed to handle multiple concurrent readers 
@@ -145,18 +337,133 @@ This architecture ensures that the permanent storage system remains responsive a
 even under heavy concurrent read load from multiple Celery Workers while a dedicated worker
 process handles all write operations.
 
-> For production deployments, it is recommended to run a separate permanent storage worker
-> that listens on a dedicated permanent storage queue
-
 ### network filesystem limitation
-The `FileStorageManager` implementation uses SQLite with Write-Ahead Logging (WAL mode) for
+The `EmbeddedStorageManager` uses SQLite with Write-Ahead Logging (WAL mode) for
 the session index, which enables efficient concurrent access from multiple readers and a 
 single writer. However, **WAL mode requires all processes to share memory-mapped files and
 is therefore incompatible with network filesystems** (NFS, SMB, CIFS, etc.). This means 
-`FileStorageManager` can only be used when all processes (API processes and workers) run on 
-the same physical machine with local access to the database file. For distributed deployments
-where processes run on multiple machines, and storage must be accessed over a network 
-filesystem, use `PostgresStorageManager` instead, which stores the session index in PostgreSQL
-while keeping tar files on shared storage.
+`EmbeddedStorageManager` can only be used when all processes (API processes and workers) run 
+on the same physical machine with local access to the database file. For distributed 
+deployments where processes run on multiple machines, use `PostgresFileStoreManager` instead.
 
-**NB: The PostgresStorageManager is @TODO**
+### when to use embedded storage
+Use the `EmbeddedStorageManager` when:
+* All workers and API processes run on a single machine
+* You want simple deployment with no external database dependencies
+* Your session volume is low to medium (thousands to tens of thousands of sessions)
+* You have access to a shared local filesystem for all processes
+
+## PostgreSQL Storage Manager
+The `PostgresFileStoreManager` permanently stores GenieModel objects in tar files and keeps
+an index of persisted records in a PostgreSQL database. This is the recommended option for
+large-scale deployments where processes are distributed across multiple machines.
+
+### Installation
+
+To use the PostgreSQL storage manager, install genie-flow with both the `permanent` and 
+`permanent_postgres` extras:
+
+```bash
+pip install genie-flow[permanent,permanent_postgres]
+```
+
+This installs:
+- `fsspec` for flexible blob storage backends
+- `psycopg` (with binary drivers) for PostgreSQL connectivity
+- `psycopg-pool` for connection pooling
+
+### Configuration Example
+```yaml
+persistence:
+  permanent_store:
+    type: postgres
+    config:
+      critical_watermark: 120
+      max_writes: 32
+      file_storage_config:
+        file_storage_url: s3://my-bucket/genie-sessions
+        compress: false
+        shard_depth: 2
+        options:
+          key: ${AWS_ACCESS_KEY}
+          secret: ${AWS_SECRET_KEY}
+      database_config:
+        host: postgres.example.com
+        port: 5432
+        database: genie_sessions
+        user: genie
+        password: ${POSTGRES_PASSWORD}
+        max_pool_size: 10
+        timeout: 30.0
+```
+
+See [Configuration Structure](#configuration-structure) above for `critical_watermark`, 
+`max_writes`, and `file_storage_config` parameter descriptions.
+
+### Database Configuration Parameters
+
+`database_config.host`
+: PostgreSQL server hostname or IP address
+
+`database_config.port`
+: PostgreSQL server port (typically 5432)
+
+`database_config.database`
+: Name of the database to use for storing the session index
+
+`database_config.user`
+: PostgreSQL username for authentication
+
+`database_config.password`
+: PostgreSQL password for authentication. It is strongly recommended to use environment
+  variables (e.g., `${POSTGRES_PASSWORD}`) rather than hardcoding passwords in configuration files.
+
+`database_config.max_pool_size`
+: Maximum number of connections to maintain in the connection pool. Adjust based on the number
+  of worker processes and expected concurrent load. (default: 10)
+
+`database_config.timeout`
+: Connection timeout in seconds. Operations that take longer than this will fail with a timeout
+  error. (default: 30.0)
+
+### database index
+The PostgreSQL database contains a `sessions` table:
+```sql
+CREATE TABLE IF NOT EXISTS sessions (
+    session_id TEXT PRIMARY KEY,
+    email_address TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+```
+
+With indexes on `email_address` and `updated_at` for efficient querying.
+
+### concurrent access
+PostgreSQL's MVCC (Multi-Version Concurrency Control) architecture provides true concurrent
+access without blocking:
+* Multiple readers can query the session index simultaneously
+* The single writer process can insert/update records without blocking readers
+* Connection pooling ensures efficient resource usage across all processes
+* No shared memory requirements - works across network boundaries
+
+### when to use postgresql storage
+Use the `PostgresFileStoreManager` when:
+* Workers and API processes are distributed across multiple machines
+* You need true network-accessible storage for the session index
+* You want flexibility in blob storage location (local, NFS, S3, GCS, etc.)
+* You require scalability beyond a single machine
+* You already have PostgreSQL infrastructure available
+
+## Choosing Between Embedded and PostgreSQL Storage
+
+| Feature               | Embedded Storage               | PostgreSQL Storage              |
+|-----------------------|--------------------------------|---------------------------------|
+| **Deployment**        | Single machine                 | Multi-machine cluster           |
+| **Database**          | SQLite (embedded)              | PostgreSQL (external)           |
+| **Blob storage**      | Local filesystem or fsspec     | Any fsspec backend              |
+| **Setup complexity**  | Minimal                        | Requires PostgreSQL             |
+| **Scalability**       | Low to medium                  | High                            |
+| **Concurrent access** | WAL mode (local only)          | MVCC (network-safe)             |
+| **Dependencies**      | None (SQLite built-in)         | PostgreSQL + psycopg            |
+| **Best for**          | Development, small deployments | Production, distributed systems |
