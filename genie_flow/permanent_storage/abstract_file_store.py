@@ -132,7 +132,7 @@ class AbstractFileStorageManager(PermanentStorageManager, ABC):
         self._thread_local.base_path = base_path
 
     @property
-    def fs(self) -> fsspec.AbstractFileSystem:
+    def fs(self) -> "fsspec.AbstractFileSystem":
         if not hasattr(self._thread_local, "fs"):
             self._make_fs()
         return self._thread_local.fs
