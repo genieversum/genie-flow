@@ -11,20 +11,20 @@ from genie_flow.session_lock import SessionLockManager
 
 def _create_file_storage_config(file_storage_config):
     return FileStorageConfig(
-        file_storage_url=file_storage_config.file_storage_url,
-        compress=file_storage_config.compress or False,
-        shard_depth=file_storage_config.shard_depth or 2,
-        file_storage_options=file_storage_config.options or {},
+        file_storage_url=file_storage_config["file_storage_url"],
+        compress=file_storage_config.get("compress", False),
+        shard_depth=file_storage_config.get("shard_depth", 2),
+        file_storage_options=file_storage_config.get("options", {}),
     )
 
 
-def _create_embedded_file_store(store_config):
+def _create_embedded_file_store(store_config: dict):
     return EmbeddedStorageManager(
-        critical_watermark =store_config.critical_watermark or 120,
-        max_writes =store_config.max_writes or 32,
-        file_storage_config = _create_file_storage_config(store_config.file_storage_config),
-        database_path = store_config.database_config.path,
-        database_retries = store_config.database_config.retries or 5,
+        critical_watermark =store_config.get("critical_watermark", 120),
+        max_writes =store_config.get("max_writes", 32),
+        file_storage_config = _create_file_storage_config(store_config["file_storage_config"]),
+        database_path = store_config["database_config"]["path"],
+        database_retries = store_config["database_config"].get("retries", 5),
     )
 
 

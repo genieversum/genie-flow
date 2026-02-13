@@ -1,7 +1,7 @@
 import time
 from contextlib import contextmanager
 from functools import partial
-from typing import Type, Optional, Literal, List, Tuple, Any, Generator, Never, Dict
+from typing import Type, Optional, Literal, List, Tuple, Any, Generator, Dict
 
 import redis_lock
 from loguru import logger
@@ -259,14 +259,14 @@ class SessionLockManager:
         with self.create_lock_for_session(model.session_id):
             self.persist_model(model)
 
-    def _get_dirty_session(self) -> Generator[tuple[str, type[GenieModel]], Any, Never]:
+    def _get_dirty_session(self) -> Generator[tuple[str, type[GenieModel]], Any, None]:
         while True:
             dirty_sessions: List[Tuple[bytes, float]] = self.redis_object_store.zpopmin(
                 _DIRTY_SET_NAME,
                 count=1,
             )
             if not dirty_sessions:
-                raise StopIteration("No more dirty sessions")
+                break
 
             dirty_session_bytes, _ = dirty_sessions.pop()
             dirty_session = dirty_session_bytes.decode("utf-8")

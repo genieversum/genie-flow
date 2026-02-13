@@ -25,8 +25,6 @@ _UPSERT_SQL = """
 
 
 class EmbeddedStorageManager(AbstractFileStorageManager):
-    _thread_local = local()
-
     def __init__(
         self,
         critical_watermark: int | float,
@@ -55,6 +53,7 @@ class EmbeddedStorageManager(AbstractFileStorageManager):
         self.database_path = Path(database_path)
         self.database_retries = database_retries
 
+        self._thread_local = local()
         self._init_database()
 
     def _get_connection(self):

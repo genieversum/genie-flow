@@ -7,6 +7,7 @@ from abc import ABC
 from dataclasses import dataclass, asdict
 from functools import cache
 from io import BytesIO
+from threading import local
 from typing import Optional, Dict, List, Tuple, NamedTuple
 
 from loguru import logger
@@ -115,10 +116,31 @@ class AbstractFileStorageManager(PermanentStorageManager, ABC):
         super().__init__(critical_watermark, max_writes)
         self.compress = file_storage_config.compress
         self.shard_depth = file_storage_config.shard_depth
-        self.fs, self.file_storage_base_path = fsspec.url_to_fs(
-            file_storage_config.file_storage_url,
-            **(file_storage_config.file_storage_options or {})
+
+        self.file_storage_url = file_storage_config.file_storage_url
+        self._thread_local = local()
+        self.fs_options = dict(timeout=10)
+        self.fs_options.update(file_storage_config.file_storage_options)
+
+    def _make_fs(self):
+        fs, base_path = fsspec.url_to_fs(
+            self.file_storage_url,
+            **self.fs_options
         )
+        self._thread_local.fs = fs
+        self._thread_local.base_path = base_path
+
+    @property
+    def fs(self) -> fsspec.AbstractFileSystem:
+        if not hasattr(self._thread_local, "fs"):
+            self._make_fs()
+        return self._thread_local.fs
+
+    @property
+    def file_storage_base_path(self) -> str:
+        if not hasattr(self._thread_local, "base_path"):
+            self._make_fs()
+        return self._thread_local.base_path
 
     @cache
     def _get_file_url(self, session_id: str) -> str:
