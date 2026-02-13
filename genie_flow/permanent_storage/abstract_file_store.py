@@ -120,7 +120,8 @@ class AbstractFileStorageManager(PermanentStorageManager, ABC):
         self.file_storage_url = file_storage_config.file_storage_url
         self._thread_local = local()
         self.fs_options = dict(timeout=10)
-        self.fs_options.update(file_storage_config.file_storage_options)
+        if file_storage_config.file_storage_options:
+            self.fs_options.update(file_storage_config.file_storage_options)
 
     def _make_fs(self):
         fs, base_path = fsspec.url_to_fs(
