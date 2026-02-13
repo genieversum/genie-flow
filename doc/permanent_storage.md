@@ -7,8 +7,12 @@ for short-lived processing sessions to a couple of hours for interactive workloa
 When the expiration time is passed, the session is removed from the in-memory database and
 references to that expired session will fail with a 404 Not Found status.
 
-Unless a permanent store has been defined. Look at the following snippet from a `config.yaml`
-of an agent:
+Unless a permanent store has been defined. With permanent storage configured, expired sessions
+can be retrieved from the permanent store and restored to active memory when needed. This allows
+sessions to persist beyond their Redis expiration time while keeping the in-memory database
+performant.
+
+Look at the following snippet from a `config.yaml` of an agent:
 ```yaml
 persistence:
   permanent_store:
@@ -168,8 +172,6 @@ lowest level.
 
 Files are named `<session_id>.tar`. The directory tree is constructed using the last
 (highest level) and penultimate bytes (second level) of the session_id in reverse order.
-This is because session id's are constructed as `ULID`s meaning that there is very low
-entropy in the first bytes.
 
 **Example:** A session with ID `019be56e-ad36-f9b5-a63a-557a98e8f71d` will be stored as:
 ```
@@ -231,7 +233,148 @@ otherwise session objects might be expired before they are persisted.
 There is a fine balance between the number of sessions to persist in one sweep and the
 frequency at which these sweeps are conducted.
 
-## periodic tasks
+## Running Celery Beat and Workers
+
+Celery requires two separate processes to handle periodic persistence:
+
+### 1. Celery Beat (Scheduler)
+
+The beat process schedules periodic tasks according to the configured intervals. Start it with:
+
+```bash
+celery --app main.celery_app beat
+```
+
+This process reads your `permanent_persistence_period` configuration and schedules the 
+persistence task to run at the specified interval. **You only need one beat process** for
+your entire deployment, regardless of how many workers you have.
+
+### 2. Celery Worker (Executor)
+
+The worker process executes the scheduled persistence tasks. For permanent storage, you should
+run a dedicated worker that listens only on the permanent storage queue:
+
+```bash
+celery --app main.celery_app worker \
+  --hostname persistor \
+  --queue permanent_store \
+  --concurrency 1
+```
+
+**Configuration parameters:**
+
+`--hostname persistor`
+: Gives the worker a descriptive name for monitoring and logging
+
+`--queue permanent_store`
+: Restricts this worker to only process tasks on the `permanent_store` queue
+
+`--concurrency 1`
+: **Critical for EmbeddedStorageManager** - limits the worker to a single process/thread
+
+### Critical: Single Writer Requirement
+
+**For EmbeddedStorageManager, you must run exactly ONE persistence worker with `--concurrency 1`.**
+
+SQLite's Write-Ahead Logging (WAL) mode supports multiple concurrent readers but only a 
+single writer. Running multiple persistence workers or using `--concurrency > 1` will cause
+database lock contention and failed writes.
+
+**Correct deployment:**
+```bash
+# Start the beat scheduler (one instance)
+celery --app main.celery_app beat
+
+# Start a single persistence worker (one instance, concurrency 1)
+celery --app main.celery_app worker \
+  --hostname persistor \
+  --queue permanent_store \
+  --concurrency 1
+```
+
+**Incorrect deployment (will cause errors):**
+```bash
+# ❌ DO NOT DO THIS with EmbeddedStorageManager
+celery --app main.celery_app worker \
+  --queue permanent_store \
+  --concurrency 4  # Multiple writers will conflict!
+
+# ❌ DO NOT DO THIS with EmbeddedStorageManager
+# Running two persistence workers
+celery --app main.celery_app worker --hostname persistor1 --queue permanent_store &
+celery --app main.celery_app worker --hostname persistor2 --queue permanent_store &
+```
+
+### PostgreSQL Storage Manager Scaling
+
+If you're using `PostgresFileStoreManager`, these restrictions don't apply. PostgreSQL's
+MVCC architecture supports multiple concurrent writers, so you can scale persistence workers
+horizontally:
+
+```bash
+# PostgreSQL supports multiple workers
+celery --app main.celery_app worker \
+  --hostname persistor1 \
+  --queue permanent_store \
+  --concurrency 4
+
+celery --app main.celery_app worker \
+  --hostname persistor2 \
+  --queue permanent_store \
+  --concurrency 4
+```
+
+However, even with PostgreSQL, running a single dedicated persistence worker is often sufficient
+and keeps your architecture simple.
+
+## Configuring the Persistence Queue
+
+By default, periodic tasks are placed on the default `celery` queue, which all workers listen to.
+To dedicate a worker specifically for persistence tasks, specify the queue name in your 
+configuration:
+
+```yaml
+celery:
+  broker: redis://localhost:6379/0
+  backend: redis://localhost:6379/0
+  redis_socket_timeout: 4.0
+  redis_socket_connect_timeout: 4.0
+  permanent_persistence_period: 30.0
+  permanent_persistence_queue: permanent_store
+```
+
+With this configuration, persistence tasks will be routed to the `permanent_store` queue, and
+only workers listening to that queue will process them.
+
+## Production Deployment Recommendations
+
+For production deployments, consider these access requirements:
+
+### Process Access Requirements
+
+All processes (API, workers, persistence worker) need the ability to restore expired sessions
+from permanent storage. This means:
+
+**For EmbeddedStorageManager:**
+- **SQLite database**: Must be on local filesystem, accessible by all processes on the same machine
+- **Blob storage (tar files)**: Can be local, NFS, or cloud storage (S3, GCS, Azure) via fsspec
+- **Requirement**: All processes must run on the same physical machine
+
+**For PostgresFileStoreManager:**
+- **PostgreSQL database**: Accessed via network, no local filesystem requirement
+- **Blob storage (tar files)**: Can be local, NFS, or cloud storage (S3, GCS, Azure) via fsspec
+- **Requirement**: Processes can be distributed across machines
+
+### Deployment Checklist
+
+1. **Run beat on a single, reliable machine** - If beat goes down, no periodic tasks run
+2. **Monitor your persistence worker** - Set up alerts if the worker falls behind or stops processing
+3. **Verify network/filesystem access**:
+   - For Embedded: Ensure all processes are on the same machine with local SQLite access
+   - For PostgreSQL: Ensure all processes can reach PostgreSQL and blob storage over network
+4. **Test session restoration** - Verify that expired sessions can be retrieved by all process types
+
+## Storage Manager Implementations
 As described in the Celery documentation, the `beat` process schedules periodic tasks. These
 tasks are then put onto the workers queue and will be picked up by any of the workers
 listening to that queue.
@@ -339,17 +482,27 @@ process handles all write operations.
 The `EmbeddedStorageManager` uses SQLite with Write-Ahead Logging (WAL mode) for
 the session index, which enables efficient concurrent access from multiple readers and a 
 single writer. However, **WAL mode requires all processes to share memory-mapped files and
-is therefore incompatible with network filesystems** (NFS, SMB, CIFS, etc.). This means 
-`EmbeddedStorageManager` can only be used when all processes (API processes and workers) run 
-on the same physical machine with local access to the database file. For distributed 
-deployments where processes run on multiple machines, use `PostgresFileStoreManager` instead.
+is therefore incompatible with network filesystems** (NFS, SMB, CIFS, etc.). 
+
+This means the **SQLite database file must be on the local filesystem** accessible to all
+processes. All processes (API processes, worker processes, and the persistence worker) must
+run on the same physical machine with local access to the database file.
+
+The blob storage (tar files) can use any fsspec backend - local filesystem, network filesystem
+(NFS), or cloud storage (S3, GCS, Azure) - since blob access does not require shared memory.
+
+For distributed deployments where processes run on multiple machines, use 
+`PostgresFileStoreManager` instead, which has no local filesystem requirements.
 
 ### when to use embedded storage
 Use the `EmbeddedStorageManager` when:
-* All workers and API processes run on a single machine
+* All workers and API processes run on a single machine (required for SQLite WAL mode)
 * You want simple deployment with no external database dependencies
 * Your session volume is low to medium (thousands to tens of thousands of sessions)
-* You have access to a shared local filesystem for all processes
+* All processes can access the same local SQLite database file
+
+The blob storage can be on local disk, NFS, or cloud storage - only the SQLite database
+requires local filesystem access.
 
 ## PostgreSQL Storage Manager
 The `PostgresFileStoreManager` permanently stores GenieModel objects in tar files and keeps
@@ -443,7 +596,10 @@ access without blocking:
 * Multiple readers can query the session index simultaneously
 * The single writer process can insert/update records without blocking readers
 * Connection pooling ensures efficient resource usage across all processes
-* No shared memory requirements - works across network boundaries
+* No shared memory or local filesystem requirements - works across network boundaries
+
+Since both PostgreSQL and fsspec support network access, all processes can be distributed
+across machines with no co-location requirements.
 
 ### when to use postgresql storage
 Use the `PostgresFileStoreManager` when:
