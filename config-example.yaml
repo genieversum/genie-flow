@@ -19,18 +19,44 @@ persistence:
     db: 3
     max_connections: 200
     expiration_seconds: 120
-  mongo_store:
-    host: localhost
-    port: 27017
-    username: test_user
-    password: password
-    db: genie_db
+  permanent_store:
+    type: embedded
+    config:
+      critical_watermark: 30
+      max_writes: 128
+      file_storage_config:
+        file_storage_url: file://./permanent/blob
+        shard_depth: 2
+      database_config:
+        path: ./permanent/db
+        retries: 5
+#  permanent_store:
+#    type: postgres
+#    config:
+#      critical_watermark: 120
+#      max_writes: 32
+#      file_storage_config:
+#        file_storage_url: s3://my-bucket/genie-sessions
+#        compress: false
+#        shard_depth: 2
+#        options:
+#          key: ${AWS_ACCESS_KEY}
+#          secret: ${AWS_SECRET_KEY}
+#      database_config:
+#        host: postgres.example.com
+#        port: 5432
+#        database: genie_sessions
+#        user: genie
+#        password: ${POSTGRES_PASSWORD}
+#        max_pool_size: 10
+#        timeout: 30.0
 celery:
   broker: redis://localhost:6379/0
   backend: redis://localhost:6379/0
   redis_socket_timeout: 4.0
   redis_socket_connect_timeout: 4.0
-  update_mongo_period: 30.0
+  permanent_persistence_period: 30.0
+  permanent_persistence_queue: permanent_store
 api:
   debug: true
   root_path: /api/v1

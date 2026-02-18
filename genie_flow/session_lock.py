@@ -1,18 +1,20 @@
+import time
 from contextlib import contextmanager
-from typing import Type, Optional, Literal
+from functools import partial
+from typing import Type, Optional, Literal, List, Tuple, Any, Generator, Dict
 
 import redis_lock
 from loguru import logger
 from redis import Redis
 
 from genie_flow.genie import GenieModel
-from genie_flow.model.persistence import PersistenceLevel
 from genie_flow.model.secondary_store import SecondaryStore
-from genie_flow.mongo import retrieve_model
+from genie_flow.permanent_storage import PermanentStorageManager, RetrievableModel
 from genie_flow.utils import get_class_from_fully_qualified_name, get_fully_qualified_name_from_class
 
 
 StoreType = Literal["object", "secondary", "lock", "progress"]
+_DIRTY_SET_NAME = "_dirty"
 
 
 class SessionLockManager:
@@ -22,6 +24,7 @@ class SessionLockManager:
         redis_object_store: Redis,
         redis_lock_store: Redis,
         redis_progress_store: Redis,
+        permanent_store: Optional[PermanentStorageManager],
         object_expiration_seconds: int,
         lock_expiration_seconds: int,
         progress_expiration_seconds: int,
@@ -36,6 +39,7 @@ class SessionLockManager:
         :param redis_object_store: The Redis object store
         :param redis_lock_store: The Redis lock store
         :param redis_progress_store: The Redis progress store
+        :param permanent_store: An optional Permanent store for permanent storage
         :param object_expiration_seconds: The expiration time for objects in seconds
         :param lock_expiration_seconds: The expiration time of the lock in seconds
         :param progress_expiration_seconds: The expiration time of the progress object in seconds
@@ -45,6 +49,7 @@ class SessionLockManager:
         self.redis_object_store = redis_object_store
         self.redis_lock_store = redis_lock_store
         self.redis_progress_store = redis_progress_store
+        self.permanent_store = permanent_store
         self.object_expiration_seconds = object_expiration_seconds
         self.lock_expiration_seconds = lock_expiration_seconds
         self.progress_expiration_seconds = progress_expiration_seconds
@@ -99,6 +104,56 @@ class SessionLockManager:
         serialized_values = self.redis_object_store.hgetall(secondary_key)
         return SecondaryStore.from_serialized(serialized_values)
 
+    def _get_model_payloads_from_redis(
+        self,
+        session_id: str,
+        model_cls: Type[GenieModel],
+    ) -> Dict[str, bytes]:
+        """
+        Retrieve the model and secondary storage payloads from Redis. Returns a dictionary
+        with the key "_" containing the model payload and keys for any secondary values
+        recorded for the model.
+
+        :param session_id: the session id to retrieve
+        :param model_cls: the class of the GenieModel to retrieve
+        :return: a dictionary containing the payloads read from Redis
+        """
+        model_key = self._create_key("object", model_cls, session_id)
+        model_payload = self.redis_object_store.get(model_key)
+        if not model_payload:
+            logger.error(
+                "No data stored for session {session_id} for class {cls}",
+                session_id=session_id,
+                cls=model_cls.__class__.__name__,
+            )
+            raise KeyError("No data for session")
+
+        secondary_key = self._create_key("secondary", model_cls, session_id)
+        secondary_payloads = self.redis_object_store.hgetall(secondary_key) or {}
+        return {
+            "_": model_payload,
+            **secondary_payloads,
+        }
+
+    def _get_model_from_redis(self, session_id: str, model_class: Type[GenieModel]) -> GenieModel:
+        """
+        Retrieve the GenieModel from Redis by its session_id and class.
+        Also fetch the secondary storage.
+
+        Raises a KeyError if there is no object with the given session_id.
+
+        :param session_id: the session id to retrieve
+        :param model_class: the class of the model to retrieve
+        :return: a loaded and instantiated GenieModel
+        :raises: KeyError if no data is stored under the given key
+        """
+        payloads = self._get_model_payloads_from_redis(session_id, model_class)
+
+        model_payload = payloads.pop("_")
+        model = model_class.deserialize(model_payload)
+        model.secondary_storage = SecondaryStore.from_serialized(payloads)
+        return model
+
     def retrieve_model(self, session_id: str, model_class: Type[GenieModel]) -> GenieModel:
         """
         Retrieve the GenieModel for the object for the given `session_id`. This retrieval is
@@ -108,19 +163,25 @@ class SessionLockManager:
         :param model_class: the GenieModel class to retrieve
         :return: a retrieved GenieModel object for the given `session_id`
         """
-        model_key = self._create_key("object", model_class, session_id)
-        payload = self.redis_object_store.get(model_key)
-        if payload is None:
-            logger.error("No model with id {session_id} found in object store, trying mongodb", session_id=session_id)
+        try:
+            return self._get_model_from_redis(session_id, model_class)
+        except KeyError:
+            logger.info(
+                "No model with id {session_id} for class {cls} found in object store, "
+                "trying permanent storage",
+                session_id=session_id,
+                cls=model_class.__name__,
+            )
             try:
-                mongo_data = retrieve_model(session_id)
-                payload = mongo_data['model']
-            except:
-                raise KeyError(f"No model with id {session_id}")
-
-        model = model_class.deserialize(payload)
-        model.secondary_storage = self._retrieve_secondary_storage(session_id, model_class)
-        return model
+                if self.permanent_store is None:
+                    raise KeyError()
+                return self.permanent_store.retrieve(session_id)
+            except KeyError:
+                logger.error(
+                    "Could not find session with id '{session_id}' in permanent store",
+                    session_id,
+                )
+                raise
 
     def get_model(self, session_id: str, model_class: str | Type[GenieModel]) -> GenieModel:
         """Lock-free read. Safe because writes only happen at state transitions."""
@@ -182,18 +243,109 @@ class SessionLockManager:
             model.serialize(self.compression, exclude={"secondary_storage"}),
             ex=self.object_expiration_seconds,
         )
-        model_fqn = get_fully_qualified_name_from_class(model)
-        if "persistence" not in  model.secondary_storage or \
-            model.secondary_storage["persistence"].level == PersistenceLevel.LONG_TERM_PERSISTENCE:
-            self.redis_object_store.sadd(
-                self.update_set_key,
-                f"{model_fqn}:{model.session_id}"
+
+        if self.permanent_store is not None:
+            model_fqn = get_fully_qualified_name_from_class(model)
+            now = time.time()
+            self.redis_object_store.zadd(
+                _DIRTY_SET_NAME,
+                {
+                    f"{model_fqn}:{model.session_id}": now,
+                },
             )
 
     def store_model(self, model: GenieModel):
         """Store model and invalidate caches across all workers."""
         with self.create_lock_for_session(model.session_id):
             self.persist_model(model)
+
+    def _get_dirty_session(self) -> Generator[tuple[str, type[GenieModel]], Any, None]:
+        while True:
+            dirty_sessions: List[Tuple[bytes, float]] = self.redis_object_store.zpopmin(
+                _DIRTY_SET_NAME,
+                count=1,
+            )
+            if not dirty_sessions:
+                break
+
+            dirty_session_bytes, _ = dirty_sessions.pop()
+            dirty_session = dirty_session_bytes.decode("utf-8")
+            model_fqn, session_id = dirty_session.split(":", 1)
+            model_cls = get_class_from_fully_qualified_name(model_fqn)
+            if not issubclass(model_cls, GenieModel):
+                logger.critical(
+                    "We have retrieved a model that is not a GenieModel but a {cls}",
+                    cls=model_fqn,
+                )
+                raise ValueError("No GenieModel retrieved")
+
+            yield session_id, model_cls
+
+    def _locked_retriever(self, session_id: str, model_cls: Type[GenieModel]):
+        """
+        Retrieve the model of a given session_id and model class within a lock. This is
+        used to asynchronously obtain a consistent copy of a GenieModel.
+        :param session_id: the session id for which to obtain the model for
+        :param model_cls: the class of the model to obtain
+        :return: a fully instantiated GenieModel instance from Redis
+        """
+        with self.create_lock_for_session(session_id):
+            return self._get_model_from_redis(session_id, model_cls)
+
+    def permanent_persist(self):
+        """
+        Clean all 'dirty' sessions by storing them into permanent storage and removing
+        their session id from the list of dirty sessions. Will write all critical models
+        and potentially more if there is room for more.
+        """
+        if self.permanent_store is None:
+            return
+
+        logger.info("Starting persisting dirty models")
+
+        to_persist: List[RetrievableModel] = list()
+        nr_critical = 0
+        for session_id, model_cls in self._get_dirty_session():
+            retrievable_model = RetrievableModel(
+                session_id=session_id,
+                model_cls=model_cls,
+                retriever=partial(self._locked_retriever, session_id, model_cls)
+            )
+            to_persist.append(retrievable_model)
+
+            model_key = self._create_key("object", model_cls, session_id)
+            time_to_live = self.redis_object_store.ttl(model_key)
+            if self.permanent_store.is_critical(time_to_live):
+                nr_critical += 1
+                continue
+
+            if self.permanent_store.remaining_room(len(to_persist)) <= 0:
+                break
+
+        if not to_persist:
+            logger.info("Nothing to persist")
+            return
+
+        logger.info(
+            "Going to persist {nr_to_persist} models to permanent storage, "
+            "of which {nr_critical} are critical writes, "
+            "leaving room for {remaining} more",
+            nr_to_persist=len(to_persist),
+            nr_critical=nr_critical,
+            remaining=self.permanent_store.remaining_room(len(to_persist)),
+        )
+        succeeded, failed = self.permanent_store.store_multi(to_persist)
+        self.permanent_store.checkpoint()
+
+        logger.info(
+            "Permanently persisted successfully {nr_succeeded} models",
+            nr_succeeded=len(succeeded),
+        )
+        if failed:
+            logger.warning(
+                "Failed to persist sessions: {failed_sessions}",
+                failed_sessions= "[" + ", ".join(failed) + "]"
+            )
 
     @contextmanager
     def checkout_model(self, session_id: str, model_class: str | Type[GenieModel]):

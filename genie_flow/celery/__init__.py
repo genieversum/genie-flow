@@ -12,11 +12,9 @@ from genie_flow.celery.compiler import TaskCompiler
 from genie_flow.celery.progress import ProgressLoggingTask
 from genie_flow.celery.transition import TransitionManager
 from genie_flow.environment import GenieEnvironment
-from genie_flow.genie import GenieModel, GenieStateMachine, StateType
+from genie_flow.genie import GenieModel, StateType
 from genie_flow.model.template import CompositeContentType
-from genie_flow.mongo import store_session, store_user
 from genie_flow.session_lock import SessionLockManager
-from genie_flow.utils import get_class_from_fully_qualified_name
 
 
 def parse_if_json(s: str) -> Any:
@@ -39,12 +37,14 @@ class CeleryManager:
         celery: Celery,
         session_lock_manager: SessionLockManager,
         genie_environment: GenieEnvironment,
-        update_mongo_period: float,
+        permanent_persistence_period: float,
+        permanent_persistence_queue: Optional[str],
     ):
         self.celery_app = celery
         self.session_lock_manager = session_lock_manager
         self.genie_environment = genie_environment
-        self.update_mongo_period = update_mongo_period
+        self.permanent_persistence_period = permanent_persistence_period
+        self.permanent_persistence_queue = permanent_persistence_queue
 
         self._add_error_handler()
         self._add_trigger_ai_event_task()
@@ -55,7 +55,7 @@ class CeleryManager:
         self._add_combine_group_to_dict()
         self._add_combine_group_to_list()
         self._add_chained_template()
-        self._add_update_mongo_task()
+        self._add_permanent_persistence_task()
         self._add_periodic_tasks()
 
     def _retrieve_render_data(
@@ -554,35 +554,21 @@ class CeleryManager:
     def get_task_result(self, task_id) -> AsyncResult:
         return AsyncResult(task_id, app=self.celery_app)
 
-    def _add_update_mongo_task(self):
+    def _add_permanent_persistence_task(self):
 
-        @self.celery_app.task(name="genie_flow.scheduler.update_mongo")
-        def update_mongo():
-            logger.debug("update mongo running")
-            updated_sessions = self.session_lock_manager.redis_object_store.smembers(
-                self.session_lock_manager.update_set_key
-            )
-            for session_item in updated_sessions:
-                fqn, session_id = session_item.decode().rsplit(':', 1)
-                with self.session_lock_manager.checkout_model(
-                        session_id=session_id,
-                        model_class=fqn
-                ) as model:
-                    store_session(model)
-                    try:
-                        store_user(model.secondary_storage["user_info"], session_id)
-                    except KeyError:
-                        logger.warning(
-                            "No user info found for session {session_id}; ignoring",
-                            session_id=session_id,
-                        )
-                    self.session_lock_manager.redis_object_store.srem(self.session_lock_manager.update_set_key, session_id)
-        return update_mongo
+        @self.celery_app.task(name="genie_flow.scheduler.permanent_persistence")
+        def permanent_persistence():
+            self.session_lock_manager.permanent_persist()
+
+        return permanent_persistence
 
     def _add_periodic_tasks(self):
         self.celery_app.conf.beat_schedule = {
-            'add-every-30-seconds': {
-                'task': 'genie_flow.scheduler.update_mongo',
-                'schedule': self.update_mongo_period
+            "add-permanent-persist": {
+                "task": "genie_flow.scheduler.permanent_persistence",
+                "schedule": self.permanent_persistence_period,
+                "options": {
+                    "queue": self.permanent_persistence_queue or "celery",
+                }
             },
         }

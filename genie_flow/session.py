@@ -1,6 +1,5 @@
 import json
-import uuid
-from typing import Optional
+from typing import Optional, List
 
 import ulid
 from loguru import logger
@@ -11,13 +10,12 @@ from genie_flow.celery.transition import TransitionManager
 from genie_flow.environment import GenieEnvironment
 from genie_flow.genie import GenieModel, StateType
 from genie_flow.model.persistence import PersistenceLevel, Persistence
-from genie_flow.model.secondary_store import SecondaryStore
 from genie_flow.model.types import ModelKeyRegistryType
 from genie_flow.model.api import AIResponse, EventInput, AIStatusResponse, AIProgressResponse
-from genie_flow.mongo import retrieve_user_sessions_mongo
 from genie_flow.session_lock import SessionLockManager
 from genie_flow.model.user import User
 from genie_flow.utils import get_fully_qualified_name_from_class
+
 
 
 class SessionManager:
@@ -78,8 +76,8 @@ class SessionManager:
 
         return model
 
-    def get_user_sessions(self, user_info: User):
-        return retrieve_user_sessions_mongo(user_info)
+    def get_user_sessions(self, user_info: User) -> List[str]:
+        return self.session_lock_manager.permanent_store.get_sessions_for_user(user_info)
 
     def create_new_session(
             self,
