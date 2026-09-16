@@ -1,0 +1,201 @@
+from dataclasses import dataclass
+from pathlib import Path
+from typing import List, Tuple
+
+from loguru import logger
+
+from genie_flow.genie import GenieModel
+from genie_flow.model.user import User
+from genie_flow.permanent_storage import RetrievableModel
+
+try:
+    import psycopg
+    from psycopg_pool import ConnectionPool
+except ImportError:
+    psycopg = None
+    ConnectionPool = None
+
+from genie_flow.permanent_storage.abstract_file_store import AbstractFileStorageManager, \
+    FileStorageConfig
+
+_UPSERT_SQL = """
+    INSERT INTO sessions (session_id, email_address, created_at, updated_at)
+    VALUES (%s, %s, NOW(), NOW())
+    ON CONFLICT (session_id)
+        DO UPDATE SET updated_at = NOW()
+"""
+
+
+@dataclass
+class PostgresConfig:
+    """
+    A Configuration object to set parameters for creating a Connection Pool.
+
+    :param host: the hostname of the PostgreSQL database server
+    :param port: the port of the PostgreSQL database server
+    :param database: the database name
+    :param user: the username
+    :param password: the password
+    :param max_pool_size: the maximum number of connections to put into the pool
+    :param timeout: the time to wait for the PostgreSQL server to respond
+    """
+    host: str
+    port: int
+    database: str
+    user: str
+    password: str
+    max_pool_size: int
+    timeout: int | float
+
+    @property
+    def conninfo(self):
+        """
+        Return the connection info in a way the Connection Pool expects.
+        :return: a string containing the details for a Connection Pool
+        """
+        return (
+            f"host={self.host} port={self.port} "
+            f"dbname={self.database} "
+            f"user={self.user} password={self.password}"
+        )
+
+
+class PostgresFileStoreManager(AbstractFileStorageManager):
+
+    def __init__(
+        self,
+        critical_watermark: int | float,
+        max_writes: int,
+        file_storage_config: FileStorageConfig,
+        db_pool: ConnectionPool,
+    ):
+        """
+        Permanently store GenieModel objects in tar files and keep an index of persistent
+        records in a PostgreSQL database table.
+
+        To instantiate from configuration, use the class method from_config.
+
+        For small deployments, where all workers can access a local file system, consider
+        using the EmbeddedStorageManager.
+
+        :param critical_watermark: A time to live below the watermark indicates it
+            is critical to persist an object
+        :param max_writes: the maximum number of objects to store in one batch
+        :param file_storage_config: Configuration on where and how to store the files
+        :param db_pool: a postgresql ConnectionPool
+        """
+        if psycopg is None:
+            raise ImportError(
+                "PostgreSQL support requires psycopg. "
+                "Install with: pip install genie-flow[postgres]"
+            )
+
+        super().__init__(critical_watermark, max_writes, file_storage_config)
+        self.db_pool = db_pool
+
+        self._init_database()
+
+    @classmethod
+    def from_config(
+        cls,
+        critical_watermark: int | float,
+        max_writes: int,
+        file_storage_config: FileStorageConfig,
+        database_config: PostgresConfig,
+    ):
+        """
+        Create a new instance from config. Creates a ConnectionPool from a
+        PostgresConfig object.
+
+        :param critical_watermark: A time to live below the watermark indicates it
+            is critical to persist an object
+        :param max_writes: the maximum number of objects to store in one batch
+        :param file_storage_config: Configuration on where and how to store the files
+        :param database_config: the PostgresConfig object that configures the ConnectionPool
+        :return: a new instance
+        """
+        if psycopg is None:
+            raise ImportError(
+                "PostgreSQL support requires psycopg. "
+                "Install with: pip install genie-flow[postgres]"
+            )
+
+        db_pool = ConnectionPool(
+            database_config.conninfo,
+            min_size=2,
+            max_size=database_config.max_pool_size,
+            timeout=database_config.timeout,
+        )
+
+        return cls(critical_watermark, max_writes, file_storage_config, db_pool)
+
+    def _init_database(self):
+        with self.db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS sessions (
+                        session_id TEXT PRIMARY KEY,
+                        email_address TEXT NOT NULL,
+                        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+                    )
+                """)
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_sessions_email 
+                    ON sessions(email_address)
+                """)
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_sessions_updated_at 
+                    ON sessions(updated_at)
+                """)
+            conn.commit()
+
+    def store_multi(
+            self,
+            models: List[GenieModel | RetrievableModel],
+    ) -> Tuple[List[str], List[str]]:
+        succeeded, failed = self._write_multi(models)
+        if not succeeded:
+            return [], [model.session_id for model in models]
+
+        with self.db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                try:
+                    cur.executemany(_UPSERT_SQL, succeeded)
+                except Exception as e:
+                    conn.rollback()
+                    logger.error(
+                        "Failed to upsert {nr_sessions} sessions: {exc}, removing files",
+                        nr_sessions=len(succeeded),
+                        exc=f"{e.__class__.__name__}: {e}",
+                    )
+                    for session_id, _ in succeeded:
+                        try:
+                            self._delete_tar(session_id)
+                        except Exception as e:
+                            logger.warning(
+                                "Failed to remove file for session {session_id}, "
+                                "with error {exc}; ignoring",
+                                session_id=session_id,
+                                exc=f"{e.__class__.__name__}: {e}"
+                            )
+                    return [], [model.session_id for model in models]
+
+            conn.commit()
+            logger.info("Successfully stored {count} sessions", count=len(succeeded))
+            return [s[0] for s in succeeded], failed
+
+    def checkpoint(self):
+        pass
+
+    def get_sessions_for_user(self, user: User) -> list[str]:
+        if not user or not user.email:
+            return []
+
+        with self.db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT session_id FROM sessions WHERE email_address = %s",
+                    (user.email,)
+                )
+                return [row[0] for row in cur.fetchall()]
