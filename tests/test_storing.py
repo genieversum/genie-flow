@@ -8,7 +8,6 @@ from snappy import snappy
 
 from genie_flow.genie import GenieModel
 from genie_flow.model.dialogue import DialogueElement
-from genie_flow.mongo import retrieve_model, store_session, store_user
 from genie_flow.utils import get_fully_qualified_name_from_class
 
 
@@ -136,7 +135,7 @@ def test_not_persisting_secondary_store(session_lock_manager_connected, genie_mo
 
     session_lock_manager_connected.store_model(genie_model)
 
-    with session_lock_manager_connected.get_locked_model(
+    with session_lock_manager_connected.checkout_model(
             genie_model.session_id,
             genie_model.__class__
     ) as model:
@@ -167,7 +166,7 @@ def test_locked_model(session_lock_manager_connected, genie_model):
 
     def parallel_lock_getter(wait_indicator: Value):
         wait_indicator.value = True
-        with session_lock_manager_connected.get_locked_model(
+        with session_lock_manager_connected.checkout_model(
             genie_model.session_id,
             genie_model.__class__
         ) as mm_p:
@@ -179,7 +178,7 @@ def test_locked_model(session_lock_manager_connected, genie_model):
     session_lock_manager_connected.store_model(genie_model)
 
     waiting_for_lock = Value(c_bool, False)
-    with session_lock_manager_connected.get_locked_model(
+    with session_lock_manager_connected.checkout_model(
             genie_model.session_id,
             genie_model.__class__
     ) as mm:
@@ -202,13 +201,14 @@ def test_locked_model(session_lock_manager_connected, genie_model):
 
 def test_auto_save(session_lock_manager_connected, genie_model):
     session_lock_manager_connected.store_model(genie_model)
-    with session_lock_manager_connected.get_locked_model(
+    with session_lock_manager_connected.checkout_model(
             genie_model.session_id,
             genie_model.__class__
     ) as mm:
         mm.dialogue.append(
             DialogueElement(
                 actor="assistant",
+                event="ai_extraction",
                 actor_text="test"
             )
         )
@@ -228,19 +228,3 @@ def test_exclude_computed_fields(example_computed_field):
 def test_include_computed_fields(example_computed_field):
     s = example_computed_field.serialize(include={"relevant_letters_digits"})
     assert b"relevant_letters_digits" in s
-
-def test_session_model_stored_in_mongo(genie_model, mongo_client):
-    store_session(genie_model, mongo_client)
-    col=mongo_client['genie_db'].session_collection
-    assert col.find_one({"session_id": genie_model.session_id}) is not None
-
-def test_user_info_stored_in_mongo(genie_model, user, mongo_client):
-    store_user(user,genie_model.session_id, mongo_client)
-    col=mongo_client['genie_db'].user_collection
-    assert col.find_one({"email":"aap@noot.com"}) is not None
-
-def test_get_stored_model_from_mongo(genie_model, mongo_client):
-    store_session(genie_model, mongo_client)
-    payload = retrieve_model(genie_model.session_id, mongo_client)
-    model = GenieModel.deserialize(payload['model'])
-    assert model.session_id == genie_model.session_id

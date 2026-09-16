@@ -7,18 +7,15 @@ from celery.app.task import Context
 from celery.canvas import chord, group, Signature
 from celery.result import AsyncResult
 from loguru import logger
-from statemachine import State
 
 from genie_flow.celery.compiler import TaskCompiler
 from genie_flow.celery.progress import ProgressLoggingTask
 from genie_flow.celery.transition import TransitionManager
 from genie_flow.environment import GenieEnvironment
-from genie_flow.genie import GenieModel, GenieStateMachine, StateType
+from genie_flow.genie import GenieModel, GenieStateMachine
+from genie_flow.model.dialogue import StateType
 from genie_flow.model.template import CompositeContentType
-from genie_flow.mongo import store_session, store_user
 from genie_flow.session_lock import SessionLockManager
-from genie_flow.utils import get_fully_qualified_name_from_class, \
-    get_class_from_fully_qualified_name
 
 
 def parse_if_json(s: str) -> Any:
@@ -41,12 +38,14 @@ class CeleryManager:
         celery: Celery,
         session_lock_manager: SessionLockManager,
         genie_environment: GenieEnvironment,
-        update_mongo_period: float,
+        permanent_persistence_period: float,
+        permanent_persistence_queue: Optional[str],
     ):
         self.celery_app = celery
         self.session_lock_manager = session_lock_manager
         self.genie_environment = genie_environment
-        self.update_mongo_period = update_mongo_period
+        self.permanent_persistence_period = permanent_persistence_period
+        self.permanent_persistence_queue = permanent_persistence_queue
 
         self._add_error_handler()
         self._add_trigger_ai_event_task()
@@ -57,7 +56,7 @@ class CeleryManager:
         self._add_combine_group_to_dict()
         self._add_combine_group_to_list()
         self._add_chained_template()
-        self._add_update_mongo_task()
+        self._add_permanent_persistence_task()
         self._add_periodic_tasks()
 
     def _retrieve_render_data(
@@ -132,7 +131,7 @@ class CeleryManager:
             )
             logger.exception(traceback)
 
-            with self.session_lock_manager.get_locked_model(session_id, cls_fqn) as model:
+            with self.session_lock_manager.checkout_model(session_id, cls_fqn) as model:
                 self._process_model_event(
                     event_argument="",
                     model=model,
@@ -176,47 +175,48 @@ class CeleryManager:
             form the store, creates the state machine for it and sends that state machine
             the event that was given.
 
+            If the target state is an INVOKER, this task enqueues the task to make that
+            invocation -- this is so invoker states can be linked without the outside world
+            having to trigger a progression.
+
             :param task_instance: Celery Task instance - a reference to this task itself (bound)
             :param response: The response from the previous task
             :param event_name: The name of the event that needs to be sent to the state machine
             :param session_id: The session id for which this task is executed
             :param model_fqn: The fully qualified name of the class of the model
+            :param invocation_id: a unique id for the invocation
             """
-            lock = self.session_lock_manager.create_lock_for_session(session_id)
-            lock.acquire()
-
-            try:
-                model_class = get_class_from_fully_qualified_name(model_fqn)
-                model = self.session_lock_manager.retrieve_model(session_id, model_class)
+            with self.session_lock_manager.checkout_model(session_id, model_fqn) as model:
                 self.session_lock_manager.progress_tombstone(session_id, invocation_id)
 
                 state_machine = model.get_state_machine_class()(model)
                 state_machine.add_listener(TransitionManager(self))
                 state_machine.send(event_name, response)
 
-                self.session_lock_manager.persist_model(model)
+            if model.target_type == StateType.INVOKER:
+                logger.info(
+                    "enqueueing task for session {session_id}",
+                    session_id=model.session_id,
+                )
+                self.enqueue_task(
+                    session_id,
+                    model_fqn,
+                    state_machine.get_template_for_state(state_machine.current_state),
+                    state_machine.current_state.id,
+                    state_machine.current_state.transitions.unique_events[0],
+                )
 
-                if model.target_type == StateType.INVOKER:
-                    logger.info(
-                        "enqueueing task for session {session_id}",
-                        session_id=model.session_id,
-                    )
-                    self.enqueue_task(state_machine, model, state_machine.current_state)
-
-                if model.actor_input is None:
-                    logger.debug("actor input is None")
-                else:
-                    logger.debug(
-                        "actor input is now '{actor_input}'",
-                        actor_input=(
-                            model.actor_input
-                            if len(model.actor_input) < 50
-                            else model.actor_input[:50] + "..."
-                        ),
-                    )
-            finally:
-                lock.release()
-
+            if model.current_response.actor_text is None:
+                logger.debug("actor response is None")
+            else:
+                logger.debug(
+                    "actor response is now '{actor_response}'",
+                    actor_response=(
+                        model.current_response.actor_text
+                        if len(model.current_response.actor_text) < 50
+                        else model.current_response.actor_text[:50] + "..."
+                    ),
+                )
 
         return trigger_ai_event
 
@@ -503,9 +503,11 @@ class CeleryManager:
 
     def enqueue_task(
             self,
-            state_machine: GenieStateMachine,
-            model: GenieModel,
-            target_state: State,
+            session_id: str,
+            model_fqn: str,
+            state_template: CompositeContentType,
+            state_name: str,
+            event_to_send_after: str,
     ):
         """
         Create a new Celery DAG and place it on the Celery queue.
@@ -517,24 +519,25 @@ class CeleryManager:
         `render_data` property of the machine) and therefore frozen. That then becomes
         the `render_data` that is used inside the DAG.
 
-        :param state_machine: the active state machine to use
-        :param model: the data model
-        :param target_state: the state we will transition into
+        :param session_id: the session_id for which to enqueue a task
+        :param model_fqn: the fully qualified model name of the agent
+        :param state_template: the template to use to compile
+        :param state_name: the name of the state we are in
+        :param event_to_send_after: the event to send after the task
         """
-        model_fqn = get_fully_qualified_name_from_class(model)
-        event_to_send_after = target_state.transitions.unique_events[0]
+        # event_to_send_after = state_machine.current_state.transitions.unique_events[0]
         task_compiler = TaskCompiler(
             self.celery_app,
-            state_machine.get_template_for_state(target_state),
-            model.session_id,
+            state_template,
+            session_id,
             model_fqn,
-            target_state.id,
+            state_name,
             event_to_send_after,
         )
         task_compiler.task.on_error(
             task_compiler.error_handler.s(
                 model_fqn,
-                model.session_id,
+                session_id,
                 task_compiler.invocation_id,
                 event_to_send_after,
             )
@@ -542,7 +545,7 @@ class CeleryManager:
 
         # enqueuing the compiled task with an empty drag_net dictionary
         self.session_lock_manager.progress_start(
-            session_id=model.session_id,
+            session_id=session_id,
             invocation_id=task_compiler.invocation_id,
             nr_tasks_todo=task_compiler.nr_tasks,
         )
@@ -552,35 +555,21 @@ class CeleryManager:
     def get_task_result(self, task_id) -> AsyncResult:
         return AsyncResult(task_id, app=self.celery_app)
 
-    def _add_update_mongo_task(self):
+    def _add_permanent_persistence_task(self):
 
-        @self.celery_app.task(name="genie_flow.scheduler.update_mongo")
-        def update_mongo():
-            logger.debug("update mongo running")
-            updated_sessions = self.session_lock_manager.redis_object_store.smembers(
-                self.session_lock_manager.update_set_key
-            )
-            for session_item in updated_sessions:
-                fqn, session_id = session_item.decode().rsplit(':', 1)
-                with self.session_lock_manager.get_locked_model(
-                        session_id=session_id,
-                        model_class=fqn
-                ) as model:
-                    store_session(model)
-                    try:
-                        store_user(model.secondary_storage["user_info"], session_id)
-                    except KeyError:
-                        logger.warning(
-                            "No user info found for session {session_id}; ignoring",
-                            session_id=session_id,
-                        )
-                    self.session_lock_manager.redis_object_store.srem(self.session_lock_manager.update_set_key, session_id)
-        return update_mongo
+        @self.celery_app.task(name="genie_flow.scheduler.permanent_persistence")
+        def permanent_persistence():
+            self.session_lock_manager.permanent_persist()
+
+        return permanent_persistence
 
     def _add_periodic_tasks(self):
         self.celery_app.conf.beat_schedule = {
-            'add-every-30-seconds': {
-                'task': 'genie_flow.scheduler.update_mongo',
-                'schedule': self.update_mongo_period
+            "add-permanent-persist": {
+                "task": "genie_flow.scheduler.permanent_persistence",
+                "schedule": self.permanent_persistence_period,
+                "options": {
+                    "queue": self.permanent_persistence_queue or "celery",
+                }
             },
         }

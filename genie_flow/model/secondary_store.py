@@ -1,12 +1,15 @@
 import hashlib
 from enum import Enum
+from typing import Iterator
 
 from loguru import logger
-from pydantic import BaseModel, Field, RootModel
+from pydantic import Field, RootModel
 
 from genie_flow.model.versioned import VersionedModel
-from genie_flow.utils import get_fully_qualified_name_from_class, \
-    get_class_from_fully_qualified_name
+from genie_flow.utils import (
+    get_fully_qualified_name_from_class,
+    get_class_from_fully_qualified_name,
+)
 
 
 class PersistenceState(Enum):
@@ -15,7 +18,41 @@ class PersistenceState(Enum):
     DELETED_OBJECT = 2  # old object that should be removed
 
 
-class SecondaryStore(RootModel[dict[str, VersionedModel]]):
+class DictMethodsMixin:
+    """Mixin to forward common dict methods to self.root"""
+
+    def __getitem__(self, key):
+        return self.root[key]
+
+    def __contains__(self, key):
+        return key in self.root
+
+    def __iter__(self) -> Iterator:
+        return iter(self.root)
+
+    def __len__(self) -> int:
+        return len(self.root)
+
+    def get(self, key, default=None):
+        return self.root.get(key, default)
+
+    def items(self):
+        return self.root.items()
+
+    def keys(self):
+        return self.root.keys()
+
+    def values(self):
+        return self.root.values()
+
+    def pop(self, key, *args):
+        return self.root.pop(key, *args)
+
+    def setdefault(self, key, default):
+        return self.root.setdefault(key, default)
+
+
+class SecondaryStore(DictMethodsMixin, RootModel[dict[str, VersionedModel]]):
     """
     Represents a secondary data storage model that acts as a dict of str to `VersionedModel`
     instances. It tracks the state of its items for persistence purposes, ensuring that only
@@ -48,7 +85,7 @@ class SecondaryStore(RootModel[dict[str, VersionedModel]]):
         Create a SecondaryStore from retrieved values. This ensures that the state of
         all properties is set to RETRIEVED_OBJECT.
 
-        :param retrieved_values: a dictionary that this SecondaryStore should encapsulate
+        :param retrieved_values: A dictionary that this SecondaryStore should encapsulate
         :return: a new SecondaryStore with the retrieved values as root values,
         and all states set to RETRIEVED_OBJECT
         """
@@ -60,10 +97,10 @@ class SecondaryStore(RootModel[dict[str, VersionedModel]]):
     @classmethod
     def from_serialized(cls, payloads: dict[str, bytes]) -> "SecondaryStore":
         """
-        Create a SecondaryStore from serialized values. This ensures that the state of
+        Create a SecondaryStore from serialized values. This ensures that the states of
         all properties states are set to RETRIEVED_OBJECT.
 
-        :param payloads: a dictionary where the values for each key are serialized objects
+        :param payloads: A dictionary of serialized objects
         :return: a new SecondaryStore with the retrieved values as root values,
         and all states set to RETRIEVED_OBJECT
         """

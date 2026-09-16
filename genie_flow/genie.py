@@ -1,39 +1,21 @@
 import datetime
-import enum
 import json
-from functools import cached_property, cache
 from typing import Optional, Any
 
 from loguru import logger
-from pydantic import Field, BaseModel, ConfigDict, computed_field
+from pydantic import Field
 from statemachine import StateMachine, State
 from statemachine.event_data import EventData
 
-from genie_flow.model.dialogue import DialogueElement, DialogueFormat
+from genie_flow.model.dialogue import (
+    DialogueElement,
+    DialogueFormat,
+    StateType,
+    DialoguePersistence,
+)
 from genie_flow.model.secondary_store import SecondaryStore
 from genie_flow.model.template import CompositeTemplateType
 from genie_flow.model.versioned import VersionedModel
-
-
-class StateType(enum.IntEnum):
-    USER = 0
-    INVOKER = 1
-
-    @property
-    def as_actor(self) -> str:
-        match self:
-            case StateType.INVOKER:
-                return "assistant"
-            case StateType.USER:
-                return "user"
-            case _:
-                raise ValueError("Unknown State Type")
-
-
-class DialoguePersistence(enum.IntEnum):
-    NONE = 0
-    RAW = 1
-    RENDERED = 2
 
 
 class GenieModel(VersionedModel):
@@ -73,7 +55,7 @@ class GenieModel(VersionedModel):
     )
     dialogue_persistence: Optional[DialoguePersistence] = Field(
         default=None,
-        description="Indicator to how to add most recent actor input to the dialogue",
+        description="Run-time override on how to add actor input to the dialogue",
     )
     dialogue: list[DialogueElement] = Field(
         default_factory=list,
@@ -182,21 +164,6 @@ class GenieModel(VersionedModel):
         """
         return DialogueFormat.format(self.dialogue, target_format)
 
-    def add_dialogue_element(self, actor: str, actor_text: str):
-        """
-        Add a given actor and actor text to the dialogue.
-        :param actor: the name of the actor
-        :param actor_text: the actor text
-        """
-        element = DialogueElement(actor=actor, actor_text=actor_text)
-        self.dialogue.append(element)
-
-    def record_dialogue_element(self):
-        """
-        Record the current `actor` and `actor_input` into the dialogue.
-       """
-        self.add_dialogue_element(self.actor, self.actor_input)
-
 
 class GenieStateMachine(StateMachine):
     """
@@ -246,6 +213,15 @@ class GenieStateMachine(StateMachine):
             }
         )
         return render_data
+
+    @property
+    def persistence(self) -> dict[str, DialoguePersistence]:
+        return {
+            "user_input": DialoguePersistence.SOURCE_RAW | DialoguePersistence.TARGET_RENDERED,
+            "ai_extraction": DialoguePersistence.TARGET_RENDERED,
+            "advance": DialoguePersistence.TARGET_RENDERED,
+            "file_upload": DialoguePersistence.SOURCE_EVENT | DialoguePersistence.TARGET_RENDERED,
+        }
 
     def get_template_for_state(self, state: State) -> CompositeTemplateType:
         """
