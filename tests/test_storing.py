@@ -208,6 +208,7 @@ def test_auto_save(session_lock_manager_connected, genie_model):
         mm.dialogue.append(
             DialogueElement(
                 actor="assistant",
+                event="ai_extraction",
                 actor_text="test"
             )
         )

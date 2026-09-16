@@ -12,7 +12,8 @@ from genie_flow.celery.compiler import TaskCompiler
 from genie_flow.celery.progress import ProgressLoggingTask
 from genie_flow.celery.transition import TransitionManager
 from genie_flow.environment import GenieEnvironment
-from genie_flow.genie import GenieModel, StateType
+from genie_flow.genie import GenieModel, GenieStateMachine
+from genie_flow.model.dialogue import StateType
 from genie_flow.model.template import CompositeContentType
 from genie_flow.session_lock import SessionLockManager
 

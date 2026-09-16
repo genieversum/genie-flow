@@ -107,6 +107,7 @@ def genie_model():
         dialogue=[
             DialogueElement(
                 actor=random.choice(["system", "assistant", "user"]),
+                event=random.choice(["user_input", "ai_extraction"]),
                 actor_text=" ".join(
                     random.choices(
                         [

@@ -8,7 +8,8 @@ from statemachine.exceptions import TransitionNotAllowed
 from genie_flow.celery import CeleryManager
 from genie_flow.celery.transition import TransitionManager
 from genie_flow.environment import GenieEnvironment
-from genie_flow.genie import GenieModel, StateType
+from genie_flow.genie import GenieModel
+from genie_flow.model.dialogue import StateType, DialogueElement
 from genie_flow.model.persistence import PersistenceLevel, Persistence
 from genie_flow.model.types import ModelKeyRegistryType
 from genie_flow.model.api import AIResponse, EventInput, AIStatusResponse, AIProgressResponse
@@ -114,7 +115,12 @@ class SessionManager:
             state_machine.get_template_for_state(state_machine.current_state),
             model.render_data,
         )
-        model.add_dialogue_element("assistant", initial_prompt)
+        dialogue_element = DialogueElement(
+            actor="assistant",
+            event="init",
+            actor_text=initial_prompt,
+        )
+        model.dialogue.append(dialogue_element)
         self.session_lock_manager.store_model(model)
 
         response = model.current_response.actor_text
